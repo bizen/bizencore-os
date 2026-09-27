@@ -17,7 +17,7 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     if (!convex || !clerkPublishableKey) {
         if (import.meta.env.DEV) {
             console.warn(
-                "[chrct] Convex / Clerk env vars are missing. Tasks page will be disabled, character counter still works."
+                "[bizencore] Convex / Clerk env vars are missing. Tasks page will be disabled, character counter still works."
             );
         }
         return <>{children}</>;

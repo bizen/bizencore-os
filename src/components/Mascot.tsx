@@ -17,7 +17,7 @@ export function Mascot() {
                     >
                         <X size={16} />
                     </button>
-                    <h3 className="speech-bubble-title">chrct について</h3>
+                    <h3 className="speech-bubble-title">bizencore について</h3>
                     <p className="speech-bubble-body">
                         あたいが文字数をかぞえるよ！
                         <br />

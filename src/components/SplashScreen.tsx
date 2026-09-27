@@ -9,7 +9,7 @@ export function SplashScreen({ fadingOut = false }: SplashScreenProps) {
         <div className={`splash-root${fadingOut ? ' splash-fade-out' : ''}`}>
             <div className="splash-stack">
                 <img src={cirnoImg} alt="" className="splash-cirno" />
-                <div className="splash-wordmark">chrct</div>
+                <div className="splash-wordmark">bizencore</div>
                 <div className="splash-dots" aria-label="loading">
                     <span />
                     <span />
