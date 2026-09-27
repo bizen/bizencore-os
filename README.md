@@ -134,9 +134,16 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 必要な環境変数（Convex と Vercel の両方）:
 
 ```
-MCP_SHARED_SECRET       両者で共有する秘密
-CLERK_SECRET_KEY        Vercel 側のみ。OAuth トークンの検証に使う
+MCP_SHARED_SECRET          両者で共有する秘密
+CLERK_SECRET_KEY           Vercel 側のみ。OAuth トークンの検証に使う
+CLERK_JWT_ISSUER_DOMAINS   Convex 側のみ。受け付ける Clerk のドメイン（カンマ区切り）
 ```
+
+本番の Clerk は `bizencore.com`（Frontend API は `https://clerk.bizencore.com`）。
+アプリは `https://app.bizencore.com`、`chrct.com` はそこへ転送する（`vercel.json`）。
+
+Clerk を別のインスタンスへ移すとユーザー ID が変わるので、Convex のデータを
+付け替える: `npx convex run migrations:moveUser '{"from":"user_…","to":"user_…"}'`
 
 `CONVEX_SITE_URL` は任意。無ければ `VITE_CONVEX_URL` の
 `.convex.cloud` を `.convex.site` に読み替える。

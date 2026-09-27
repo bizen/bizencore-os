@@ -37,7 +37,7 @@ function readPayload(row: {
  * 既にある行と、送られてきた行を欄ごとに合わせる（src/lib/itemMerge.ts）。
  * 行ごとに新しい方を採ると、別々の欄への同時の変更が黙って消えるため。
  */
-function mergeRows(
+export function mergeRows(
     existing: { updatedAt: number; deletedAt?: number; payload: string },
     incoming: { updatedAt: number; deletedAt?: number; payload: string }
 ): { updatedAt: number; deletedAt: number | undefined; payload: string } | null {
