@@ -23,8 +23,17 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
         return <>{children}</>;
     }
 
+    /*
+     * サインインの後はいまのアプリへ戻す。指定しないと Clerk はインスタンスの
+     * ホーム（本番では bizencore.com 本体。ブランドの LP でアプリではない）へ送る。
+     */
     return (
-        <ClerkProvider publishableKey={clerkPublishableKey}>
+        <ClerkProvider
+            publishableKey={clerkPublishableKey}
+            signInFallbackRedirectUrl="/"
+            signUpFallbackRedirectUrl="/"
+            afterSignOutUrl="/"
+        >
             <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
                 {children}
             </ConvexProviderWithClerk>
