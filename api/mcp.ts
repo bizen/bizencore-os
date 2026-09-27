@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { clerkPublishableKey, clerkSecretKey, convexSiteUrl, mcpSecret } from './_lib/env.js';
 
 /*
- * chrct の MCP サーバ。
+ * bizencore の MCP サーバ。
  *
  * Claude や ChatGPT の connector から /mcp に来る。Clerk の OAuth トークンで人を
  * 特定し、その userId を Convex の /mcp/* （convex/http.ts）へ渡す。
@@ -15,7 +15,7 @@ import { clerkPublishableKey, clerkSecretKey, convexSiteUrl, mcpSecret } from '.
  * ここは中継だけ。並びや親子の面倒は Convex 側の mcpTasks が持つ。
  */
 
-const INSTRUCTIONS = `chrct is the user's own task list — the one they look at and work from. This server lets you read it and put things into it.
+const INSTRUCTIONS = `bizencore is the user's own task list — the one they look at and work from. This server lets you read it and put things into it.
 
 Use add_task when the user asks you to remember something, or when your conversation produces a follow-up they will have to do themselves. One line, in the user's language (usually Japanese), phrased as the user would write it — not as a report to them.
 
@@ -273,7 +273,7 @@ const handler = createMcpHandler(
     );
   },
   {
-    serverInfo: { name: 'chrct', version: '0.1.0' },
+    serverInfo: { name: 'bizencore', version: '0.1.0' },
     instructions: INSTRUCTIONS,
   }
 );
