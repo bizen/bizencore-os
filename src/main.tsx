@@ -5,6 +5,9 @@ import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { ConvexClientProvider } from './components/ConvexClientProvider.tsx'
+import { applyTheme, readTheme } from './lib/theme.ts'
+
+applyTheme(readTheme())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

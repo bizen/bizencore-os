@@ -5,6 +5,7 @@ import { api } from '../../convex/_generated/api';
 import { isCloudConfigured } from '../lib/cloudConfig';
 import type { Item } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
+import { setUserTimeZone } from '../lib/userTimeZone';
 
 const PUSH_DELAY_MS = 700;
 const IMPORT_RETRY_DELAY_MS = 3000;
@@ -62,6 +63,8 @@ function SyncBridgeInner() {
   const remote = useQuery(api.sync.pull, enabled ? {} : 'skip');
   const push = useMutation(api.sync.push);
   const importLegacy = useMutation(api.sync.importLegacy);
+  const preference = useQuery(api.sync.getTimeZone, enabled ? {} : 'skip');
+  const setTimeZone = useMutation(api.sync.setTimeZone);
 
   const { items } = useTaskState();
   const syncMapRef = useRef<SyncMap>({});
@@ -69,6 +72,17 @@ function SyncBridgeInner() {
   const importedForUser = useRef<string | null>(null);
   const [tick, setTick] = useState(0);
   const [importAttempt, setImportAttempt] = useState(0);
+
+  useEffect(() => {
+    setUserTimeZone(enabled && preference ? preference.timeZone : null);
+  }, [enabled, preference]);
+
+  useEffect(() => {
+    if (!enabled || preference === undefined) return;
+    const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!deviceTimeZone || (preference && (!preference.automatic || preference.timeZone === deviceTimeZone))) return;
+    void setTimeZone({ timeZone: deviceTimeZone, automatic: true }).catch(() => {});
+  }, [enabled, preference, setTimeZone]);
 
   // どこまで送受信済みかの台帳をユーザーごとに読み込む
   useEffect(() => {

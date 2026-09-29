@@ -35,6 +35,23 @@ export default defineSchema({
         .index("by_user", ["userId"])
         .index("by_user_client", ["userId", "clientId"]),
 
+    userPreferences: defineTable({
+        userId: v.string(),
+        timeZone: v.string(),
+        automatic: v.boolean(),
+        updatedAt: v.number(),
+    }).index("by_user", ["userId"]),
+
+    mcpIdempotency: defineTable({
+        userId: v.string(),
+        key: v.string(),
+        request: v.string(),
+        response: v.string(),
+        createdAt: v.number(),
+    })
+        .index("by_user_key", ["userId", "key"])
+        .index("by_user_createdAt", ["userId", "createdAt"]),
+
     /** character count のストック（ログイン時に Convex へ） */
     countStocks: defineTable({
         userId: v.string(),

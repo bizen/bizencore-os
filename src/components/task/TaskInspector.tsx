@@ -15,6 +15,8 @@ export interface TaskInspectorProps {
   onClose: () => void;
   onTextChange: (id: string, text: string) => void;
   onNoteChange: (id: string, note: string) => void;
+  onCompletionCriteriaChange: (id: string, value: string) => void;
+  onSetDeadline: (id: string, dueDate: string | undefined, dueTime: string | undefined) => void;
   onToggleToday: (id: string) => void;
   onSetEstimate: (id: string, estimate: number | undefined) => void;
   onSetKind: (id: string, kind: TaskKind | undefined) => void;
@@ -79,6 +81,8 @@ export function TaskInspector(props: TaskInspectorProps) {
     onClose,
     onTextChange,
     onNoteChange,
+    onCompletionCriteriaChange,
+    onSetDeadline,
     onToggleToday,
     onSetEstimate,
     onSetKind,
@@ -88,6 +92,7 @@ export function TaskInspector(props: TaskInspectorProps) {
   } = props;
   const titleRef = useAutoGrow();
   const noteRef = useAutoGrow();
+  const criteriaRef = useAutoGrow();
   const [estimateDraft, setEstimateDraft] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [contextDraft, setContextDraft] = useState('');
@@ -176,6 +181,19 @@ export function TaskInspector(props: TaskInspectorProps) {
         />
       </section>
 
+      <section className="inspector-section">
+        <h3 className="inspector-label">完了条件</h3>
+        <textarea
+          ref={criteriaRef}
+          rows={2}
+          className="inspector-note"
+          value={item.completionCriteria ?? ''}
+          placeholder="何ができたら完了か"
+          onChange={(e) => onCompletionCriteriaChange(item.id, e.target.value)}
+          aria-label="完了条件"
+        />
+      </section>
+
       <section className="inspector-section inspector-context">
         <div className="inspector-context-head">
           <h3 className="inspector-label">コンテキスト</h3>
@@ -257,6 +275,27 @@ export function TaskInspector(props: TaskInspectorProps) {
       </section>
 
       <section className="inspector-section inspector-props">
+        <div className="inspector-prop">
+          <span className="inspector-label">期限</span>
+          <div className="inspector-deadline">
+            <input
+              type="date"
+              className="inspector-input"
+              value={item.dueDate ?? ''}
+              onChange={(e) => onSetDeadline(item.id, e.target.value || undefined, item.dueTime)}
+              aria-label="期限の日付"
+            />
+            {item.dueDate ? (
+              <input
+                type="time"
+                className="inspector-input"
+                value={item.dueTime ?? ''}
+                onChange={(e) => onSetDeadline(item.id, item.dueDate, e.target.value || undefined)}
+                aria-label="期限の時刻（任意）"
+              />
+            ) : null}
+          </div>
+        </div>
         <div className="inspector-prop">
           <span className="inspector-label">today</span>
           <button

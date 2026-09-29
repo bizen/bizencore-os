@@ -32,6 +32,7 @@ import {
   withGroups,
 } from './itemMerge';
 import { MAX_ATTACHMENTS, attachmentFrom, coerceAttachments, liveAttachments } from './attachments';
+import { isDateString, isTimeString } from './taskDates';
 
 const STORAGE_KEY = 'chrct.tasks.v2';
 const UNDO_LIMIT = 50;
@@ -64,6 +65,7 @@ function coerceItem(raw: unknown): Item | null {
     order: typeof r.order === 'number' && Number.isFinite(r.order) ? r.order : 0,
     text: typeof r.text === 'string' ? r.text : '',
     note: typeof r.note === 'string' && r.note ? r.note : undefined,
+    completionCriteria: typeof r.completionCriteria === 'string' && r.completionCriteria ? r.completionCriteria : undefined,
     done: r.done === true,
     filed: r.filed === true ? true : undefined,
     kind: r.kind === 'main' || r.kind === 'tanomi' ? r.kind : undefined,
@@ -73,6 +75,8 @@ function coerceItem(raw: unknown): Item | null {
         ? Math.round(r.estimate)
         : undefined,
     assignedDate: typeof r.assignedDate === 'string' ? r.assignedDate : undefined,
+    dueDate: typeof r.dueDate === 'string' && isDateString(r.dueDate) ? r.dueDate : undefined,
+    dueTime: typeof r.dueDate === 'string' && isDateString(r.dueDate) && typeof r.dueTime === 'string' && isTimeString(r.dueTime) ? r.dueTime : undefined,
     attachments: coerceAttachments(r.attachments),
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : now,
     updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : now,
@@ -205,12 +209,15 @@ function sameContent(a: Item, b: Item): boolean {
     a.order === b.order &&
     a.text === b.text &&
     a.note === b.note &&
+    a.completionCriteria === b.completionCriteria &&
     a.done === b.done &&
     a.filed === b.filed &&
     a.kind === b.kind &&
     a.color === b.color &&
     a.estimate === b.estimate &&
     a.assignedDate === b.assignedDate &&
+    a.dueDate === b.dueDate &&
+    a.dueTime === b.dueTime &&
     JSON.stringify(a.attachments ?? null) === JSON.stringify(b.attachments ?? null) &&
     a.createdAt === b.createdAt &&
     a.deletedAt === b.deletedAt
@@ -392,6 +399,24 @@ export const taskStore = {
     commit(withPatches([{ ...current, note: trimmed }]), { coalesceKey: `note:${id}` });
   },
 
+  setCompletionCriteria(id: string, value: string): void {
+    const current = state.items[id];
+    if (!isLive(current) || current.type !== 'task') return;
+    const completionCriteria = value.trim() ? value : undefined;
+    if (current.completionCriteria === completionCriteria) return;
+    commit(withPatches([{ ...current, completionCriteria }]), { coalesceKey: `criteria:${id}` });
+  },
+
+  setDeadline(id: string, dueDate: string | undefined, dueTime: string | undefined): void {
+    const current = state.items[id];
+    if (!isLive(current) || current.type !== 'task') return;
+    if (dueDate && !isDateString(dueDate)) return;
+    if (dueTime && !isTimeString(dueTime)) return;
+    const time = dueDate ? dueTime : undefined;
+    if (current.dueDate === dueDate && current.dueTime === time) return;
+    commit(withPatches([{ ...current, dueDate, dueTime: time }]));
+  },
+
   toggleDone(id: string): void {
     const current = state.items[id];
     if (!isLive(current) || current.type !== 'task') return;
@@ -504,7 +529,7 @@ export const taskStore = {
     const items = state.items;
     const current = items[id];
     if (!isLive(current)) return false;
-    if (current.text.trim() || current.note?.trim()) return false;
+    if (current.text.trim() || current.note?.trim() || current.completionCriteria?.trim() || current.dueDate) return false;
     if (childrenOf(items, id).length > 0) return false;
     if (flattenAll(items).length <= 1) return false;
 

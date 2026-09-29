@@ -6,7 +6,8 @@ import { TaskRow } from '../components/task/TaskRow';
 import { focusFirstMeta } from '../lib/metaCursor';
 import { FOOTER_SHORTCUTS } from '../lib/shortcuts';
 import { formatEstimate } from '../lib/taskEstimate';
-import { localDateString } from '../lib/taskDates';
+import { dateInTimeZone, localDateString, timeInTimeZone } from '../lib/taskDates';
+import { useUserTimeZone } from '../lib/userTimeZone';
 import {
   type Item,
   type ItemMap,
@@ -85,16 +86,17 @@ type FocusTarget = 'title' | 'note';
 type PendingFocus = { id: string; target: FocusTarget; caret: Caret; misses: number };
 
 /** 日付が変わったら today 表示も追従させる */
-function useTodayDate(): string {
-  const [todayDate, setTodayDate] = useState(() => localDateString());
+function useTodayClock(timeZone: string | null): { todayDate: string; todayTime: string } {
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    const id = setInterval(() => {
-      const next = localDateString();
-      setTodayDate((current) => (current === next ? current : next));
-    }, 60_000);
+    const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
-  return todayDate;
+  const localTime = new Date(now);
+  return {
+    todayDate: timeZone ? dateInTimeZone(timeZone, now) : localDateString(now),
+    todayTime: timeZone ? timeInTimeZone(timeZone, now) : `${String(localTime.getHours()).padStart(2, '0')}:${String(localTime.getMinutes()).padStart(2, '0')}`,
+  };
 }
 
 /**
@@ -176,7 +178,8 @@ function filterRows(rows: Row[], query: string): Row[] {
 
 export function TasksPage() {
   const { items } = useTaskState();
-  const todayDate = useTodayDate();
+  const timeZone = useUserTimeZone();
+  const { todayDate, todayTime } = useTodayClock(timeZone);
 
   const [view, setView] = useState<ViewMode>(loadView);
   const [query, setQuery] = useState('');
@@ -806,6 +809,7 @@ export function TasksPage() {
       depth={row.depth}
       context={row.context}
       todayDate={todayDate}
+      todayTime={todayTime}
       todayNumber={view === 'today' ? todayNumbers.get(row.item.id) : undefined}
       burstIndex={burstOrder.get(row.item.id)}
       isActive={activeId === row.item.id}
@@ -1067,6 +1071,8 @@ export function TasksPage() {
           onClose={closeInspector}
           onTextChange={taskStore.setText}
           onNoteChange={taskStore.setNote}
+          onCompletionCriteriaChange={taskStore.setCompletionCriteria}
+          onSetDeadline={taskStore.setDeadline}
           onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
           onSetEstimate={taskStore.setEstimate}
           onSetKind={taskStore.setKind}

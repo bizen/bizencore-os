@@ -23,7 +23,7 @@ Call list_tasks first when you need to know what is already there, or to get the
 
 Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
 
-This is the user's list, not a scratchpad. Do not add duplicates, do not add things they did not ask for, and do not complete a task unless they said it is done.`;
+This is the user's list, not a scratchpad. Do not add duplicates, do not add things they did not ask for, and do not complete a task unless they said it is done. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone. Completion criteria describe the intended end state; check them before suggesting completion.`;
 
 const clerk = createClerkClient({
   secretKey: clerkSecretKey(),
@@ -110,16 +110,11 @@ const handler = createMcpHandler(
       {
         title: "Read the user's task list",
         description:
-          "Read the user's task list: what is still open, which labels exist, and the ids you need for the other tools. Unfinished tasks only unless include_done is set. Narrow it with label, or with today to get just the user's today list and the total of its remaining estimates. Each task includes the context attached to it (links and text) under attachments.",
+          "Read the user's task list: open tasks, labels, ids, deadlines, completion criteria and attached context. Unfinished tasks only unless include_done is set. Narrow with label or today; today: true uses the account's saved time zone.",
         inputSchema: z.object({
           include_done: z.boolean().optional().describe('Also return finished tasks'),
           label: z.string().optional().describe('Only tasks under this label (a name from list_tasks)'),
-          today: z
-            .string()
-            .optional()
-            .describe(
-              "The user's local date as YYYY-MM-DD. Only tasks in today, plus today_remaining_minutes"
-            ),
+          today: z.union([z.boolean(), z.string()]).optional().describe('true uses the account time zone; YYYY-MM-DD remains supported'),
         }),
         annotations: { readOnlyHint: true },
       },
@@ -132,22 +127,30 @@ const handler = createMcpHandler(
       {
         title: "Add a task to the user's list",
         description:
-          "Put one task into the user's list. Write it as a line the user would write for themselves, in their language. Use label only with a name from list_tasks; an unknown label leaves the task at the top level and is reported back. Use parent_task_id to add it as a subtask of an existing task.",
+          "Put one task into the user's list. Write it as a line the user would write for themselves, in their language. Use label only with a name from list_tasks; an unknown label leaves the task at the top level and is reported back. Use parent_task_id for a subtask. Reuse idempotency_key on retries; identical requests are also deduplicated briefly even if the key changes.",
         inputSchema: z.object({
           text: z.string().describe('One line, like a task list entry'),
           note: z.string().optional().describe('Details or context, shown under the task'),
           label: z.string().optional().describe('An existing label name from list_tasks'),
           estimate_minutes: z.number().int().positive().optional().describe('Rough working time'),
           parent_task_id: z.string().optional().describe('Add as a subtask of this task'),
+          due_date: z.string().optional().describe('Deadline date, YYYY-MM-DD'),
+          due_time: z.string().optional().describe('Optional deadline time, HH:mm in the account time zone'),
+          completion_criteria: z.string().optional().describe('What must be true for the task to be complete'),
+          idempotency_key: z.string().optional().describe('Stable unique key for this intended task. Reuse it on retries, not for a different task.'),
         }),
       },
-      ({ text, note, label, estimate_minutes, parent_task_id }, ctx) =>
+      ({ text, note, label, estimate_minutes, parent_task_id, due_date, due_time, completion_criteria, idempotency_key }, ctx) =>
         call(ctx, 'add', {
           text,
           note,
           label,
           estimateMinutes: estimate_minutes,
           parentId: parent_task_id,
+          dueDate: due_date,
+          dueTime: due_time,
+          completionCriteria: completion_criteria,
+          idempotencyKey: idempotency_key,
         })
     );
 
@@ -199,7 +202,7 @@ const handler = createMcpHandler(
       {
         title: 'Check off a task',
         description:
-          'Mark a task as done, together with its subtasks. Only when the user has said it is done — do not decide that yourself. Pass done: false to put it back.',
+          'Mark a task as done, together with its subtasks. Only when the user has said it is done; review its completion_criteria first. Pass done: false to put it back.',
         inputSchema: z.object({
           task_id: z.string(),
           done: z.boolean().optional().describe('false puts the task back to unfinished'),
@@ -249,21 +252,22 @@ const handler = createMcpHandler(
           text: z.string().optional(),
           note: z.string().optional().describe('Empty string clears the note'),
           estimate_minutes: z.number().int().min(0).optional().describe('0 clears the estimate'),
-          today: z
-            .string()
-            .optional()
-            .describe(
-              "The user's local date as YYYY-MM-DD puts the task into today. Empty string takes it out"
-            ),
+          today: z.union([z.boolean(), z.string()]).optional().describe('true adds to today in account time zone; false or empty string removes it'),
+          due_date: z.string().optional().describe('YYYY-MM-DD; empty string clears the deadline'),
+          due_time: z.string().optional().describe('HH:mm; empty string clears the deadline time'),
+          completion_criteria: z.string().optional().describe('What must be true to finish; empty string clears it'),
         }),
       },
-      ({ task_id, text, note, estimate_minutes, today }, ctx) =>
+      ({ task_id, text, note, estimate_minutes, today, due_date, due_time, completion_criteria }, ctx) =>
         call(ctx, 'update', {
           taskId: task_id,
           text,
           note,
           estimateMinutes: estimate_minutes,
           today,
+          dueDate: due_date,
+          dueTime: due_time,
+          completionCriteria: completion_criteria,
         })
     );
 

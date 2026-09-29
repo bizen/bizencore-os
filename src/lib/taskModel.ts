@@ -47,6 +47,8 @@ export interface Item {
   text: string;
   /** 補足メモ */
   note?: string;
+  /** このタスクが終わったと判断する条件 */
+  completionCriteria?: string;
   done: boolean;
   /** 「完了を整理」で完了済みの棚へ送ったか。完了を取り消すと外れる */
   filed?: boolean;
@@ -57,6 +59,9 @@ export interface Item {
   estimate?: number;
   /** today に入れた日 YYYY-MM-DD */
   assignedDate?: string;
+  /** 期限。YYYY-MM-DD と任意の HH:mm（ユーザーのタイムゾーン） */
+  dueDate?: string;
+  dueTime?: string;
   /** 添えたコンテキスト（リンクと文章）。外したものも deletedAt 付きで残る */
   attachments?: Attachment[];
   createdAt: number;

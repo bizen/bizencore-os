@@ -161,7 +161,7 @@ http.route({
             userId: body.userId as string,
             includeDone: body.includeDone === true,
             label: typeof body.label === "string" ? body.label : undefined,
-            today: typeof body.today === "string" ? body.today : undefined,
+            today: typeof body.today === "string" || typeof body.today === "boolean" ? body.today : undefined,
         })
     ),
 });
@@ -178,6 +178,10 @@ http.route({
             estimateMinutes:
                 typeof body.estimateMinutes === "number" ? body.estimateMinutes : undefined,
             parentId: typeof body.parentId === "string" ? body.parentId : undefined,
+            dueDate: typeof body.dueDate === "string" ? body.dueDate : undefined,
+            dueTime: typeof body.dueTime === "string" ? body.dueTime : undefined,
+            completionCriteria: typeof body.completionCriteria === "string" ? body.completionCriteria : undefined,
+            idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined,
         })
     ),
 });
@@ -205,7 +209,10 @@ http.route({
             note: typeof body.note === "string" ? body.note : undefined,
             estimateMinutes:
                 typeof body.estimateMinutes === "number" ? body.estimateMinutes : undefined,
-            today: typeof body.today === "string" ? body.today : undefined,
+            today: typeof body.today === "string" || typeof body.today === "boolean" ? body.today : undefined,
+            dueDate: typeof body.dueDate === "string" ? body.dueDate : undefined,
+            dueTime: typeof body.dueTime === "string" ? body.dueTime : undefined,
+            completionCriteria: typeof body.completionCriteria === "string" ? body.completionCriteria : undefined,
         })
     ),
 });

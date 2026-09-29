@@ -25,11 +25,13 @@ export const FIELD_GROUPS = {
   position: ['parentId', 'order'],
   text: ['text'],
   note: ['note'],
+  completionCriteria: ['completionCriteria'],
   done: ['done', 'filed'],
   kind: ['kind'],
   color: ['color'],
   estimate: ['estimate'],
   today: ['assignedDate'],
+  deadline: ['dueDate', 'dueTime'],
   deleted: ['deletedAt'],
   attachments: ['attachments'],
 } as const;

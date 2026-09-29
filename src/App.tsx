@@ -9,6 +9,7 @@ import { SyncBridge } from './components/SyncBridge';
 import { isCloudConfigured } from './lib/cloudConfig';
 import { CountPage } from './pages/CountPage';
 import { TasksPage } from './pages/TasksPage';
+import { applyTheme, readTheme, saveTheme, type Theme } from './lib/theme';
 
 const SPLASH_VISIBLE_MS = 1100;
 const SPLASH_FADE_MS = 450;
@@ -33,7 +34,24 @@ function usePageSwitchShortcut() {
 export default function App() {
   const [splashState, setSplashState] = useState<'visible' | 'fading' | 'gone'>('visible');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(readTheme);
   usePageSwitchShortcut();
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== 'bizencore.theme') return;
+      const next = readTheme();
+      setTheme(next);
+      applyTheme(next);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const changeTheme = (next: Theme) => {
+    setTheme(next);
+    saveTheme(next);
+  };
 
   useEffect(() => {
     const fadeTimer = setTimeout(() => setSplashState('fading'), SPLASH_VISIBLE_MS);
@@ -95,7 +113,7 @@ export default function App() {
         </main>
 
         <Mascot />
-        {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
+        {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={changeTheme} /> : null}
       </div>
     </>
   );

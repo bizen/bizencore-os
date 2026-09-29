@@ -4,6 +4,31 @@ import type { Id } from "./_generated/dataModel";
 import { mergeItems } from "../src/lib/itemMerge";
 import { coerceAttachments } from "../src/lib/attachments";
 import { cleanupFiles } from "./fileCleanup";
+import { isTimeZone } from "../src/lib/taskDates";
+
+export const getTimeZone = query({
+    args: {},
+    handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return null;
+        const row = await ctx.db.query("userPreferences")
+            .withIndex("by_user", (q) => q.eq("userId", identity.subject)).unique();
+        return row ? { timeZone: row.timeZone, automatic: row.automatic } : null;
+    },
+});
+
+export const setTimeZone = mutation({
+    args: { timeZone: v.string(), automatic: v.boolean() },
+    handler: async (ctx, { timeZone, automatic }) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) throw new Error("Unauthorized");
+        if (!isTimeZone(timeZone)) throw new Error("Invalid IANA time zone");
+        const existing = await ctx.db.query("userPreferences")
+            .withIndex("by_user", (q) => q.eq("userId", identity.subject)).unique();
+        if (existing) await ctx.db.patch(existing._id, { timeZone, automatic, updatedAt: Date.now() });
+        else await ctx.db.insert("userPreferences", { userId: identity.subject, timeZone, automatic, updatedAt: Date.now() });
+    },
+});
 
 const syncItemValidator = v.object({
     itemId: v.string(),

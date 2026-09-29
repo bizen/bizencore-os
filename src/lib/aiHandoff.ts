@@ -23,6 +23,8 @@ export function buildTaskPrompt(item: Item, items: ItemMap): string {
   if (parents.length > 0) lines.push(`親タスク: ${parents.join(' › ')}`);
 
   if (item.note?.trim()) lines.push('', 'メモ:', item.note.trim());
+  if (item.dueDate) lines.push(`期限: ${item.dueDate}${item.dueTime ? ` ${item.dueTime}` : ''}`);
+  if (item.completionCriteria?.trim()) lines.push('', '完了条件:', item.completionCriteria.trim());
 
   const subtasks = childrenOf(items, item.id).filter((child) => child.type === 'task');
   if (subtasks.length > 0) {

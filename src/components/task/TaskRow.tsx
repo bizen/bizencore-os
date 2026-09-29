@@ -58,6 +58,7 @@ export interface TaskRowProps {
   /** 親から離れて棚に置かれたサブタスクに添える親の名前 */
   context?: string;
   todayDate: string;
+  todayTime: string;
   todayNumber?: number;
   isActive: boolean;
   /** 完了の演出中だけ入る。値は点灯をずらす順番 */
@@ -91,6 +92,7 @@ export function TaskRow(props: TaskRowProps) {
     depth,
     context,
     todayDate,
+    todayTime,
     todayNumber,
     isActive,
     burstIndex,
@@ -120,6 +122,7 @@ export function TaskRow(props: TaskRowProps) {
   const noteRef = useAutoGrow(item.note ?? '');
   const isSection = item.type === 'section';
   const isToday = item.assignedDate === todayDate;
+  const isOverdue = !item.done && !!item.dueDate && (item.dueDate < todayDate || (item.dueDate === todayDate && !!item.dueTime && item.dueTime < todayTime));
   const contextCount = liveAttachments(item.attachments).length;
 
   const attachTitle = (el: HTMLTextAreaElement | null) => {
@@ -183,6 +186,12 @@ export function TaskRow(props: TaskRowProps) {
             onKeyDown={(e) => onKeyDown(e, item)}
             aria-label={isSection ? 'ラベル' : 'タスク'}
           />
+          {!isSection && (item.dueDate || item.completionCriteria) ? (
+            <button type="button" className="row-details" onClick={() => onInspect(item.id)} tabIndex={-1} aria-label="期限と完了条件を編集">
+              {item.dueDate ? <span className={isOverdue ? 'is-overdue' : ''}>期限 {item.dueDate}{item.dueTime ? ` ${item.dueTime}` : ''}</span> : null}
+              {item.completionCriteria ? <span className="row-criteria">完了条件 {item.completionCriteria}</span> : null}
+            </button>
+          ) : null}
           {noteOpen || item.note ? (
             <textarea
               ref={attachNote}
