@@ -161,7 +161,6 @@ body {
   align-items: start;
   justify-content: center;
   gap: clamp(1rem, 3vw, 2rem);
-  min-height: calc(100dvh - 12rem);
 }
 
 .tasks-content {
@@ -172,22 +171,14 @@ body {
 
 .label-index {
   position: sticky;
-  top: 50vh;
-  transform: translate(min(0px, calc(453px - 44vw)), -50%);
+  top: 6rem;
+  transform: translateX(min(0px, calc(453px - 44vw)));
   align-self: start;
   max-height: calc(100vh - 9rem);
   overflow-y: auto;
   min-width: 0;
   padding: 0.15rem 0;
   scrollbar-width: thin;
-}
-
-.label-index-heading {
-  display: block;
-  padding: 0.15rem 0.45rem 0.45rem;
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  color: var(--text-secondary);
 }
 
 .label-index-list {
@@ -254,7 +245,6 @@ body {
     display: flex;
     flex-direction: column;
     gap: 0.9rem;
-    min-height: 0;
   }
 
   .label-index {
@@ -267,10 +257,6 @@ body {
     padding: 0.4rem 0;
     background: var(--bg-color);
     border-bottom: 1px solid var(--hairline);
-  }
-
-  .label-index-heading {
-    display: none;
   }
 
   .label-index-list {

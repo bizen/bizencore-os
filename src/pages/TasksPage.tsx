@@ -844,7 +844,6 @@ export function TasksPage() {
       <div className={`tasks-layout${indexLabels.length > 0 ? ' has-index' : ''}`}>
         {indexLabels.length > 0 ? (
           <nav className="label-index" aria-label="ラベルの目次">
-            <span className="label-index-heading">ラベル</span>
             <ul className="label-index-list">
               {indexLabels.map(({ item }) => (
                 <li key={item.id}>
