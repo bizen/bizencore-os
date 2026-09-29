@@ -523,6 +523,16 @@ body {
   gap: 0.05rem;
 }
 
+/* 完了済みの棚で、親から離れて置かれたサブタスクの親の名前 */
+.row-context {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .row-title,
 .row-note {
   display: block;

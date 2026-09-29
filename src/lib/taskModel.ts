@@ -69,6 +69,8 @@ export type ItemMap = Record<string, Item>;
 export interface Row {
   item: Item;
   depth: number;
+  /** 完了済みの棚で、親から離れて置かれたサブタスクに添える親の名前 */
+  context?: string;
 }
 
 export function newId(): string {

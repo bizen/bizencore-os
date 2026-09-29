@@ -405,18 +405,14 @@ export const taskStore = {
 
   /**
    * 完了したタスクを、完了済みの棚へ送る。
-   * 送るのは親がタスクでない（ルート直下かラベル直下の）ものだけ。
-   * サブタスクは親の内訳なので、親のところに残す。
+   * 親が未完了のサブタスクも送る。棚では親の名前を添えて出し、
+   * 完了を取り消せば元の親のところに戻る。
    */
   fileCompleted(): void {
     const items = state.items;
     const patches = Object.values(items)
       .filter(isLive)
       .filter((item) => item.type === 'task' && item.done && !item.filed)
-      .filter((item) => {
-        const parent = item.parentId ? items[item.parentId] : undefined;
-        return !isLive(parent) || parent.type === 'section';
-      })
       .map((item) => ({ ...item, filed: true }));
     if (patches.length === 0) return;
     commit(withPatches(patches));

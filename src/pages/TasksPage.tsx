@@ -57,6 +57,7 @@ function useTodayDate(): string {
  * 「完了を整理」で棚へ送った行を、リストから切り分ける。
  *
  * 完了しただけの行はその場に残る。棚へ移るのは filed が立ったものとその部分木。
+ * 親が未完了のまま整理したサブタスクは単独で棚へ移り、親の名前を添える。
  * いま完了の演出が出ている行は、演出が終わるまで元の場所に置いたままにする。
  */
 function partitionCompleted(
@@ -76,23 +77,28 @@ function partitionCompleted(
     baseDepth = null;
 
     const { item } = row;
-    const parent = item.parentId ? items[item.parentId] : undefined;
-    const filed =
-      item.type === 'task' &&
-      item.done &&
-      item.filed === true &&
-      !bursting.has(item.id) &&
-      (!parent || parent.type === 'section');
+    const filed = item.type === 'task' && item.done && item.filed === true && !bursting.has(item.id);
 
     if (filed) {
       baseDepth = row.depth;
-      done.push({ item, depth: 0 });
+      done.push({ item, depth: 0, context: parentPath(item, items) });
     } else {
       active.push(row);
     }
   }
 
   return { active, done };
+}
+
+/** 親のタスクを上へたどった名前（ラベルやルートで止まる）。親がタスクでなければ undefined */
+function parentPath(item: Item, items: ItemMap): string | undefined {
+  const names: string[] = [];
+  let parent = item.parentId ? items[item.parentId] : undefined;
+  while (parent && parent.type === 'task') {
+    names.unshift(parent.text.trim() || '（無題）');
+    parent = parent.parentId ? items[parent.parentId] : undefined;
+  }
+  return names.length > 0 ? names.join(' › ') : undefined;
 }
 
 /** 検索語に当たった行と、その祖先だけを残す */
@@ -202,8 +208,7 @@ export function TasksPage() {
       if (item.type !== 'task') continue;
       if (!item.done) continue;
       completed += 1;
-      const parent = item.parentId ? items[item.parentId] : undefined;
-      if (!item.filed && (!parent || parent.type === 'section')) fileable += 1;
+      if (!item.filed) fileable += 1;
     }
     // 残りと合計時間は、いま見ている表示の分だけ数える（today なら today の合計）
     for (const row of view === 'today' ? todayRows : allRows) {
@@ -685,6 +690,7 @@ export function TasksPage() {
       key={row.item.id}
       item={row.item}
       depth={row.depth}
+      context={row.context}
       todayDate={todayDate}
       todayNumber={view === 'today' ? todayNumbers.get(row.item.id) : undefined}
       burstIndex={burstOrder.get(row.item.id)}
@@ -806,13 +812,12 @@ export function TasksPage() {
             >
               + ラベル（⌥S）
             </button>
-            {/* 位置が変わらないよう常に出しておく。整理は何度押しても害がないので、いつでも押せる。
-                親が未完了のサブタスクは親の内訳として残るため、整理の対象にならない */}
+            {/* 位置が変わらないよう常に出しておく。整理は何度押しても害がないので、いつでも押せる */}
             <button
               type="button"
               className="ghost-btn"
               onClick={() => taskStore.fileCompleted()}
-              title="完了したタスクを完了済みへ移す（⌥C）。親が未完了のサブタスクは、親のところに残る"
+              title="完了したタスクを完了済みへ移す（⌥C）"
             >
               完了を整理（⌥C）
             </button>

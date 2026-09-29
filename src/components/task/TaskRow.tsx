@@ -63,6 +63,8 @@ function CheckBox({
 export interface TaskRowProps {
   item: Item;
   depth: number;
+  /** 親から離れて棚に置かれたサブタスクに添える親の名前 */
+  context?: string;
   todayDate: string;
   todayNumber?: number;
   isActive: boolean;
@@ -93,6 +95,7 @@ export function TaskRow(props: TaskRowProps) {
   const {
     item,
     depth,
+    context,
     todayDate,
     todayNumber,
     isActive,
@@ -169,6 +172,7 @@ export function TaskRow(props: TaskRowProps) {
         </div>
 
         <div className="row-text">
+          {context ? <span className="row-context">{context} ›</span> : null}
           <textarea
             ref={attachTitle}
             rows={1}
