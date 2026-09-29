@@ -5,6 +5,10 @@ import { X } from 'lucide-react';
 import { api } from '../../convex/_generated/api';
 import { isCloudConfigured } from '../lib/cloudConfig';
 
+const KNOWN_MCP_CLIENTS: Record<string, string> = {
+  'https://chatgpt.com/oauth/codex/client.json': 'Codex',
+};
+
 function McpConnectionHistory() {
   const connections = useQuery(api.sync.listMcpConnections);
 
@@ -19,12 +23,12 @@ function McpConnectionHistory() {
       {connections.map(({ clientId, clientName, lastUsedAt }) => (
         <li key={clientId} className="settings-connection">
           <div className="settings-connection-main">
-            <strong>{clientName || clientId}</strong>
+            <strong>{clientName || KNOWN_MCP_CLIENTS[clientId] || clientId}</strong>
             <time dateTime={new Date(lastUsedAt).toISOString()}>
-              {new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUsedAt)}
+              最終利用 {new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUsedAt)}
             </time>
           </div>
-          {clientName ? <code>{clientId}</code> : null}
+          {clientName || KNOWN_MCP_CLIENTS[clientId] ? <code>{clientId}</code> : null}
         </li>
       ))}
     </ul>
