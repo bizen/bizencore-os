@@ -184,7 +184,7 @@ export function TaskInspector(props: TaskInspectorProps) {
       </section>
 
       <section className="inspector-section">
-        <h3 className="inspector-label">AI に送る</h3>
+        <h3 className="inspector-label">AI ハンドオフ</h3>
         <p className="inspector-hint">本文・メモ・サブタスクをまとめた指示文で始めます。</p>
         <div className="inspector-ai">
           {AI_TARGETS.map((target) =>
