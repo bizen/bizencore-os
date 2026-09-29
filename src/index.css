@@ -1742,6 +1742,7 @@ body {
 
 .inspector-title {
   overflow: hidden;
+  min-height: calc(1.45em + 1.1rem + 2px);   /* 測り直す前でも1行は必ず見える */
   padding: 0.55rem 0.7rem;
   font-size: 1.05rem;
   font-weight: 500;
@@ -1895,6 +1896,13 @@ body {
 }
 
 @media (max-width: 640px) {
+  /* iPhone は 16px 未満の入力欄にフォーカスすると画面を拡大するので、16px にそろえる */
+  .inspector-title,
+  .inspector-note,
+  .inspector-input {
+    font-size: 16px;
+  }
+
   .inspector {
     top: auto;
     left: 0;

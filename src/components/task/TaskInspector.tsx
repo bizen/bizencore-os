@@ -1,5 +1,5 @@
 import { Check, Copy, ExternalLink, Trash2, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AI_TARGETS, buildTaskPrompt } from '../../lib/aiHandoff';
 import { QUEST_IMG, QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
 import { estimateInputValue, parseEstimate } from '../../lib/taskEstimate';
@@ -18,14 +18,32 @@ export interface TaskInspectorProps {
   onRemove: (id: string) => void;
 }
 
+/**
+ * 中身に合わせて高さを伸ばす。box-sizing が border-box なので枠線の分も足す。
+ * 開いた直後の動きやフォントの読み込み、画面の大きさの変化で行の幅や高さが
+ * 変わるので、そのたびに測り直す（スマホで本文が途中で切れないように）。
+ */
 function useAutoGrow(value: string) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
-  useLayoutEffect(() => {
+  const fit = useCallback(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [value]);
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${el.scrollHeight + border}px`;
+  }, []);
+  useLayoutEffect(fit, [value, fit]);
+  useEffect(() => {
+    const frame = requestAnimationFrame(fit);
+    const settle = setTimeout(fit, 250);
+    window.addEventListener('resize', fit);
+    document.fonts?.ready.then(fit).catch(() => {});
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(settle);
+      window.removeEventListener('resize', fit);
+    };
+  }, [fit]);
   return ref;
 }
 
