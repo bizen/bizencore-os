@@ -5,6 +5,7 @@
  * - 並び順は兄弟内の fractional order。同期しても衝突しにくい。
  */
 
+import type { Attachment } from './attachments';
 import type { Stamps } from './itemMerge';
 
 export const MAX_DEPTH = 4;
@@ -56,6 +57,8 @@ export interface Item {
   estimate?: number;
   /** today に入れた日 YYYY-MM-DD */
   assignedDate?: string;
+  /** 添えたコンテキスト（リンクと文章）。外したものも deletedAt 付きで残る */
+  attachments?: Attachment[];
   createdAt: number;
   updatedAt: number;
   /** 論理削除（同期のトゥームストーン） */

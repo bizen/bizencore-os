@@ -17,6 +17,14 @@ export default defineSchema({
         .index("by_user", ["userId"])
         .index("by_user_item", ["userId", "itemId"]),
 
+    /** サーバがアップロードしたファイルだけを、参照削除時に回収するための台帳 */
+    fileOwners: defineTable({
+        userId: v.string(),
+        itemId: v.string(),
+        attachmentId: v.string(),
+        storageId: v.id("_storage"),
+    }).index("by_user_item", ["userId", "itemId"]),
+
     /** character count のストック（ログイン時に Convex へ） */
     countStocks: defineTable({
         userId: v.string(),

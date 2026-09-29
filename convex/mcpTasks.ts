@@ -1,8 +1,18 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { cleanupFiles } from "./fileCleanup";
 import { coerceStamps, restamp, type Stamps } from "../src/lib/itemMerge";
+import {
+    MAX_ATTACHMENTS,
+    attachmentFrom,
+    attachmentLabel,
+    coerceAttachments,
+    liveAttachments,
+    type Attachment,
+} from "../src/lib/attachments";
 
 /*
  * MCP から人間のタスクリストを読み書きする。
@@ -32,6 +42,7 @@ interface StoredItem {
     color?: string;
     estimate?: number;
     assignedDate?: string;
+    attachments?: Attachment[];
     createdAt: number;
     updatedAt: number;
     deletedAt?: number;
@@ -59,6 +70,7 @@ function parsePayload(row: SyncRow): StoredItem | null {
             createdAt: typeof raw.createdAt === "number" ? raw.createdAt : row.updatedAt,
             updatedAt: row.updatedAt,
             deletedAt: row.deletedAt,
+            attachments: coerceAttachments(raw.attachments),
             stamps: coerceStamps(raw.stamps),
         };
     } catch {
@@ -112,6 +124,7 @@ async function writeItem(ctx: MutationCtx, userId: string, item: StoredItem): Pr
             deletedAt: next.deletedAt,
             payload,
         });
+        await cleanupFiles(ctx, userId, item.id, next.attachments, !!next.deletedAt);
         return;
     }
     await ctx.db.insert("syncItems", {
@@ -141,9 +154,21 @@ interface TaskView {
     estimate_minutes?: number;
     today?: string;
     subtasks?: { id: string; text: string; done: boolean }[];
+    attachments?: AttachmentView[];
 }
 
-function toView(item: StoredItem, label: string | undefined, subtasks: StoredItem[]): TaskView {
+interface AttachmentView {
+    id: string;
+    kind: "link" | "text" | "file";
+    title: string;
+    url?: string;
+    text?: string;
+    mime_type?: string;
+    size?: number;
+    added_by: "human" | "ai";
+}
+
+async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: string | undefined, subtasks: StoredItem[]): Promise<TaskView> {
     const view: TaskView = { id: item.id, text: item.text, done: item.done };
     if (item.note?.trim()) view.note = item.note;
     if (label) view.label = label;
@@ -151,6 +176,37 @@ function toView(item: StoredItem, label: string | undefined, subtasks: StoredIte
     if (item.assignedDate) view.today = item.assignedDate;
     if (subtasks.length > 0) {
         view.subtasks = subtasks.map((s) => ({ id: s.id, text: s.text, done: s.done }));
+    }
+    const attachments = liveAttachments(item.attachments);
+    if (attachments.length > 0) {
+        const owners = attachments.some((att) => att.kind === "file")
+            ? await ctx.db.query("fileOwners")
+                .withIndex("by_user_item", (q) => q.eq("userId", userId).eq("itemId", item.id))
+                .collect()
+            : [];
+        view.attachments = await Promise.all(attachments.map(async (att) => {
+            let fileUrl: string | null = null;
+            if (att.kind === "file" && att.storageId && owners.some((owner) =>
+                owner.attachmentId === att.id && owner.storageId === att.storageId
+            )) {
+                try {
+                    fileUrl = await ctx.storage.getUrl(att.storageId as Id<"_storage">);
+                } catch {
+                    // 壊れた参照があってもタスク一覧は返す
+                }
+            }
+            return {
+            id: att.id,
+            kind: att.kind,
+            title: attachmentLabel(att),
+            ...(att.url ? { url: att.url } : {}),
+            ...(att.text ? { text: att.text } : {}),
+            ...(fileUrl ? { url: fileUrl } : {}),
+            ...(att.mimeType ? { mime_type: att.mimeType } : {}),
+            ...(att.size ? { size: att.size } : {}),
+            added_by: att.by,
+            };
+        }));
     }
     return view;
 }
@@ -217,14 +273,16 @@ export const list = internalQuery({
             picked.push(item);
         }
 
-        const tasks = picked.map((item) => {
+        const tasks = await Promise.all(picked.map((item) => {
             const subtasks = childrenOf(items, item.id).filter((s) => s.text.trim());
             return toView(
+                ctx,
+                userId,
                 item,
                 labelOf(item)?.text.trim(),
                 includeDone ? subtasks : subtasks.filter((s) => !s.done)
             );
-        });
+        }));
 
         if (!today) return { labels: [...new Set(labels)], tasks };
         return {
@@ -346,6 +404,76 @@ export const update = internalMutation({
 
         await writeItem(ctx, userId, next);
         return { id: next.id, text: next.text, today: next.assignedDate };
+    },
+});
+
+/**
+ * AI がタスクにコンテキスト（リンクか文章）を添える。人が画面で添えるのと同じ形で、
+ * 同期では1件ずつ ID で足し合わせるので、同時に人が添えても消えない。
+ */
+export const attach = internalMutation({
+    args: {
+        userId: v.string(),
+        taskId: v.string(),
+        url: v.optional(v.string()),
+        text: v.optional(v.string()),
+        title: v.optional(v.string()),
+    },
+    handler: async (ctx, { userId, taskId, url, text, title }) => {
+        const items = await loadItems(ctx, userId);
+        const target = items.find((i) => i.id === taskId);
+        if (!target) throw new ConvexError("task not found");
+        if (target.type !== "task") throw new ConvexError("only tasks take context");
+        if ((url?.trim() ? 1 : 0) + (text?.trim() ? 1 : 0) !== 1) {
+            throw new ConvexError("give exactly one of url or text");
+        }
+        if (liveAttachments(target.attachments).length >= MAX_ATTACHMENTS) {
+            throw new ConvexError(`a task holds at most ${MAX_ATTACHMENTS} attachments`);
+        }
+        const now = stampAfter(items);
+        const attachment = attachmentFrom({ url, text, title }, "ai", crypto.randomUUID(), now);
+        if (!attachment) throw new ConvexError("url must start with http:// or https://");
+
+        const next: StoredItem = {
+            ...target,
+            attachments: [...(target.attachments ?? []), attachment],
+            updatedAt: now,
+        };
+        await writeItem(ctx, userId, next);
+        return { id: attachment.id, task_id: target.id, kind: attachment.kind, title: attachmentLabel(attachment) };
+    },
+});
+
+/** 認証済みの HTTP アップロードだけが呼ぶ。実体と所有者を同じトランザクションで記録する。 */
+export const attachFile = internalMutation({
+    args: {
+        userId: v.string(),
+        taskId: v.string(),
+        attachmentId: v.string(),
+        storageId: v.id("_storage"),
+        title: v.string(),
+        mimeType: v.string(),
+        size: v.number(),
+    },
+    handler: async (ctx, { userId, taskId, attachmentId, storageId, title, mimeType, size }) => {
+        const items = await loadItems(ctx, userId);
+        const target = items.find((item) => item.id === taskId && item.type === "task");
+        if (!target) throw new ConvexError("task not found");
+        if (liveAttachments(target.attachments).length >= MAX_ATTACHMENTS) {
+            throw new ConvexError(`a task holds at most ${MAX_ATTACHMENTS} attachments`);
+        }
+        const now = stampAfter(items);
+        const attachment = attachmentFrom(
+            { storageId, title, mimeType, size }, "human", attachmentId, now
+        );
+        if (!attachment) throw new ConvexError("invalid file");
+        await writeItem(ctx, userId, {
+            ...target,
+            attachments: [...(target.attachments ?? []), attachment],
+            updatedAt: now,
+        });
+        await ctx.db.insert("fileOwners", { userId, itemId: taskId, attachmentId, storageId });
+        return { id: attachmentId, storageId, title: attachment.title, mimeType, size };
     },
 });
 

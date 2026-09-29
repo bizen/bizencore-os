@@ -21,6 +21,8 @@ Use add_task when the user asks you to remember something, or when your conversa
 
 Call list_tasks first when you need to know what is already there, or to get the exact label names and task ids. Labels are the user's own groupings; add_task only files a task under a label that already exists.
 
+Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
+
 This is the user's list, not a scratchpad. Do not add duplicates, do not add things they did not ask for, and do not complete a task unless they said it is done.`;
 
 const clerk = createClerkClient({
@@ -88,7 +90,7 @@ const handler = createMcpHandler(
       {
         title: "Read the user's task list",
         description:
-          "Read the user's task list: what is still open, which labels exist, and the ids you need for the other tools. Unfinished tasks only unless include_done is set. Narrow it with label, or with today to get just the user's today list and the total of its remaining estimates.",
+          "Read the user's task list: what is still open, which labels exist, and the ids you need for the other tools. Unfinished tasks only unless include_done is set. Narrow it with label, or with today to get just the user's today list and the total of its remaining estimates. Each task includes the context attached to it (links and text) under attachments.",
         inputSchema: z.object({
           include_done: z.boolean().optional().describe('Also return finished tasks'),
           label: z.string().optional().describe('Only tasks under this label (a name from list_tasks)'),
@@ -184,6 +186,22 @@ const handler = createMcpHandler(
         }),
       },
       ({ task_id, done }, ctx) => call(ctx, 'complete', { taskId: task_id, done })
+    );
+
+    server.registerTool(
+      'attach_context',
+      {
+        title: 'Attach context to a task',
+        description:
+          'Attach one link or one piece of text to a task, so the user (and any agent that later works on it) has what it needs in one place. Give exactly one of url or text. Shown in the task\'s detail panel and returned by list_tasks.',
+        inputSchema: z.object({
+          task_id: z.string(),
+          url: z.string().optional().describe('A link starting with http:// or https://'),
+          text: z.string().optional().describe('A note, excerpt or decision, up to 4000 characters'),
+          title: z.string().optional().describe('A short name shown in the list'),
+        }),
+      },
+      ({ task_id, url, text, title }, ctx) => call(ctx, 'attach', { taskId: task_id, url, text, title })
     );
 
     server.registerTool(

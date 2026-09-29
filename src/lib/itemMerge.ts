@@ -12,8 +12,13 @@
  * stamps を持たない古い行は、どの欄も updatedAt に変わったものとみなす。
  * そのときの振る舞いは、以前の「行ごとに新しい方」と同じになる。
  *
+ * 添付（attachments）だけは新しい方を採らず、1件ずつ ID で合わせて足し合わせる。
+ * 人と AI が同時に添えても、どちらも残るようにするため（src/lib/attachments.ts）。
+ *
  * DOM にも Convex にも依存させないこと。両方から読まれる。
  */
+
+import { mergeAttachments } from './attachments';
 
 export const FIELD_GROUPS = {
   type: ['type'],
@@ -26,6 +31,7 @@ export const FIELD_GROUPS = {
   estimate: ['estimate'],
   today: ['assignedDate'],
   deleted: ['deletedAt'],
+  attachments: ['attachments'],
 } as const;
 
 export type FieldGroup = keyof typeof FIELD_GROUPS;
@@ -46,8 +52,17 @@ function stampOf(item: Stamped, group: FieldGroup): number {
   return item.stamps?.[group] ?? item.updatedAt;
 }
 
+/** 添付のような配列は中身で比べる */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return false;
+}
+
 function sameGroup(a: Stamped, b: Stamped, group: FieldGroup): boolean {
-  return FIELD_GROUPS[group].every((key) => field(a, key) === field(b, key));
+  return FIELD_GROUPS[group].every((key) => sameValue(field(a, key), field(b, key)));
 }
 
 /** 時刻が並んだときの決め手。どちらの側で合わせても同じ答えになるようにする */
@@ -89,8 +104,14 @@ export function mergeItems<T extends Stamped>(a: T, b: T): T {
   for (const group of GROUPS) {
     const sa = stampOf(a, group);
     const sb = stampOf(b, group);
-    const takeB = sb > sa || (sb === sa && groupKey(b, group) > groupKey(a, group));
     stamps[group] = Math.max(sa, sb);
+    if (group === 'attachments') {
+      const attachments = mergeAttachments(field(a, 'attachments'), field(b, 'attachments'));
+      if (attachments) merged.attachments = attachments;
+      else delete merged.attachments;
+      continue;
+    }
+    const takeB = sb > sa || (sb === sa && groupKey(b, group) > groupKey(a, group));
     if (!takeB) continue;
     for (const key of FIELD_GROUPS[group]) {
       const value = field(b, key);

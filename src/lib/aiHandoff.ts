@@ -1,3 +1,4 @@
+import { attachmentLabel, liveAttachments } from './attachments';
 import { childrenOf, isLive, type Item, type ItemMap } from './taskModel';
 
 /**
@@ -27,6 +28,24 @@ export function buildTaskPrompt(item: Item, items: ItemMap): string {
   if (subtasks.length > 0) {
     lines.push('', 'サブタスク:');
     for (const sub of subtasks) lines.push(`- [${sub.done ? 'x' : ' '}] ${sub.text.trim() || '（無題）'}`);
+  }
+
+  const attachments = liveAttachments(item.attachments);
+  if (attachments.length > 0) {
+    lines.push('', 'コンテキスト:');
+    for (const att of attachments) {
+      if (att.kind === 'link') {
+        lines.push(`- ${attachmentLabel(att)}: ${att.url}`);
+      } else if (att.kind === 'file') {
+        lines.push(`- ファイル: ${attachmentLabel(att)}（MCP の list_tasks から参照）`);
+      } else if (att.title) {
+        lines.push(`- ${att.title}`, ...(att.text ?? '').split('\n').map((line) => `  > ${line}`));
+      } else {
+        // タイトルがなければ名前は1行目と同じなので、本文だけを載せる
+        const [first, ...rest] = (att.text ?? '').split('\n');
+        lines.push(`- ${first}`, ...rest.map((line) => `  ${line}`));
+      }
+    }
   }
 
   return lines.join('\n');

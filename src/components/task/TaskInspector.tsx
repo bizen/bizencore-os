@@ -1,9 +1,12 @@
-import { Check, Copy, ExternalLink, Trash2, X } from 'lucide-react';
+import { Check, Copy, ExternalLink, FileText, Link2, Paperclip, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AI_TARGETS, buildTaskPrompt } from '../../lib/aiHandoff';
+import { MAX_ATTACHMENTS, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
+import { isCloudConfigured } from '../../lib/cloudConfig';
 import { QUEST_IMG, QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
 import { estimateInputValue, parseEstimate } from '../../lib/taskEstimate';
 import type { Item, ItemMap, TaskKind } from '../../lib/taskModel';
+import { TaskFileInput, TaskFileLink } from './TaskFileContext';
 
 export interface TaskInspectorProps {
   item: Item;
@@ -16,6 +19,8 @@ export interface TaskInspectorProps {
   onSetEstimate: (id: string, estimate: number | undefined) => void;
   onSetKind: (id: string, kind: TaskKind | undefined) => void;
   onRemove: (id: string) => void;
+  onAddAttachment: (id: string, input: { id?: string; text?: string; storageId?: string; title?: string; mimeType?: string; size?: number }) => boolean;
+  onRemoveAttachment: (id: string, attachmentId: string) => void;
 }
 
 /**
@@ -23,7 +28,7 @@ export interface TaskInspectorProps {
  * 開いた直後の動きやフォントの読み込み、画面の大きさの変化で行の幅や高さが
  * 変わるので、そのたびに測り直す（スマホで本文が途中で切れないように）。
  */
-function useAutoGrow(value: string) {
+function useAutoGrow() {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const fit = useCallback(() => {
     const el = ref.current;
@@ -32,16 +37,31 @@ function useAutoGrow(value: string) {
     const border = el.offsetHeight - el.clientHeight;
     el.style.height = `${el.scrollHeight + border}px`;
   }, []);
-  useLayoutEffect(fit, [value, fit]);
+  useLayoutEffect(fit);
   useEffect(() => {
     const frame = requestAnimationFrame(fit);
     const settle = setTimeout(fit, 250);
     window.addEventListener('resize', fit);
     document.fonts?.ready.then(fit).catch(() => {});
+    // パネルに縦のスクロールバーが出ると、画面の大きさは同じまま欄の幅だけ狭くなる。
+    // 幅が変わったら折り返しも変わるので、欄そのものを見張って測り直す
+    let lastWidth = 0;
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver((entries) => {
+            const width = entries[0]?.contentRect.width ?? 0;
+            if (width !== lastWidth) {
+              lastWidth = width;
+              fit();
+            }
+          });
+    if (observer && ref.current) observer.observe(ref.current);
     return () => {
       cancelAnimationFrame(frame);
       clearTimeout(settle);
       window.removeEventListener('resize', fit);
+      observer?.disconnect();
     };
   }, [fit]);
   return ref;
@@ -52,18 +72,28 @@ function useAutoGrow(value: string) {
  * 行のボタンは残したまま足しているので、どちらからでも同じ値を変えられる。
  */
 export function TaskInspector(props: TaskInspectorProps) {
-  const { item, items, todayDate, onClose, onTextChange, onNoteChange, onToggleToday, onSetEstimate, onSetKind, onRemove } =
-    props;
-  const titleRef = useAutoGrow(item.text);
-  const noteRef = useAutoGrow(item.note ?? '');
-  const [estimateDraft, setEstimateDraft] = useState(estimateInputValue(item.estimate));
+  const {
+    item,
+    items,
+    todayDate,
+    onClose,
+    onTextChange,
+    onNoteChange,
+    onToggleToday,
+    onSetEstimate,
+    onSetKind,
+    onRemove,
+    onAddAttachment,
+    onRemoveAttachment,
+  } = props;
+  const titleRef = useAutoGrow();
+  const noteRef = useAutoGrow();
+  const [estimateDraft, setEstimateDraft] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [contextDraft, setContextDraft] = useState('');
+  const contextRef = useAutoGrow();
+  const attachments = liveAttachments(item.attachments);
   const isToday = item.assignedDate === todayDate;
-
-  // 別のタスクに切り替わったら、想定時間の下書きを合わせ直す
-  useEffect(() => {
-    setEstimateDraft(estimateInputValue(item.estimate));
-  }, [item.id, item.estimate]);
 
   // 開いたら本文にフォーカスする
   useEffect(() => {
@@ -74,12 +104,14 @@ export function TaskInspector(props: TaskInspectorProps) {
   }, [item.id, titleRef]);
 
   const commitEstimate = () => {
+    if (estimateDraft === null) return;
     const parsed = parseEstimate(estimateDraft);
     if (parsed === null) {
-      setEstimateDraft(estimateInputValue(item.estimate));
+      setEstimateDraft(null);
       return;
     }
     onSetEstimate(item.id, parsed);
+    setEstimateDraft(null);
   };
 
   const copyCommand = async (id: string, command: string) => {
@@ -90,6 +122,12 @@ export function TaskInspector(props: TaskInspectorProps) {
     } catch {
       window.prompt('コピーしてください', command);
     }
+  };
+
+  /** 入力欄の中身を添える。添えられたら欄を空にする */
+  const addContext = (value: string) => {
+    if (!value.trim()) return;
+    if (onAddAttachment(item.id, { text: value })) setContextDraft('');
   };
 
   const prompt = buildTaskPrompt(item, items);
@@ -138,6 +176,86 @@ export function TaskInspector(props: TaskInspectorProps) {
         />
       </section>
 
+      <section className="inspector-section inspector-context">
+        <div className="inspector-context-head">
+          <h3 className="inspector-label">コンテキスト</h3>
+          {attachments.length > 0 ? <span className="inspector-count">{attachments.length}</span> : null}
+        </div>
+
+        {attachments.length > 0 ? (
+          <ul className="context-list">
+            {attachments.map((att) => (
+              <li key={att.id} className={`context-item context-item--${att.kind}`}>
+                <span className="context-icon" aria-hidden>
+                  {att.kind === 'link' ? <Link2 size={14} /> : att.kind === 'file' ? <Paperclip size={14} /> : <FileText size={14} />}
+                </span>
+                <div className="context-body">
+                  {att.kind === 'link' ? (
+                    <a className="context-title" href={att.url} target="_blank" rel="noopener noreferrer">
+                      {attachmentLabel(att)}
+                    </a>
+                  ) : att.kind === 'file' && isCloudConfigured ? (
+                    <TaskFileLink taskId={item.id} attachmentId={att.id} title={attachmentLabel(att)} />
+                  ) : (
+                    <span className="context-title">{attachmentLabel(att)}</span>
+                  )}
+                  {att.kind === 'text' && att.text && att.text.trim() !== attachmentLabel(att) ? (
+                    <p className="context-text">{att.text}</p>
+                  ) : null}
+                  {att.kind === 'link' && att.title ? <span className="context-sub">{att.url}</span> : null}
+                </div>
+                {att.by === 'ai' ? (
+                  <span className="context-by" title="AI が添えた">
+                    AI
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="icon-btn context-remove"
+                  onClick={() => onRemoveAttachment(item.id, att.id)}
+                  aria-label="外す"
+                  title="外す"
+                >
+                  <X size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <textarea
+          ref={contextRef}
+          rows={1}
+          className="inspector-note context-input"
+          value={contextDraft}
+          placeholder="リンクか文章を貼って Enter"
+          spellCheck={false}
+          onChange={(e) => setContextDraft(e.target.value)}
+          onPaste={(e) => {
+            // 空の欄に URL だけを貼ったら、その場で添える
+            const pasted = e.clipboardData.getData('text');
+            if (!contextDraft.trim() && isUrl(pasted)) {
+              e.preventDefault();
+              addContext(pasted);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              addContext(contextDraft);
+            }
+          }}
+          aria-label="コンテキストを添える"
+        />
+        {isCloudConfigured ? (
+          <TaskFileInput
+            taskId={item.id}
+            disabled={attachments.length >= MAX_ATTACHMENTS}
+            onUploaded={(input) => { onAddAttachment(item.id, input); }}
+          />
+        ) : null}
+      </section>
+
       <section className="inspector-section inspector-props">
         <div className="inspector-prop">
           <span className="inspector-label">today</span>
@@ -159,7 +277,7 @@ export function TaskInspector(props: TaskInspectorProps) {
           <input
             id={`estimate-${item.id}`}
             className="inspector-input"
-            value={estimateDraft}
+            value={estimateDraft ?? estimateInputValue(item.estimate)}
             placeholder="例: 45m"
             onChange={(e) => setEstimateDraft(e.target.value)}
             onBlur={commitEstimate}

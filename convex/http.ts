@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { MAX_FILE_SIZE } from "../src/lib/attachments";
 
 /*
  * MCP サーバ（api/mcp.ts）からの入口。
@@ -75,6 +76,71 @@ function route(run: (ctx: Parameters<Parameters<typeof httpAction>[0]>[0], body:
 
 const http = httpRouter();
 
+const uploadHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Task-Id, X-File-Name",
+};
+
+function uploadResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+        status,
+        headers: { ...uploadHeaders, "Content-Type": "application/json" },
+    });
+}
+
+http.route({
+    path: "/files/upload",
+    method: "OPTIONS",
+    handler: httpAction(async () => new Response(null, { status: 204, headers: uploadHeaders })),
+});
+
+http.route({
+    path: "/files/upload",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return uploadResponse({ error: "Unauthorized" }, 401);
+
+        const taskId = request.headers.get("X-Task-Id")?.trim();
+        const encodedName = request.headers.get("X-File-Name");
+        if (!taskId || !encodedName || encodedName.length > 1000) {
+            return uploadResponse({ error: "Task and file name are required" }, 400);
+        }
+        let title: string;
+        try {
+            title = decodeURIComponent(encodedName);
+        } catch {
+            return uploadResponse({ error: "Invalid file name" }, 400);
+        }
+        if (!title.trim()) return uploadResponse({ error: "Invalid file name" }, 400);
+        const contentLength = Number(request.headers.get("Content-Length"));
+        if (contentLength > MAX_FILE_SIZE) return uploadResponse({ error: "File exceeds 10 MB" }, 413);
+
+        const blob = await request.blob();
+        if (blob.size === 0 || blob.size > MAX_FILE_SIZE) {
+            return uploadResponse({ error: "File must be between 1 byte and 10 MB" }, 413);
+        }
+
+        const storageId = await ctx.storage.store(blob);
+        try {
+            const result = await ctx.runMutation(internal.mcpTasks.attachFile, {
+                userId: identity.subject,
+                taskId,
+                attachmentId: crypto.randomUUID(),
+                storageId,
+                title,
+                mimeType: blob.type,
+                size: blob.size,
+            });
+            return uploadResponse(result);
+        } catch (error) {
+            await ctx.storage.delete(storageId);
+            return uploadResponse({ error: error instanceof Error ? error.message : "Upload failed" }, 400);
+        }
+    }),
+});
+
 http.route({
     path: "/mcp/list",
     method: "POST",
@@ -128,6 +194,20 @@ http.route({
             estimateMinutes:
                 typeof body.estimateMinutes === "number" ? body.estimateMinutes : undefined,
             today: typeof body.today === "string" ? body.today : undefined,
+        })
+    ),
+});
+
+http.route({
+    path: "/mcp/attach",
+    method: "POST",
+    handler: route((ctx, body) =>
+        ctx.runMutation(internal.mcpTasks.attach, {
+            userId: body.userId as string,
+            taskId: String(body.taskId ?? ""),
+            url: typeof body.url === "string" ? body.url : undefined,
+            text: typeof body.text === "string" ? body.text : undefined,
+            title: typeof body.title === "string" ? body.title : undefined,
         })
     ),
 });

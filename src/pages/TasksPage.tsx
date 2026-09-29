@@ -993,6 +993,7 @@ export function TasksPage() {
 
       {inspected && !inspected.deletedAt && inspected.type === 'task' ? (
         <TaskInspector
+          key={inspected.id}
           item={inspected}
           items={items}
           todayDate={todayDate}
@@ -1006,6 +1007,8 @@ export function TasksPage() {
             setInspectId(null);
             removeRow(id);
           }}
+          onAddAttachment={taskStore.addAttachment}
+          onRemoveAttachment={taskStore.removeAttachment}
         />
       ) : null}
     </section>

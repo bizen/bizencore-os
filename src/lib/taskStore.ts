@@ -31,6 +31,7 @@ import {
   sameStampedState,
   withGroups,
 } from './itemMerge';
+import { MAX_ATTACHMENTS, attachmentFrom, coerceAttachments, liveAttachments } from './attachments';
 
 const STORAGE_KEY = 'chrct.tasks.v2';
 const UNDO_LIMIT = 50;
@@ -72,6 +73,7 @@ function coerceItem(raw: unknown): Item | null {
         ? Math.round(r.estimate)
         : undefined,
     assignedDate: typeof r.assignedDate === 'string' ? r.assignedDate : undefined,
+    attachments: coerceAttachments(r.attachments),
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : now,
     updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : now,
     deletedAt: typeof r.deletedAt === 'number' ? r.deletedAt : undefined,
@@ -209,6 +211,7 @@ function sameContent(a: Item, b: Item): boolean {
     a.color === b.color &&
     a.estimate === b.estimate &&
     a.assignedDate === b.assignedDate &&
+    JSON.stringify(a.attachments ?? null) === JSON.stringify(b.attachments ?? null) &&
     a.createdAt === b.createdAt &&
     a.deletedAt === b.deletedAt
   );
@@ -423,6 +426,32 @@ export const taskStore = {
     if (!isLive(current) || current.type !== 'task') return;
     const assignedDate = current.assignedDate === todayDate ? undefined : todayDate;
     commit(withPatches([{ ...current, assignedDate }]));
+  },
+
+  /**
+   * コンテキストを添える。URL だけならリンク、それ以外は文章として添える。
+   * 添えられたら true。空や上限超えなら何もしない。
+   */
+  addAttachment(id: string, input: { id?: string; url?: string; text?: string; title?: string; storageId?: string; mimeType?: string; size?: number }): boolean {
+    const current = state.items[id];
+    if (!isLive(current) || current.type !== 'task') return false;
+    if (liveAttachments(current.attachments).length >= MAX_ATTACHMENTS) return false;
+    if (input.id && current.attachments?.some((att) => att.id === input.id)) return true;
+    const attachment = attachmentFrom(input, 'human', input.id ?? newId(), Date.now());
+    if (!attachment) return false;
+    commit(withPatches([{ ...current, attachments: [...(current.attachments ?? []), attachment] }]));
+    return true;
+  },
+
+  /** 添えたコンテキストを外す。同期で伝わるよう、消さずに外した印を付ける */
+  removeAttachment(id: string, attachmentId: string): void {
+    const current = state.items[id];
+    if (!isLive(current) || !current.attachments) return;
+    const now = Date.now();
+    const attachments = current.attachments.map((att) =>
+      att.id === attachmentId && att.deletedAt === undefined ? { ...att, deletedAt: now } : att
+    );
+    commit(withPatches([{ ...current, attachments }]));
   },
 
   setEstimate(id: string, estimate: number | undefined): void {

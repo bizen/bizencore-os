@@ -1,6 +1,7 @@
-import { PanelRight, Trash2 } from 'lucide-react';
+import { PanelRight, Paperclip, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
+import { liveAttachments } from '../../lib/attachments';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
 import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
 import { EstimateField } from './EstimateField';
@@ -119,6 +120,7 @@ export function TaskRow(props: TaskRowProps) {
   const noteRef = useAutoGrow(item.note ?? '');
   const isSection = item.type === 'section';
   const isToday = item.assignedDate === todayDate;
+  const contextCount = liveAttachments(item.attachments).length;
 
   const attachTitle = (el: HTMLTextAreaElement | null) => {
     titleRef.current = el;
@@ -270,15 +272,22 @@ export function TaskRow(props: TaskRowProps) {
             <button
               type="button"
               data-meta="inspect"
-              className="meta-inspect"
+              className={`meta-inspect${contextCount > 0 ? ' has-context' : ''}`}
               onClick={() => onInspect(item.id)}
               onKeyDown={handleMetaKeyDown}
               onFocus={() => onFocusRow(item.id)}
               tabIndex={-1}
-              aria-label="詳細を開く"
-              title="詳細（⌘I）"
+              aria-label={contextCount > 0 ? `詳細を開く（コンテキスト ${contextCount} 件）` : '詳細を開く'}
+              title={contextCount > 0 ? `コンテキスト ${contextCount} 件・詳細（⌘I）` : '詳細（⌘I）'}
             >
-              <PanelRight size={14} />
+              {contextCount > 0 ? (
+                <>
+                  <Paperclip size={12} aria-hidden />
+                  <span className="meta-inspect-count">{contextCount}</span>
+                </>
+              ) : (
+                <PanelRight size={14} />
+              )}
             </button>
           )}
         </div>

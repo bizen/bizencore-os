@@ -9,6 +9,7 @@
  */
 
 import type * as countStocks from "../countStocks.js";
+import type * as fileCleanup from "../fileCleanup.js";
 import type * as http from "../http.js";
 import type * as mcpTasks from "../mcpTasks.js";
 import type * as migrations from "../migrations.js";
@@ -22,6 +23,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   countStocks: typeof countStocks;
+  fileCleanup: typeof fileCleanup;
   http: typeof http;
   mcpTasks: typeof mcpTasks;
   migrations: typeof migrations;

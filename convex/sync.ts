@@ -1,6 +1,9 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { mergeItems } from "../src/lib/itemMerge";
+import { coerceAttachments } from "../src/lib/attachments";
+import { cleanupFiles } from "./fileCleanup";
 
 const syncItemValidator = v.object({
     itemId: v.string(),
@@ -73,6 +76,36 @@ export const pull = query({
     },
 });
 
+/** タスクに結びついたファイルだけ、そのユーザーへダウンロード URL を返す。 */
+export const fileUrl = query({
+    args: { taskId: v.string(), attachmentId: v.string() },
+    handler: async (ctx, { taskId, attachmentId }) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return null;
+        const row = await ctx.db.query("syncItems")
+            .withIndex("by_user_item", (q) => q.eq("userId", identity.subject).eq("itemId", taskId))
+            .unique();
+        if (!row || row.deletedAt) return null;
+        let attachments;
+        try {
+            attachments = coerceAttachments((JSON.parse(row.payload) as { attachments?: unknown }).attachments);
+        } catch {
+            return null;
+        }
+        const file = attachments?.find((att) => att.id === attachmentId && att.kind === "file" && !att.deletedAt);
+        if (!file?.storageId) return null;
+        const owners = await ctx.db.query("fileOwners")
+            .withIndex("by_user_item", (q) => q.eq("userId", identity.subject).eq("itemId", taskId))
+            .collect();
+        if (!owners.some((owner) => owner.attachmentId === attachmentId && owner.storageId === file.storageId)) return null;
+        try {
+            return await ctx.storage.getUrl(file.storageId as Id<"_storage">);
+        } catch {
+            return null;
+        }
+    },
+});
+
 /** ローカルで更新された分を送る。既にある行とは欄ごとに新しい方を採る */
 export const push = mutation({
     args: { items: v.array(syncItemValidator) },
@@ -108,12 +141,20 @@ export const push = mutation({
                     deletedAt: item.deletedAt,
                     payload: item.payload,
                 });
+                try {
+                    const raw = JSON.parse(item.payload) as { attachments?: unknown };
+                    await cleanupFiles(ctx, identity.subject, item.itemId, raw.attachments, !!item.deletedAt);
+                } catch {
+                    if (item.deletedAt) await cleanupFiles(ctx, identity.subject, item.itemId, undefined, true);
+                }
                 continue;
             }
             if (merged.payload === existing.payload && merged.updatedAt === existing.updatedAt) {
                 continue;
             }
             await ctx.db.patch(existing._id, merged);
+            const raw = JSON.parse(merged.payload) as { attachments?: unknown };
+            await cleanupFiles(ctx, identity.subject, item.itemId, raw.attachments, !!merged.deletedAt);
         }
 
         return { ok: true };
