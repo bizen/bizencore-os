@@ -806,13 +806,13 @@ export function TasksPage() {
             >
               + ラベル（⌥S）
             </button>
-            {/* 位置が変わらないよう常に出しておき、対象がないときは押せなくする */}
+            {/* 位置が変わらないよう常に出しておく。整理は何度押しても害がないので、いつでも押せる。
+                親が未完了のサブタスクは親の内訳として残るため、整理の対象にならない */}
             <button
               type="button"
               className="ghost-btn"
               onClick={() => taskStore.fileCompleted()}
-              disabled={stats.fileable === 0}
-              title="完了したタスクを完了済みへ移す（⌥C）"
+              title="完了したタスクを完了済みへ移す（⌥C）。親が未完了のサブタスクは、親のところに残る"
             >
               完了を整理（⌥C）
             </button>
