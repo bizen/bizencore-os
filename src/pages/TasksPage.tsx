@@ -933,7 +933,7 @@ export function TasksPage() {
           className="ghost-btn tasks-help-btn"
           onClick={() => setHelpOpen(true)}
           title="⌘/"
-          aria-label="キーボードショートカット"
+          aria-label="ヘルプ"
         >
           ?
         </button>

@@ -21,6 +21,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: '⌘↑ / ⌘↓', label: '行ごと並べ替え（子も一緒）' },
   { keys: '⌘Enter', label: '完了 / 未完了', footer: { label: '完了' } },
   { keys: '⇧Enter', label: 'メモを開く', footer: { label: 'メモ' } },
+  { keys: '⌘I', label: 'タスクの詳細を開く' },
   { keys: '⌥T', label: 'today に入れる / 外す', footer: { label: 'today' } },
   { keys: '⌥E', label: '作業想定時間（30 / 45m / 1.5h / 1h30）', footer: { label: '想定時間' } },
   { keys: '⌥M', label: 'クエスト種別（なし→橙→青）/ ラベルの色', footer: { label: '種別 / 色' } },
@@ -32,7 +33,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: '⌥1 / ⌥2 / ⌥3', label: 'all / today / board' },
   { keys: '⌘F', label: '検索' },
   { keys: '⌘K', label: 'tasks ⇄ count を切り替え' },
-  { keys: '⌘/', label: 'この一覧', footer: { label: 'ぜんぶ見る' } },
+  { keys: '⌘/', label: 'ヘルプを開く / 閉じる', footer: { label: 'ヘルプ' } },
   { keys: 'Esc', label: '編集をやめる / 検索を消す' },
 ];
 
