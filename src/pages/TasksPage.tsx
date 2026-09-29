@@ -16,7 +16,37 @@ import {
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 
-type ViewMode = 'all' | 'today';
+type ViewMode = 'all' | 'today' | 'board';
+
+interface BoardColumn {
+  key: string;
+  /** その列のラベル。ラベルの下にないタスクの列は null */
+  label: Row | null;
+  rows: Row[];
+}
+
+/**
+ * board 表示の列に分ける。ルート直下の祖先がラベルならその列、そうでなければ
+ * 「ラベルなし」の列へ。並びはリストの順のままなので、↑↓ や並べ替えはそのまま効く。
+ */
+function toBoardColumns(rows: Row[]): BoardColumn[] {
+  const unlabeled: BoardColumn = { key: 'unlabeled', label: null, rows: [] };
+  const columns: BoardColumn[] = [];
+  let current = unlabeled;
+  for (const row of rows) {
+    if (row.depth === 0) {
+      if (row.item.type === 'section') {
+        current = { key: row.item.id, label: row, rows: [] };
+        columns.push(current);
+        continue;
+      }
+      current = unlabeled;
+    }
+    // ラベルの直下のタスクが列の左端にそろうよう、1段浅くする
+    current.rows.push(current.label ? { ...row, depth: row.depth - 1 } : row);
+  }
+  return unlabeled.rows.length > 0 ? [unlabeled, ...columns] : columns;
+}
 
 /** 完了の演出が終わるまでの時間。CSS のアニメーションと合わせている */
 const BURST_MS = 620;
@@ -36,6 +66,18 @@ function loadShelfOpen(): boolean {
     return true;
   }
 }
+const VIEW_KEY = 'chrct.tasks.view';
+
+/** 最後に見ていた表示（all / today / board）を開き直しても保つ */
+function loadView(): ViewMode {
+  try {
+    const saved = localStorage.getItem(VIEW_KEY);
+    return saved === 'today' || saved === 'board' ? saved : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
 type Caret = number | 'start' | 'end';
 type FocusTarget = 'title' | 'note';
 type PendingFocus = { id: string; target: FocusTarget; caret: Caret; misses: number };
@@ -134,7 +176,7 @@ export function TasksPage() {
   const { items } = useTaskState();
   const todayDate = useTodayDate();
 
-  const [view, setView] = useState<ViewMode>('all');
+  const [view, setView] = useState<ViewMode>(loadView);
   const [query, setQuery] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
@@ -166,6 +208,11 @@ export function TasksPage() {
     [doneRows]
   );
 
+  const boardColumns = useMemo(
+    () => (view === 'board' ? toBoardColumns(activeRows) : []),
+    [view, activeRows]
+  );
+
   useEffect(() => {
     try {
       localStorage.setItem(SHELF_OPEN_KEY, completedOpen ? '1' : '0');
@@ -173,6 +220,14 @@ export function TasksPage() {
       // 保存できなくても表示には困らない
     }
   }, [completedOpen]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      // 保存できなくても表示には困らない
+    }
+  }, [view]);
 
   /** 検索中は、当たったものが隠れないよう棚を開けておく（この状態は覚えない） */
   const shelfOpen = completedOpen || (query.trim() !== '' && doneRows.length > 0);
@@ -385,6 +440,16 @@ export function TasksPage() {
     setColorOpenId(null);
   }, []);
 
+  /** board の列の下から、そのラベルにタスクを足す（ラベルなしの列はルートの末尾へ） */
+  const addTaskToColumn = useCallback(
+    (labelId: string | null) => {
+      setEstimateEditId(null);
+      setColorOpenId(null);
+      requestFocus(labelId ? taskStore.insertAfter(labelId, { asChild: true }) : taskStore.insertAfter(null));
+    },
+    [requestFocus]
+  );
+
   const burstTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
@@ -495,6 +560,12 @@ export function TasksPage() {
         setViewMode('all');
         return;
       }
+      if (event.altKey && event.code === 'Digit3') {
+        event.preventDefault();
+        setViewMode('board');
+        return;
+      }
+
       if (event.altKey && event.code === 'Digit2') {
         event.preventDefault();
         setViewMode('today');
@@ -718,7 +789,7 @@ export function TasksPage() {
   );
 
   return (
-    <section className="page">
+    <section className={`page${view === 'board' ? ' page--board' : ''}`}>
       <div className="tasks-toolbar">
         <div className="view-switch" role="tablist" aria-label="表示">
           <button
@@ -741,6 +812,16 @@ export function TasksPage() {
           >
             today
             <span className="view-switch-count">{todayNumbers.size}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'board'}
+            className={`view-switch-btn${view === 'board' ? ' active' : ''}`}
+            onClick={() => setViewMode('board')}
+            title="⌥3"
+          >
+            board
           </button>
         </div>
 
@@ -775,7 +856,34 @@ export function TasksPage() {
         </button>
       </div>
 
-      <ul className="row-list">{activeRows.map(renderRow)}</ul>
+      {view === 'board' ? (
+        <div className="board" role="list" aria-label="ラベルごとの列">
+          {boardColumns.map((column) => (
+            <section key={column.key} className="board-col" role="listitem">
+              <div className="board-col-head">
+                {column.label ? (
+                  <ul className="row-list">{renderRow(column.label)}</ul>
+                ) : (
+                  <p className="board-col-title">ラベルなし</p>
+                )}
+                <span className="board-col-count" title="残っているタスク">
+                  {column.rows.filter((row) => row.item.type === 'task' && !row.item.done).length}
+                </span>
+              </div>
+              <ul className="row-list board-col-list">{column.rows.map(renderRow)}</ul>
+              <button
+                type="button"
+                className="board-add"
+                onClick={() => addTaskToColumn(column.label?.item.id ?? null)}
+              >
+                + タスク
+              </button>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <ul className="row-list">{activeRows.map(renderRow)}</ul>
+      )}
 
       {activeRows.length === 0 ? (
         <p className="muted row-list-empty">

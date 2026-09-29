@@ -29,7 +29,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: '⌥⇧C', label: '完了を削除' },
   { keys: '⌘⌫ / 空行で ⌫', label: '行を削除', footer: { keys: '⌘⌫', label: '削除' } },
   { keys: '⌘Z', label: '取り消し', footer: { label: '取り消し' } },
-  { keys: '⌥1 / ⌥2', label: 'all / today' },
+  { keys: '⌥1 / ⌥2 / ⌥3', label: 'all / today / board' },
   { keys: '⌘F', label: '検索' },
   { keys: '⌘K', label: 'tasks ⇄ count を切り替え' },
   { keys: '⌘/', label: 'この一覧', footer: { label: 'ぜんぶ見る' } },
