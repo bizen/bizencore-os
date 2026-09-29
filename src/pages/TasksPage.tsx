@@ -852,6 +852,7 @@ export function TasksPage() {
                     type="button"
                     className={`label-index-link${currentLabelId === item.id ? ' is-current' : ''}`}
                     aria-current={currentLabelId === item.id ? 'location' : undefined}
+                    title={item.text.trim() || '無題のラベル'}
                     onClick={() => {
                       setCurrentLabelId(item.id);
                       document.getElementById(`label-${item.id}`)?.scrollIntoView({
