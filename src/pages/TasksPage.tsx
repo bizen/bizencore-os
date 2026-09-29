@@ -806,26 +806,25 @@ export function TasksPage() {
             >
               + ラベル（⌥S）
             </button>
-            {stats.fileable > 0 ? (
-              <button
-                type="button"
-                className="ghost-btn"
-                onClick={() => taskStore.fileCompleted()}
-                title="完了したタスクを完了済みへ移す（⌥C）"
-              >
-                完了を整理
-              </button>
-            ) : null}
-            {stats.completed > 0 ? (
-              <button
-                type="button"
-                className="ghost-btn"
-                onClick={() => taskStore.clearCompleted()}
-                title="完了したタスクを削除（⌥⇧C）"
-              >
-                完了を削除
-              </button>
-            ) : null}
+            {/* 位置が変わらないよう常に出しておき、対象がないときは押せなくする */}
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => taskStore.fileCompleted()}
+              disabled={stats.fileable === 0}
+              title="完了したタスクを完了済みへ移す（⌥C）"
+            >
+              完了を整理（⌥C）
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => taskStore.clearCompleted()}
+              disabled={stats.completed === 0}
+              title="完了したタスクを削除（⌥⇧C）"
+            >
+              完了を削除（⌥⇧C）
+            </button>
           </div>
         </div>
 
