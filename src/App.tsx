@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { Settings2 } from 'lucide-react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppHeaderAuth } from './components/AppHeaderAuth';
 import { Mascot } from './components/Mascot';
 import { SplashScreen } from './components/SplashScreen';
+import { SettingsPanel } from './components/SettingsPanel';
 import { SyncBridge } from './components/SyncBridge';
 import { isCloudConfigured } from './lib/cloudConfig';
 import { CountPage } from './pages/CountPage';
@@ -30,6 +32,7 @@ function usePageSwitchShortcut() {
 
 export default function App() {
   const [splashState, setSplashState] = useState<'visible' | 'fading' | 'gone'>('visible');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   usePageSwitchShortcut();
 
   useEffect(() => {
@@ -62,6 +65,17 @@ export default function App() {
                 count
               </NavLink>
             </nav>
+            <button
+              type="button"
+              className="app-settings-btn"
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-label="設定"
+              title="設定"
+              aria-expanded={settingsOpen}
+              aria-controls="app-settings-panel"
+            >
+              <Settings2 size={17} aria-hidden />
+            </button>
             {isCloudConfigured ? (
               <div className="app-header-auth">
                 <AppHeaderAuth />
@@ -81,6 +95,7 @@ export default function App() {
         </main>
 
         <Mascot />
+        {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
       </div>
     </>
   );

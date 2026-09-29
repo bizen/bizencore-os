@@ -61,7 +61,19 @@ function route(run: (ctx: Parameters<Parameters<typeof httpAction>[0]>[0], body:
         }
 
         try {
-            return jsonResponse(await run(ctx, body));
+            const result = await run(ctx, body);
+            if (typeof body.clientId === "string") {
+                try {
+                    await ctx.runMutation(internal.sync.touchMcpConnection, {
+                        userId: body.userId as string,
+                        clientId: body.clientId,
+                        clientName: typeof body.clientName === "string" ? body.clientName : undefined,
+                    });
+                } catch (error) {
+                    console.error("Could not record MCP connection", error);
+                }
+            }
+            return jsonResponse(result);
         } catch (error) {
             const message =
                 typeof (error as { data?: unknown })?.data === "string"

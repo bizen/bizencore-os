@@ -30,6 +30,24 @@ const clerk = createClerkClient({
   publishableKey: clerkPublishableKey(),
 });
 
+let clientNames: { at: number; values: Map<string, string> } | undefined;
+
+async function clientNameOf(clientId: string | undefined): Promise<string | undefined> {
+  if (!clientId || clientId === 'unknown') return undefined;
+  if (!clientNames || Date.now() - clientNames.at > 10 * 60_000) {
+    try {
+      const apps = await clerk.oauthApplications.list({ limit: 500 });
+      clientNames = {
+        at: Date.now(),
+        values: new Map(apps.data.map((app) => [app.clientId, app.name])),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+  return clientNames.values.get(clientId);
+}
+
 async function verifyToken(request: Request, token?: string): Promise<AuthInfo | undefined> {
   if (!token) return undefined;
   const state = await clerk.authenticateRequest(request, { acceptsToken: 'oauth_token' });
@@ -60,13 +78,15 @@ async function call(
   body: Record<string, unknown>
 ): Promise<CallToolResult> {
   try {
+    const clientId = ctx.http?.authInfo?.clientId;
+    const clientName = await clientNameOf(clientId);
     const response = await fetch(`${convexSiteUrl()}/mcp/${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${mcpSecret()}`,
       },
-      body: JSON.stringify({ ...body, userId: userIdOf(ctx) }),
+      body: JSON.stringify({ ...body, userId: userIdOf(ctx), clientId, clientName }),
     });
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;

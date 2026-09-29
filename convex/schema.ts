@@ -25,6 +25,16 @@ export default defineSchema({
         storageId: v.id("_storage"),
     }).index("by_user_item", ["userId", "itemId"]),
 
+    /** MCP の認証済みリクエストを受けた接続元。認可状態そのものではない。 */
+    mcpConnections: defineTable({
+        userId: v.string(),
+        clientId: v.string(),
+        clientName: v.optional(v.string()),
+        lastUsedAt: v.number(),
+    })
+        .index("by_user", ["userId"])
+        .index("by_user_client", ["userId", "clientId"]),
+
     /** character count のストック（ログイン時に Convex へ） */
     countStocks: defineTable({
         userId: v.string(),

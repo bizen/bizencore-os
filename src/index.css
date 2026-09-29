@@ -69,8 +69,29 @@ body {
 .app-header-end {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  gap: 1.5rem;
   flex-shrink: 0;
+}
+
+.app-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.app-settings-btn:hover,
+.app-settings-btn:focus-visible,
+.app-settings-btn[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
 }
 
 .app-header-auth {
@@ -1403,6 +1424,93 @@ body {
 }
 
 /* ---------- Keyboard help ---------- */
+
+.settings-panel {
+  width: min(480px, 100%);
+  max-height: 85dvh;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  padding: 1.25rem;
+}
+
+.settings-head,
+.settings-connection-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-head h2 {
+  font-size: 1rem;
+}
+
+.settings-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.settings-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.settings-section {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--hairline);
+  padding-top: 1rem;
+}
+
+.settings-section h3 {
+  font-size: 0.86rem;
+  margin-bottom: 0.55rem;
+}
+
+.settings-muted {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.settings-connections {
+  list-style: none;
+  margin-top: 0.85rem;
+}
+
+.settings-connection {
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.settings-connection strong {
+  font-size: 0.84rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.settings-connection time {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.settings-connection code {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font: 0.69rem var(--font-mono);
+  overflow-wrap: anywhere;
+}
 
 .help-backdrop {
   position: fixed;

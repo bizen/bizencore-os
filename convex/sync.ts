@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mergeItems } from "../src/lib/itemMerge";
@@ -10,6 +10,36 @@ const syncItemValidator = v.object({
     updatedAt: v.number(),
     deletedAt: v.optional(v.number()),
     payload: v.string(),
+});
+
+/** 実際に MCP を利用した接続元のみ。現在の OAuth 認可状態とは区別する。 */
+export const listMcpConnections = query({
+    args: {},
+    handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return null;
+        const rows = await ctx.db.query("mcpConnections")
+            .withIndex("by_user", (q) => q.eq("userId", identity.subject))
+            .collect();
+        return rows.map(({ clientId, clientName, lastUsedAt }) => ({ clientId, clientName, lastUsedAt }))
+            .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+    },
+});
+
+export const touchMcpConnection = internalMutation({
+    args: { userId: v.string(), clientId: v.string(), clientName: v.optional(v.string()) },
+    handler: async (ctx, { userId, clientId, clientName }) => {
+        if (!clientId || clientId === "unknown" || clientId.length > 512) return;
+        const name = clientName?.trim().slice(0, 256) || undefined;
+        const existing = await ctx.db.query("mcpConnections")
+            .withIndex("by_user_client", (q) => q.eq("userId", userId).eq("clientId", clientId))
+            .unique();
+        if (existing) {
+            await ctx.db.patch(existing._id, { lastUsedAt: Date.now(), clientName: name ?? existing.clientName });
+        } else {
+            await ctx.db.insert("mcpConnections", { userId, clientId, clientName: name, lastUsedAt: Date.now() });
+        }
+    },
 });
 
 interface PayloadItem {
