@@ -1,19 +1,10 @@
-import { Trash2 } from 'lucide-react';
+import { PanelRight, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
-import { LABEL_COLORS, type Item, type LabelColor, type TaskKind } from '../../lib/taskModel';
+import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
+import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
 import { EstimateField } from './EstimateField';
 import { LabelColorPicker } from './LabelColorPicker';
-
-const QUEST_IMG: Record<TaskKind, string> = {
-  main: '/quests/mainquest.png',
-  tanomi: '/quests/tanomigoto.png',
-};
-
-const QUEST_LABEL: Record<TaskKind, string> = {
-  main: 'メインクエスト',
-  tanomi: '頼みごと',
-};
 
 function useAutoGrow(value: string) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
@@ -89,6 +80,8 @@ export interface TaskRowProps {
   onRemove: (id: string) => void;
   onTitleBlur: (id: string) => void;
   onSetLabelColor: (id: string, color: LabelColor | undefined) => void;
+  /** 詳細パネルを開く（タスクだけ） */
+  onInspect: (id: string) => void;
 }
 
 export function TaskRow(props: TaskRowProps) {
@@ -119,6 +112,7 @@ export function TaskRow(props: TaskRowProps) {
     onRemove,
     onTitleBlur,
     onSetLabelColor,
+    onInspect,
   } = props;
 
   const titleRef = useAutoGrow(item.text);
@@ -271,6 +265,22 @@ export function TaskRow(props: TaskRowProps) {
           >
             <Trash2 size={14} />
           </button>
+
+          {isSection ? null : (
+            <button
+              type="button"
+              data-meta="inspect"
+              className="meta-inspect"
+              onClick={() => onInspect(item.id)}
+              onKeyDown={handleMetaKeyDown}
+              onFocus={() => onFocusRow(item.id)}
+              tabIndex={-1}
+              aria-label="詳細を開く"
+              title="詳細（⌘I）"
+            >
+              <PanelRight size={14} />
+            </button>
+          )}
         </div>
       </div>
     </li>

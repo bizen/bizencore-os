@@ -248,7 +248,8 @@ body {
 .board .row--task .meta-kind:not(.is-set),
 .board .row--task .meta-today:not(.is-on),
 .board .row--task .estimate-chip:not(.has-estimate),
-.board .row--task .meta-remove {
+.board .row--task .meta-remove,
+.board .row--task .meta-inspect {
   display: none;
 }
 
@@ -256,10 +257,12 @@ body {
 .board .row--task:hover .meta-today,
 .board .row--task:hover .estimate-chip,
 .board .row--task:hover .meta-remove,
+.board .row--task:hover .meta-inspect,
 .board .row--task.is-active .meta-kind,
 .board .row--task.is-active .meta-today,
 .board .row--task.is-active .estimate-chip,
-.board .row--task.is-active .meta-remove {
+.board .row--task.is-active .meta-remove,
+.board .row--task.is-active .meta-inspect {
   display: inline-flex;
 }
 
@@ -773,7 +776,7 @@ body {
 
 .row-meta {
   display: grid;
-  grid-template-columns: 18px 46px 46px 18px;
+  grid-template-columns: 18px 46px 46px 18px 18px;
   align-items: center;
   column-gap: 0.5rem;
   align-self: start;
@@ -791,7 +794,8 @@ body {
 }
 
 .meta-kind,
-.meta-remove {
+.meta-remove,
+.meta-inspect {
   display: grid;
   place-items: center;
   width: 18px;
@@ -816,8 +820,14 @@ body {
   object-fit: contain;
 }
 
-.meta-remove {
+.meta-remove,
+.meta-inspect {
   color: var(--text-secondary);
+}
+
+.meta-inspect:hover {
+  opacity: 1;
+  color: var(--text-primary);
 }
 
 .meta-today {
@@ -865,7 +875,9 @@ body {
 }
 
 .row:hover .meta-remove,
-.row.is-active .meta-remove {
+.row.is-active .meta-remove,
+.row:hover .meta-inspect,
+.row.is-active .meta-inspect {
   opacity: 0.6;
 }
 
@@ -1318,6 +1330,7 @@ body {
   .row .meta-kind,
   .row .meta-today,
   .row .meta-remove,
+  .row .meta-inspect,
   .row .estimate-chip {
     opacity: 1;
   }
@@ -1671,5 +1684,237 @@ body {
   .splash-wordmark {
     font-size: 0.9rem;
     letter-spacing: 0.28em;
+  }
+}
+/* ---------- 詳細パネル ---------- */
+
+.inspector {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  width: min(400px, 100vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1.1rem 1.25rem 1.5rem;
+  overflow-y: auto;
+  background: var(--popover-bg);
+  border-left: 1px solid var(--border-color);
+  box-shadow: -24px 0 48px rgba(0, 0, 0, 0.35);
+  animation: inspector-in 0.18s ease-out;
+}
+
+@keyframes inspector-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.inspector-kicker,
+.inspector-label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.inspector-title,
+.inspector-note,
+.inspector-input {
+  width: 100%;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-primary);
+  font: inherit;
+  resize: none;
+  outline: none;
+}
+
+.inspector-title {
+  overflow: hidden;
+  padding: 0.55rem 0.7rem;
+  font-size: 1.05rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.inspector-note {
+  padding: 0.55rem 0.7rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  min-height: 4.5rem;
+}
+
+.inspector-input {
+  width: 8rem;
+  padding: 0.3rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.inspector-title:focus,
+.inspector-note:focus,
+.inspector-input:focus {
+  border-color: var(--accent-color);
+}
+
+.inspector-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.inspector-props {
+  gap: 0.7rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.inspector-prop {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.inspector-prop .meta-today {
+  opacity: 1;
+  justify-self: start;
+}
+
+/* 行と同じデザインのまま、パネルでは入っていないときも押せると分かるよう外枠を付ける */
+.inspector-prop .meta-today:not(.is-on) {
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+.inspector-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.inspector-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.inspector-kind img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+
+.inspector-kind.is-on {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.inspector-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.inspector-ai {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.inspector-ai-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.inspector-ai-btn:hover,
+.inspector-ai-btn:focus-visible {
+  border-color: var(--text-secondary);
+  outline: none;
+}
+
+.inspector-copied {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: var(--done-color);
+  color: #0b1017;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.inspector-foot {
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+.inspector-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.inspector-remove:hover {
+  color: var(--danger-color);
+  border-color: var(--danger-color);
+}
+
+@media (max-width: 640px) {
+  .inspector {
+    top: auto;
+    left: 0;
+    width: 100%;
+    max-height: 80vh;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -24px 48px rgba(0, 0, 0, 0.35);
+    animation-name: inspector-up;
+  }
+
+  @keyframes inspector-up {
+    from { transform: translateY(24px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inspector {
+    animation: none;
   }
 }

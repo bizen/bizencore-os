@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
+import { TaskInspector } from '../components/task/TaskInspector';
 import { TaskRow } from '../components/task/TaskRow';
 import { focusFirstMeta } from '../lib/metaCursor';
 import { FOOTER_SHORTCUTS } from '../lib/shortcuts';
@@ -183,6 +184,8 @@ export function TasksPage() {
   const [estimateEditId, setEstimateEditId] = useState<string | null>(null);
   const [colorOpenId, setColorOpenId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  /** 詳細パネルで開いているタスク */
+  const [inspectId, setInspectId] = useState<string | null>(null);
   const [completedOpen, setCompletedOpen] = useState(loadShelfOpen);
   /** 完了した瞬間だけ演出を出す行。値は上から数えた順番（点灯のずらし用） */
   const [burstOrder, setBurstOrder] = useState<ReadonlyMap<string, number>>(EMPTY_BURST);
@@ -626,6 +629,13 @@ export function TasksPage() {
       return;
     }
 
+    // ---- 詳細パネル ----
+    if (mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'i') {
+      event.preventDefault();
+      if (item.type === 'task') setInspectId(item.id);
+      return;
+    }
+
     if (event.key === 'Enter' && mod) {
       event.preventDefault();
       toggleDone(item.id);
@@ -785,8 +795,16 @@ export function TasksPage() {
       onRemove={removeRow}
       onTitleBlur={handleTitleBlur}
       onSetLabelColor={setLabelColor}
+      onInspect={setInspectId}
     />
   );
+
+  const inspected = inspectId ? items[inspectId] : undefined;
+  const closeInspector = () => {
+    const id = inspectId;
+    setInspectId(null);
+    if (id) requestFocus(id);
+  };
 
   return (
     <section className={`page${view === 'board' ? ' page--board' : ''}`}>
@@ -972,6 +990,24 @@ export function TasksPage() {
       ) : null}
 
       {helpOpen ? <KeyboardHelp onClose={() => setHelpOpen(false)} /> : null}
+
+      {inspected && !inspected.deletedAt && inspected.type === 'task' ? (
+        <TaskInspector
+          item={inspected}
+          items={items}
+          todayDate={todayDate}
+          onClose={closeInspector}
+          onTextChange={taskStore.setText}
+          onNoteChange={taskStore.setNote}
+          onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
+          onSetEstimate={taskStore.setEstimate}
+          onSetKind={taskStore.setKind}
+          onRemove={(id) => {
+            setInspectId(null);
+            removeRow(id);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
