@@ -134,6 +134,7 @@ export function TaskRow(props: TaskRowProps) {
 
   return (
     <li
+      id={isSection && depth === 0 ? `label-${item.id}` : undefined}
       className={[
         'row',
         isSection ? 'row--section' : 'row--task',

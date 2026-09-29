@@ -12,6 +12,7 @@ import {
   type ItemMap,
   type LabelColor,
   type Row,
+  LABEL_COLORS,
   flattenAll,
   flattenToday,
 } from '../lib/taskModel';
@@ -215,6 +216,38 @@ export function TasksPage() {
     () => (view === 'board' ? toBoardColumns(activeRows) : []),
     [view, activeRows]
   );
+
+  const indexLabels = useMemo(
+    () => view === 'all'
+      ? activeRows.filter((row) => row.depth === 0 && row.item.type === 'section')
+      : [],
+    [activeRows, view]
+  );
+  const [currentLabelId, setCurrentLabelId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (indexLabels.length === 0) return;
+    const update = () => {
+      const threshold = window.innerWidth <= 860 ? 150 : 112;
+      let current = indexLabels[0].item.id;
+      for (const row of indexLabels) {
+        const anchor = document.getElementById(`label-${row.item.id}`);
+        if (!anchor || anchor.getBoundingClientRect().top > threshold) break;
+        current = row.item.id;
+      }
+      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+        current = indexLabels[indexLabels.length - 1].item.id;
+      }
+      setCurrentLabelId(current);
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [indexLabels]);
 
   useEffect(() => {
     try {
@@ -807,7 +840,39 @@ export function TasksPage() {
   };
 
   return (
-    <section className={`page${view === 'board' ? ' page--board' : ''}`}>
+    <section className={`page${view === 'board' ? ' page--board' : ''}${indexLabels.length > 0 ? ' page--indexed' : ''}`}>
+      <div className={`tasks-layout${indexLabels.length > 0 ? ' has-index' : ''}`}>
+        {indexLabels.length > 0 ? (
+          <nav className="label-index" aria-label="ラベルの目次">
+            <span className="label-index-heading">ラベル</span>
+            <ul className="label-index-list">
+              {indexLabels.map(({ item }) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`label-index-link${currentLabelId === item.id ? ' is-current' : ''}`}
+                    aria-current={currentLabelId === item.id ? 'location' : undefined}
+                    onClick={() => {
+                      setCurrentLabelId(item.id);
+                      document.getElementById(`label-${item.id}`)?.scrollIntoView({
+                        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                        block: 'start',
+                      });
+                    }}
+                  >
+                    <span
+                      className="label-index-mark"
+                      style={{ backgroundColor: item.color ? LABEL_COLORS[item.color] : undefined }}
+                      aria-hidden
+                    />
+                    <span className="label-index-name">{item.text.trim() || '無題のラベル'}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : null}
+        <div className="tasks-content">
       <div className="tasks-toolbar">
         <div className="view-switch" role="tablist" aria-label="表示">
           <button
@@ -988,6 +1053,8 @@ export function TasksPage() {
           ) : null}
         </section>
       ) : null}
+        </div>
+      </div>
 
       {helpOpen ? <KeyboardHelp onClose={() => setHelpOpen(false)} /> : null}
 

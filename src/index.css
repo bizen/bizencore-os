@@ -145,6 +145,160 @@ body {
   min-width: 0;
 }
 
+.page--indexed {
+  max-width: 1040px;
+}
+
+.tasks-layout,
+.tasks-content {
+  min-width: 0;
+  width: 100%;
+}
+
+.tasks-layout.has-index {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 720px);
+  align-items: start;
+  justify-content: center;
+  gap: clamp(1rem, 3vw, 2rem);
+}
+
+.tasks-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.label-index {
+  position: sticky;
+  top: 5.5rem;
+  align-self: start;
+  max-height: calc(100vh - 7rem);
+  overflow-y: auto;
+  min-width: 0;
+  padding: 0.2rem 0 0.5rem;
+}
+
+.label-index-heading {
+  display: block;
+  padding: 0.25rem 0.55rem 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+}
+
+.label-index-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.label-index-link {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.label-index-link:hover,
+.label-index-link:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.label-index-link.is-current {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.label-index-mark {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.label-index-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row--section.row--root {
+  scroll-margin-top: 6rem;
+}
+
+@media (max-width: 860px) {
+  .page--indexed {
+    max-width: 720px;
+  }
+
+  .tasks-layout.has-index {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .label-index {
+    top: 4.5rem;
+    z-index: 8;
+    width: 100%;
+    max-height: none;
+    overflow: hidden;
+    padding: 0.4rem 0;
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .label-index-heading {
+    display: none;
+  }
+
+  .label-index-list {
+    flex-direction: row;
+    gap: 0.2rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .label-index-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .label-index-list li {
+    flex: none;
+    max-width: 45%;
+  }
+
+  .label-index-link {
+    white-space: nowrap;
+  }
+
+  .row--section.row--root {
+    scroll-margin-top: 9rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .label-index {
+    top: 3.75rem;
+  }
+}
+
 /* ---------- Board（ラベルごとの列） ---------- */
 
 .board {
