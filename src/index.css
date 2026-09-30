@@ -2203,37 +2203,36 @@ body {
     column-gap: 0.35rem;
   }
 
-  .meta-kind img {
-    width: 16px;
-    height: 16px;
+  .row--task > .row-main,
+  .board .row--task > .row-main {
+    grid-template-columns: 22px minmax(0, 1fr) 28px;
   }
 
-  /* 幅がないので today はラベルを畳んで丸だけにする */
-  .meta-today {
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    overflow: hidden;
-    text-indent: -999px;
-    border-color: transparent;
-    background: none;
+  .row--task .row-meta,
+  .board .row--task .row-meta {
+    display: grid;
+    grid-column: 3;
+    grid-row: 1;
+    grid-template-columns: 28px;
+    gap: 0;
+    padding-top: 0;
   }
 
-  .meta-today::before {
-    content: '';
-    position: absolute;
-    inset: 4px;
-    border-radius: 50%;
-    border: 1.5px solid currentColor;
+  .row--task .row-meta > :not(.meta-inspect),
+  .board .row--task .row-meta > :not(.meta-inspect) {
+    display: none;
   }
 
-  .meta-today.is-on::before {
-    background: currentColor;
+  .row--task .row-meta .meta-inspect,
+  .board .row--task .row-meta .meta-inspect {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    opacity: 0.75;
   }
 
-  .estimate-chip,
-  .estimate-input {
-    font-size: 0.68rem;
+  .row--task.is-done .row-meta {
+    opacity: 1;
   }
 
   .swatch {

@@ -7,7 +7,9 @@
 import type { KeyboardEvent } from 'react';
 
 function metaButtonsOf(row: Element | null | undefined): HTMLElement[] {
-  return row ? Array.from(row.querySelectorAll<HTMLElement>('[data-meta]')) : [];
+  return row
+    ? Array.from(row.querySelectorAll<HTMLElement>('[data-meta]')).filter((button) => button.getClientRects().length > 0)
+    : [];
 }
 
 function focusTitleEnd(row: Element | null | undefined): boolean {
