@@ -30,7 +30,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: '⌥⇧C', label: '完了を削除' },
   { keys: '⌘⌫ / 空行で ⌫', label: '行を削除', footer: { keys: '⌘⌫', label: '削除' } },
   { keys: '⌘Z', label: '取り消し', footer: { label: '取り消し' } },
-  { keys: '⌥1 / ⌥2 / ⌥3', label: 'all / today / board' },
+  { keys: '⌥1 / ⌥2 / ⌥3', label: 'all / board / today' },
   { keys: '⌘F', label: '検索' },
   { keys: '⌘K', label: 'tasks ⇄ count を切り替え' },
   { keys: '⌘/', label: 'ヘルプを開く / 閉じる', footer: { label: 'ヘルプ' } },

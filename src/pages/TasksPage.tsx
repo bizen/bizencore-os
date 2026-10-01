@@ -599,13 +599,13 @@ export function TasksPage() {
         setViewMode('all');
         return;
       }
-      if (event.altKey && event.code === 'Digit3') {
+      if (event.altKey && event.code === 'Digit2') {
         event.preventDefault();
         setViewMode('board');
         return;
       }
 
-      if (event.altKey && event.code === 'Digit2') {
+      if (event.altKey && event.code === 'Digit3') {
         event.preventDefault();
         setViewMode('today');
         return;
@@ -860,23 +860,23 @@ export function TasksPage() {
           <button
             type="button"
             role="tab"
-            aria-selected={view === 'today'}
-            className={`view-switch-btn${view === 'today' ? ' active' : ''}`}
-            onClick={() => setViewMode('today')}
+            aria-selected={view === 'board'}
+            className={`view-switch-btn${view === 'board' ? ' active' : ''}`}
+            onClick={() => setViewMode('board')}
             title="⌥2"
           >
-            today
-            <span className="view-switch-count">{todayNumbers.size}</span>
+            board
           </button>
           <button
             type="button"
             role="tab"
-            aria-selected={view === 'board'}
-            className={`view-switch-btn${view === 'board' ? ' active' : ''}`}
-            onClick={() => setViewMode('board')}
+            aria-selected={view === 'today'}
+            className={`view-switch-btn${view === 'today' ? ' active' : ''}`}
+            onClick={() => setViewMode('today')}
             title="⌥3"
           >
-            board
+            today
+            <span className="view-switch-count">{todayNumbers.size}</span>
           </button>
         </div>
 

@@ -472,50 +472,27 @@ body {
   outline: none;
 }
 
-/*
- * 列は狭いので、タスクの行はメタ欄をタイトルの下の行に回し、タイトルに幅を譲る。
- * 値の入っていない欄と削除は、カーソルを重ねたときと選んでいるときだけ出す。
- */
 .board .row--task .row-main {
-  grid-template-columns: 22px minmax(0, 1fr);
-  row-gap: 0.1rem;
+  grid-template-columns: 22px minmax(0, 1fr) 28px;
 }
 
 .board .row--task .row-meta {
-  grid-column: 2;
-  grid-row: 2;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
+  grid-column: 3;
+  grid-row: 1;
+  grid-template-columns: 28px;
+  gap: 0;
   padding-top: 0;
 }
 
-.board .row--task .estimate-chip {
-  width: auto;
-  margin-left: 0;
-  text-align: left;
-}
-
-.board .row--task .meta-kind:not(.is-set),
-.board .row--task .meta-today:not(.is-on),
-.board .row--task .estimate-chip:not(.has-estimate),
-.board .row--task .meta-remove,
-.board .row--task .meta-inspect {
+.board .row--task .row-meta > :not(.meta-inspect) {
   display: none;
 }
 
-.board .row--task:hover .meta-kind,
-.board .row--task:hover .meta-today,
-.board .row--task:hover .estimate-chip,
-.board .row--task:hover .meta-remove,
-.board .row--task:hover .meta-inspect,
-.board .row--task.is-active .meta-kind,
-.board .row--task.is-active .meta-today,
-.board .row--task.is-active .estimate-chip,
-.board .row--task.is-active .meta-remove,
-.board .row--task.is-active .meta-inspect {
-  display: inline-flex;
+.board .row--task .meta-inspect {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  opacity: 0.75;
 }
 
 @media (max-width: 640px) {
