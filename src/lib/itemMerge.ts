@@ -22,11 +22,12 @@ import { mergeAttachments } from './attachments';
 
 export const FIELD_GROUPS = {
   type: ['type'],
+  origin: ['createdBy', 'createdByClient'],
   position: ['parentId', 'order'],
   text: ['text'],
   note: ['note'],
   completionCriteria: ['completionCriteria'],
-  done: ['done', 'filed', 'completedBy'],
+  done: ['done', 'filed', 'completedBy', 'completedByClient'],
   kind: ['kind'],
   color: ['color'],
   estimate: ['estimate'],

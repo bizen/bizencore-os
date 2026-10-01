@@ -39,7 +39,10 @@ interface StoredItem {
     note?: string;
     completionCriteria?: string;
     done: boolean;
-    completedBy?: "ai";
+    createdBy?: "user" | "ai";
+    createdByClient?: string;
+    completedBy?: "user" | "ai";
+    completedByClient?: string;
     filed?: boolean;
     kind?: "main" | "tanomi";
     color?: string;
@@ -75,7 +78,10 @@ function parsePayload(row: SyncRow): StoredItem | null {
             dueDate: typeof raw.dueDate === "string" && isDateString(raw.dueDate) ? raw.dueDate : undefined,
             dueTime: typeof raw.dueDate === "string" && isDateString(raw.dueDate) && typeof raw.dueTime === "string" && isTimeString(raw.dueTime) ? raw.dueTime : undefined,
             done: raw.done === true,
-            completedBy: raw.done === true && raw.completedBy === "ai" ? "ai" : undefined,
+            createdBy: raw.createdBy === "user" || raw.createdBy === "ai" ? raw.createdBy : undefined,
+            createdByClient: raw.createdBy === "ai" && typeof raw.createdByClient === "string" ? raw.createdByClient : undefined,
+            completedBy: raw.done === true && (raw.completedBy === "user" || raw.completedBy === "ai") ? raw.completedBy : undefined,
+            completedByClient: raw.done === true && raw.completedBy === "ai" && typeof raw.completedByClient === "string" ? raw.completedByClient : undefined,
             createdAt: typeof raw.createdAt === "number" ? raw.createdAt : row.updatedAt,
             updatedAt: row.updatedAt,
             deletedAt: row.deletedAt,
@@ -154,6 +160,10 @@ function stampAfter(items: StoredItem[]): number {
     return Math.max(Date.now(), newest + 1);
 }
 
+function clientLabel(name: string | undefined): string | undefined {
+    return name?.trim().slice(0, 80) || undefined;
+}
+
 async function resolveToday(ctx: QueryCtx | MutationCtx, userId: string, today: boolean | string | undefined): Promise<string | undefined> {
     if (today === undefined || today === false || today === "") return undefined;
     if (typeof today === "string") {
@@ -213,13 +223,17 @@ interface TaskView {
     text: string;
     note?: string;
     done: boolean;
+    created_by?: "user" | "agent";
+    created_by_client?: string;
+    completed_by?: "user" | "agent";
+    completed_by_client?: string;
     label?: string;
     estimate_minutes?: number;
     today?: string;
     due_date?: string;
     due_time?: string;
     completion_criteria?: string;
-    subtasks?: { id: string; text: string; done: boolean; due_date?: string; due_time?: string; completion_criteria?: string }[];
+    subtasks?: { id: string; text: string; done: boolean; created_by?: "user" | "agent"; created_by_client?: string; completed_by?: "user" | "agent"; completed_by_client?: string; due_date?: string; due_time?: string; completion_criteria?: string }[];
     attachments?: AttachmentView[];
 }
 
@@ -236,6 +250,7 @@ interface AttachmentView {
 
 async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: string | undefined, subtasks: StoredItem[]): Promise<TaskView> {
     const view: TaskView = { id: item.id, text: item.text, done: item.done };
+    Object.assign(view, attributionView(item));
     if (item.note?.trim()) view.note = item.note;
     if (label) view.label = label;
     if (typeof item.estimate === "number") view.estimate_minutes = item.estimate;
@@ -245,6 +260,7 @@ async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: st
     if (item.completionCriteria?.trim()) view.completion_criteria = item.completionCriteria;
     if (subtasks.length > 0) {
         view.subtasks = subtasks.map((s) => ({ id: s.id, text: s.text, done: s.done,
+            ...attributionView(s),
             ...(s.dueDate ? { due_date: s.dueDate } : {}),
             ...(s.dueTime ? { due_time: s.dueTime } : {}),
             ...(s.completionCriteria ? { completion_criteria: s.completionCriteria } : {}),
@@ -282,6 +298,15 @@ async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: st
         }));
     }
     return view;
+}
+
+function attributionView(item: StoredItem) {
+    return {
+        ...(item.createdBy ? { created_by: item.createdBy === "ai" ? "agent" as const : "user" as const } : {}),
+        ...(item.createdByClient ? { created_by_client: item.createdByClient } : {}),
+        ...(item.done && item.completedBy ? { completed_by: item.completedBy === "ai" ? "agent" as const : "user" as const } : {}),
+        ...(item.done && item.completedByClient ? { completed_by_client: item.completedByClient } : {}),
+    };
 }
 
 /** 見積もりの合計。画面のフッタと同じく、未完了のタスクを親も子も足す */
@@ -401,8 +426,9 @@ export const add = internalMutation({
         dueTime: v.optional(v.string()),
         completionCriteria: v.optional(v.string()),
         idempotencyKey: v.optional(v.string()),
+        clientName: v.optional(v.string()),
     },
-    handler: async (ctx, { userId, text, note, label, estimateMinutes, parentId, dueDate, dueTime, completionCriteria, idempotencyKey }) => {
+    handler: async (ctx, { userId, text, note, label, estimateMinutes, parentId, dueDate, dueTime, completionCriteria, idempotencyKey, clientName }) => {
         const trimmed = text.trim();
         if (!trimmed) throw new ConvexError("text is empty");
         if (label !== undefined && !label.trim() && !parentId) throw new ConvexError("label is empty");
@@ -450,6 +476,8 @@ export const add = internalMutation({
             order: nextOrder(items, parent),
             text: trimmed,
             done: false,
+            createdBy: "ai",
+            createdByClient: clientLabel(clientName),
             createdAt: now,
             updatedAt: now,
         };
@@ -470,8 +498,8 @@ export const add = internalMutation({
 });
 
 export const complete = internalMutation({
-    args: { userId: v.string(), taskId: v.string(), done: v.optional(v.boolean()) },
-    handler: async (ctx, { userId, taskId, done }) => {
+    args: { userId: v.string(), taskId: v.string(), done: v.optional(v.boolean()), clientName: v.optional(v.string()) },
+    handler: async (ctx, { userId, taskId, done, clientName }) => {
         const items = await loadItems(ctx, userId);
         const target = items.find((i) => i.id === taskId);
         if (!target || target.type !== "task") throw new ConvexError("task not found");
@@ -488,6 +516,7 @@ export const complete = internalMutation({
                 done: next,
                 filed: next ? item.filed : undefined,
                 completedBy: next ? "ai" : undefined,
+                completedByClient: next ? clientLabel(clientName) : undefined,
                 updatedAt: stamp++,
             });
         }
@@ -785,8 +814,9 @@ export const addMany = internalMutation({
         ),
         label: v.optional(v.string()),
         parentId: v.optional(v.string()),
+        clientName: v.optional(v.string()),
     },
-    handler: async (ctx, { userId, tasks, label, parentId }) => {
+    handler: async (ctx, { userId, tasks, label, parentId, clientName }) => {
         if (tasks.length === 0) throw new ConvexError("tasks is empty");
         if (tasks.some((t) => !t.text.trim())) throw new ConvexError("text is empty");
         if (label !== undefined && !label.trim() && !parentId) throw new ConvexError("label is empty");
@@ -826,6 +856,8 @@ export const addMany = internalMutation({
                 order: itemOrder,
                 text: task.text.trim(),
                 done: false,
+                createdBy: "ai",
+                createdByClient: clientLabel(clientName),
                 createdAt: stamp,
                 updatedAt: stamp++,
             };

@@ -9,7 +9,7 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { add, complete, list, previewDelete, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { add, addMany, complete, list, previewDelete, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
 function memoryContext() {
   const rows = { syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
@@ -148,21 +148,43 @@ test('delete checks the confirmed task snapshot before removing its subtree', as
 
 test('MCP completion marks changed tasks as AI-completed and clears the mark on reopen', async () => {
   const { ctx, rows } = memoryContext();
-  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Ship release' });
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Ship release', clientName: 'Codex' });
   const child = await add._handler(ctx, { userId: 'user-1', text: 'Run checks', parentId: parent.id });
   await add._handler(ctx, { userId: 'user-1', text: 'Check migration', parentId: child.id });
 
-  await complete._handler(ctx, { userId: 'user-1', taskId: parent.id });
+  await complete._handler(ctx, { userId: 'user-1', taskId: parent.id, clientName: 'Claude Code' });
   for (const row of rows.syncItems) {
     const item = JSON.parse(row.payload);
     assert.equal(item.done, true);
     assert.equal(item.completedBy, 'ai');
+    assert.equal(item.completedByClient, 'Claude Code');
     assert.equal(item.stamps.done > 0, true);
   }
+  const result = await list._handler(ctx, { userId: 'user-1', includeDone: true });
+  assert.equal(result.tasks[0].created_by, 'agent');
+  assert.equal(result.tasks[0].created_by_client, 'Codex');
+  assert.equal(result.tasks[0].completed_by, 'agent');
+  assert.equal(result.tasks[0].completed_by_client, 'Claude Code');
+  assert.equal(result.tasks[0].subtasks[0].completed_by_client, 'Claude Code');
 
   await complete._handler(ctx, { userId: 'user-1', taskId: child.id, done: false });
   const reopened = JSON.parse(rows.syncItems.find((row) => row.itemId === child.id).payload);
   assert.equal(reopened.done, false);
   assert.equal(reopened.completedBy, undefined);
+  assert.equal(reopened.completedByClient, undefined);
   assert.equal(JSON.parse(rows.syncItems.find((row) => row.itemId === parent.id).payload).completedBy, 'ai');
+});
+
+test('bulk MCP creation records the client on parents and subtasks', async () => {
+  const { ctx, rows } = memoryContext();
+  await addMany._handler(ctx, {
+    userId: 'user-1', clientName: ' Codex ',
+    tasks: [{ text: 'Prepare launch', subtasks: [{ text: 'Check copy' }] }],
+  });
+  assert.equal(rows.syncItems.length, 2);
+  for (const row of rows.syncItems) {
+    const item = JSON.parse(row.payload);
+    assert.equal(item.createdBy, 'ai');
+    assert.equal(item.createdByClient, 'Codex');
+  }
 });

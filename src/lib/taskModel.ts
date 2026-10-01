@@ -50,8 +50,11 @@ export interface Item {
   /** このタスクが終わったと判断する条件 */
   completionCriteria?: string;
   done: boolean;
-  /** MCP から完了されたタスクだけ記録する。人が完了し直したら消す */
-  completedBy?: 'ai';
+  /** 古いタスクは出所を推測せず未設定のままにする */
+  createdBy?: 'user' | 'ai';
+  createdByClient?: string;
+  completedBy?: 'user' | 'ai';
+  completedByClient?: string;
   /** 「完了を整理」で完了済みの棚へ送ったか。完了を取り消すと外れる */
   filed?: boolean;
   kind?: TaskKind;

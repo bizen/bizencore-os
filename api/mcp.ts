@@ -25,7 +25,7 @@ Call list_tasks first when you need to know what is already there, or to get the
 
 Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
 
-This is the user's list, not a scratchpad. Do not add duplicates, do not add things they did not ask for, and do not complete a task unless they said it is done. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone. Completion criteria describe the intended end state; check them before suggesting completion.`;
+This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. Ask the user when uncertain. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
 
 const clerk = createClerkClient({
   secretKey: clerkSecretKey(),
@@ -301,7 +301,7 @@ const handler = createMcpHandler(
       {
         title: 'Check off a task',
         description:
-          'Mark a task as done, together with its subtasks. Only when the user has said it is done; review its completion_criteria first. Pass done: false to put it back.',
+          'Mark a task as done, together with its subtasks. Do this when the user says it is done, or when you have finished and verified explicitly requested work that clearly matches this task. Review completion_criteria first; never check off partial or ambiguous work. Pass done: false to put it back.',
         inputSchema: z.object({
           task_id: z.string(),
           done: z.boolean().optional().describe('false puts the task back to unfinished'),

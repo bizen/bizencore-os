@@ -67,7 +67,10 @@ function coerceItem(raw: unknown): Item | null {
     note: typeof r.note === 'string' && r.note ? r.note : undefined,
     completionCriteria: typeof r.completionCriteria === 'string' && r.completionCriteria ? r.completionCriteria : undefined,
     done: r.done === true,
-    completedBy: r.done === true && r.completedBy === 'ai' ? 'ai' : undefined,
+    createdBy: r.createdBy === 'user' || r.createdBy === 'ai' ? r.createdBy : undefined,
+    createdByClient: r.createdBy === 'ai' && typeof r.createdByClient === 'string' ? r.createdByClient : undefined,
+    completedBy: r.done === true && (r.completedBy === 'user' || r.completedBy === 'ai') ? r.completedBy : undefined,
+    completedByClient: r.done === true && r.completedBy === 'ai' && typeof r.completedByClient === 'string' ? r.completedByClient : undefined,
     filed: r.filed === true ? true : undefined,
     kind: r.kind === 'main' || r.kind === 'tanomi' ? r.kind : undefined,
     color: isLabelColor(r.color) ? r.color : undefined,
@@ -212,7 +215,10 @@ function sameContent(a: Item, b: Item): boolean {
     a.note === b.note &&
     a.completionCriteria === b.completionCriteria &&
     a.done === b.done &&
+    a.createdBy === b.createdBy &&
+    a.createdByClient === b.createdByClient &&
     a.completedBy === b.completedBy &&
+    a.completedByClient === b.completedByClient &&
     a.filed === b.filed &&
     a.kind === b.kind &&
     a.color === b.color &&
@@ -282,6 +288,7 @@ function blankItem(parentId: string | null, order: number, type: 'task' | 'secti
     order,
     text: '',
     done: false,
+    createdBy: 'user',
     createdAt: now,
     updatedAt: now,
   };
@@ -428,7 +435,8 @@ export const taskStore = {
       .filter(isLive)
       .filter((item) => item.type === 'task' && (item.done !== done || (!done && item.filed)))
       // 完了を取り消したら棚から出す
-      .map((item) => ({ ...item, done, filed: done ? item.filed : undefined, completedBy: undefined }));
+      .map((item) => ({ ...item, done, filed: done ? item.filed : undefined,
+        completedBy: done ? 'user' as const : undefined, completedByClient: undefined }));
     if (patches.length === 0) return;
     commit(withPatches(patches));
   },

@@ -196,6 +196,7 @@ http.route({
             dueTime: typeof body.dueTime === "string" ? body.dueTime : undefined,
             completionCriteria: typeof body.completionCriteria === "string" ? body.completionCriteria : undefined,
             idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined,
+            clientName: typeof body.clientName === "string" ? body.clientName : undefined,
         })
     ),
 });
@@ -208,6 +209,7 @@ http.route({
             userId: body.userId as string,
             taskId: String(body.taskId ?? ""),
             done: typeof body.done === "boolean" ? body.done : undefined,
+            clientName: typeof body.clientName === "string" ? body.clientName : undefined,
         })
     ),
 });
@@ -259,6 +261,7 @@ http.route({
             }[],
             label: typeof body.label === "string" ? body.label : undefined,
             parentId: typeof body.parentId === "string" ? body.parentId : undefined,
+            clientName: typeof body.clientName === "string" ? body.clientName : undefined,
         })
     ),
 });

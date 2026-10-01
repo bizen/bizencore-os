@@ -69,6 +69,12 @@ function useAutoGrow() {
   return ref;
 }
 
+function actorLabel(actor: Item['createdBy'], client?: string): string {
+  if (actor === 'user') return 'by user';
+  if (actor === 'ai') return `by agent${client ? ` · ${client}` : ''}`;
+  return '不明';
+}
+
 /**
  * タスクの詳細パネル。行に載せきれない項目と操作をここに集める。
  * 行のボタンは残したまま足しているので、どちらからでも同じ値を変えられる。
@@ -156,16 +162,30 @@ export function TaskInspector(props: TaskInspectorProps) {
         </button>
       </div>
 
-      <textarea
-        ref={titleRef}
-        rows={1}
-        className="inspector-title"
-        value={item.text}
-        placeholder="タスク"
-        spellCheck={false}
-        onChange={(e) => onTextChange(item.id, e.target.value)}
-        aria-label="タスク"
-      />
+      <div className="inspector-identity">
+        <textarea
+          ref={titleRef}
+          rows={1}
+          className="inspector-title"
+          value={item.text}
+          placeholder="タスク"
+          spellCheck={false}
+          onChange={(e) => onTextChange(item.id, e.target.value)}
+          aria-label="タスク"
+        />
+        <dl className="inspector-attribution">
+          <div>
+            <dt>作成</dt>
+            <dd>{actorLabel(item.createdBy, item.createdByClient)}</dd>
+          </div>
+          {item.done ? (
+            <div>
+              <dt>完了</dt>
+              <dd>{actorLabel(item.completedBy, item.completedByClient)}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </div>
 
       <section className="inspector-section">
         <h3 className="inspector-label">メモ</h3>
