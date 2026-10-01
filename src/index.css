@@ -2652,6 +2652,11 @@ body {
   border-color: var(--danger-color);
 }
 
+.inspector :is(button, a):focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+}
+
 @media (max-width: 640px) {
   /* iPhone は 16px 未満の入力欄にフォーカスすると画面を拡大するので、16px にそろえる */
   .inspector-title,

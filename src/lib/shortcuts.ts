@@ -29,6 +29,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: '⌘Enter', label: '完了 / 未完了', footer: { label: '完了' } },
   { keys: '⇧Enter', label: 'メモを開く', footer: { label: 'メモ' } },
   { keys: '⌘I', label: 'タスクの詳細を開く' },
+  { keys: '詳細内 Tab / ⇧Tab・↑ / ↓', label: '詳細パネル内を移動（入力欄の上下キーは行の端で移動）' },
   { keys: '⌥T', label: 'today に入れる / 外す', footer: { label: 'today' } },
   { keys: '⌥E', label: '右パネルの作業想定時間へ移動（30 / 45m / 1.5h / 1h30）', footer: { label: '想定時間' } },
   { keys: '⌥M', label: 'クエスト種別（なし→橙→青）/ ラベルの色', footer: { label: '種別 / 色' } },

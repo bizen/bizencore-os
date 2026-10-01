@@ -594,6 +594,15 @@ export function TasksPage() {
       if (event.defaultPrevented) return;
       const mod = event.metaKey || event.ctrlKey;
 
+      if (inspector) {
+        if (event.key === 'Escape' && !event.isComposing) {
+          event.preventDefault();
+          setInspector(null);
+          requestFocus(inspector.id);
+        }
+        return;
+      }
+
       if (event.key === 'Escape') {
         if (deadlineOpenId) {
           handleDeadlineOpenChange(deadlineOpenId, false);
@@ -705,6 +714,7 @@ export function TasksPage() {
     handleColorOpenChange,
     setViewMode,
     focusedLabels,
+    inspector,
   ]);
 
   const handleTitleKeyDown = (
