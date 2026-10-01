@@ -1,10 +1,10 @@
-import { PanelRight, Paperclip, Trash2 } from 'lucide-react';
+import { Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
 import { liveAttachments } from '../../lib/attachments';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
 import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
-import { EstimateField } from './EstimateField';
+import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
 
 function useAutoGrow(value: string) {
@@ -66,8 +66,9 @@ export interface TaskRowProps {
   /** 完了の演出中だけ入る。値は点灯をずらす順番 */
   burstIndex?: number;
   noteOpen: boolean;
-  estimateEditing: boolean;
+  deadlineOpen: boolean;
   colorOpen: boolean;
+  isFocusedLabel: boolean;
   registerTitle: (id: string, el: HTMLTextAreaElement | null) => void;
   registerNote: (id: string, el: HTMLTextAreaElement | null) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>, item: Item) => void;
@@ -78,12 +79,13 @@ export interface TaskRowProps {
   onToggleDone: (id: string) => void;
   onToggleToday: (id: string) => void;
   onCycleKind: (id: string) => void;
-  onSetEstimate: (id: string, estimate: number | undefined) => void;
-  onEstimateEditingChange: (id: string, editing: boolean) => void;
+  onSetDeadline: (id: string, dueDate: string | undefined, dueTime: string | undefined) => void;
+  onDeadlineOpenChange: (id: string, open: boolean) => void;
   onColorOpenChange: (id: string, open: boolean) => void;
   onRemove: (id: string) => void;
   onTitleBlur: (id: string) => void;
   onSetLabelColor: (id: string, color: LabelColor | undefined) => void;
+  onToggleLabelFocus: (id: string) => void;
   /** 詳細パネルを開く（タスクだけ） */
   onInspect: (id: string) => void;
 }
@@ -99,8 +101,9 @@ export function TaskRow(props: TaskRowProps) {
     isActive,
     burstIndex,
     noteOpen,
-    estimateEditing,
+    deadlineOpen,
     colorOpen,
+    isFocusedLabel,
     registerTitle,
     registerNote,
     onKeyDown,
@@ -111,12 +114,13 @@ export function TaskRow(props: TaskRowProps) {
     onToggleDone,
     onToggleToday,
     onCycleKind,
-    onSetEstimate,
-    onEstimateEditingChange,
+    onSetDeadline,
+    onDeadlineOpenChange,
     onColorOpenChange,
     onRemove,
     onTitleBlur,
     onSetLabelColor,
+    onToggleLabelFocus,
     onInspect,
   } = props;
 
@@ -189,10 +193,9 @@ export function TaskRow(props: TaskRowProps) {
             onKeyDown={(e) => onKeyDown(e, item)}
             aria-label={isSection ? 'ラベル' : 'タスク'}
           />
-          {!isSection && (item.dueDate || item.completionCriteria) ? (
-            <button type="button" className="row-details" onClick={() => onInspect(item.id)} tabIndex={-1} aria-label="期限と完了条件を編集">
-              {item.dueDate ? <span className={isOverdue ? 'is-overdue' : ''}>期限 {item.dueDate}{item.dueTime ? ` ${item.dueTime}` : ''}</span> : null}
-              {item.completionCriteria ? <span className="row-criteria">完了条件 {item.completionCriteria}</span> : null}
+          {!isSection && item.completionCriteria ? (
+            <button type="button" className="row-details" onClick={() => onInspect(item.id)} tabIndex={-1} aria-label="完了条件を編集">
+              <span className="row-criteria">完了条件 {item.completionCriteria}</span>
             </button>
           ) : null}
           {noteOpen || item.note ? (
@@ -222,6 +225,23 @@ export function TaskRow(props: TaskRowProps) {
               onChipKeyDown={handleMetaKeyDown}
               onChipFocus={() => onFocusRow(item.id)}
             />
+          ) : null}
+
+          {isSection ? (
+            <button
+              type="button"
+              data-meta="focus"
+              className={`meta-focus${isFocusedLabel ? ' is-on' : ''}`}
+              onClick={() => onToggleLabelFocus(item.id)}
+              onKeyDown={handleMetaKeyDown}
+              onFocus={() => onFocusRow(item.id)}
+              tabIndex={-1}
+              aria-pressed={isFocusedLabel}
+              aria-label={isFocusedLabel ? 'フォーカスから外す' : 'フォーカスに追加'}
+              title={isFocusedLabel ? 'フォーカスから外す' : 'フォーカスに追加'}
+            >
+              {isFocusedLabel ? <Minus size={15} aria-hidden /> : <Plus size={15} aria-hidden />}
+            </button>
           ) : null}
 
           {isSection ? null : (
@@ -255,12 +275,14 @@ export function TaskRow(props: TaskRowProps) {
                 today
               </button>
 
-              <EstimateField
-                estimate={item.estimate}
-                isEditing={estimateEditing}
-                onSave={(estimate) => onSetEstimate(item.id, estimate)}
-                onEditingChange={(editing) => onEstimateEditingChange(item.id, editing)}
-                dataMeta="estimate"
+              <DeadlineField
+                dueDate={item.dueDate}
+                dueTime={item.dueTime}
+                isOverdue={isOverdue}
+                isOpen={deadlineOpen}
+                onOpenChange={(open) => onDeadlineOpenChange(item.id, open)}
+                onSave={(dueDate, dueTime) => onSetDeadline(item.id, dueDate, dueTime)}
+                dataMeta="deadline"
                 onChipKeyDown={handleMetaKeyDown}
                 onChipFocus={() => onFocusRow(item.id)}
               />

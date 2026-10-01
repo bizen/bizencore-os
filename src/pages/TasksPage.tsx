@@ -4,7 +4,7 @@ import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
 import { TaskRow } from '../components/task/TaskRow';
 import { focusFirstMeta } from '../lib/metaCursor';
-import { FOOTER_SHORTCUTS } from '../lib/shortcuts';
+import { FOCUS_SHORTCUT_CODES, FOOTER_SHORTCUTS, focusShortcut } from '../lib/shortcuts';
 import { formatEstimate } from '../lib/taskEstimate';
 import { dateInTimeZone, localDateString, timeInTimeZone } from '../lib/taskDates';
 import { useUserTimeZone } from '../lib/userTimeZone';
@@ -16,10 +16,12 @@ import {
   LABEL_COLORS,
   flattenAll,
   flattenToday,
+  isLive,
+  rowsForLabel,
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 
-type ViewMode = 'all' | 'today' | 'board';
+type ViewMode = 'all' | 'today' | 'board' | `label:${string}`;
 
 interface BoardColumn {
   key: string;
@@ -70,12 +72,30 @@ function loadShelfOpen(): boolean {
   }
 }
 const VIEW_KEY = 'chrct.tasks.view';
+const FOCUSED_LABELS_KEY = 'chrct.tasks.focusedLabels';
 
-/** 最後に見ていた表示（all / today / board）を開き直しても保つ */
+function labelView(id: string): ViewMode {
+  return `label:${id}`;
+}
+
+function loadFocusedLabels(): string[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FOCUSED_LABELS_KEY) ?? '[]') as unknown;
+    return Array.isArray(saved)
+      ? [...new Set(saved.filter((id): id is string => typeof id === 'string' && id.length > 0))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 最後に見ていた表示を開き直しても保つ */
 function loadView(): ViewMode {
   try {
     const saved = localStorage.getItem(VIEW_KEY);
-    return saved === 'today' || saved === 'board' ? saved : 'all';
+    return saved === 'today' || saved === 'board' || (saved?.startsWith('label:') && saved.length > 6)
+      ? saved as ViewMode
+      : 'all';
   } catch {
     return 'all';
   }
@@ -181,15 +201,21 @@ export function TasksPage() {
   const timeZone = useUserTimeZone();
   const { todayDate, todayTime } = useTodayClock(timeZone);
 
-  const [view, setView] = useState<ViewMode>(loadView);
+  const [selectedView, setView] = useState<ViewMode>(loadView);
+  const [focusedLabelIds, setFocusedLabelIds] = useState(loadFocusedLabels);
+  const selectedLabelId = selectedView.startsWith('label:') ? selectedView.slice(6) : null;
+  const selectedLabel = selectedLabelId ? items[selectedLabelId] : undefined;
+  const view: ViewMode = selectedLabelId && (
+    !focusedLabelIds.includes(selectedLabelId) || !isLive(selectedLabel) || selectedLabel.type !== 'section'
+  ) ? 'all' : selectedView;
   const [query, setQuery] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
-  const [estimateEditId, setEstimateEditId] = useState<string | null>(null);
+  const [deadlineOpenId, setDeadlineOpenId] = useState<string | null>(null);
   const [colorOpenId, setColorOpenId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   /** 詳細パネルで開いているタスク */
-  const [inspectId, setInspectId] = useState<string | null>(null);
+  const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate' } | null>(null);
   const [completedOpen, setCompletedOpen] = useState(loadShelfOpen);
   /** 完了した瞬間だけ演出を出す行。値は上から数えた順番（点灯のずらし用） */
   const [burstOrder, setBurstOrder] = useState<ReadonlyMap<string, number>>(EMPTY_BURST);
@@ -197,18 +223,28 @@ export function TasksPage() {
   const titleRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const noteRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const viewSwitchRef = useRef<HTMLDivElement | null>(null);
   const pendingFocus = useRef<PendingFocus | null>(null);
 
   const allRows = useMemo(() => flattenAll(items), [items]);
   const todayRows = useMemo(() => flattenToday(items, todayDate), [items, todayDate]);
+  const focusedLabelId = view.startsWith('label:') ? view.slice(6) : null;
+  const focusedLabels = useMemo(
+    () => focusedLabelIds.map((id) => items[id]).filter((item): item is Item => isLive(item) && item.type === 'section'),
+    [focusedLabelIds, items]
+  );
+  const focusRows = useMemo(
+    () => focusedLabelId ? rowsForLabel(allRows, focusedLabelId) : [],
+    [allRows, focusedLabelId]
+  );
   const { activeRows, doneRows } = useMemo(() => {
-    const source = view === 'today' ? todayRows : allRows;
+    const source = view === 'today' ? todayRows : focusedLabelId ? focusRows : allRows;
     const split = partitionCompleted(source, items, burstOrder);
     return {
       activeRows: filterRows(split.active, query),
       doneRows: filterRows(split.done, query),
     };
-  }, [view, todayRows, allRows, items, burstOrder, query]);
+  }, [view, focusedLabelId, focusRows, todayRows, allRows, items, burstOrder, query]);
 
   const doneCount = useMemo(
     () => doneRows.filter((row) => row.item.type === 'task').length,
@@ -262,11 +298,29 @@ export function TasksPage() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(VIEW_KEY, view);
+      localStorage.setItem(VIEW_KEY, selectedView);
     } catch {
       // 保存できなくても表示には困らない
     }
-  }, [view]);
+  }, [selectedView]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FOCUSED_LABELS_KEY, JSON.stringify(focusedLabelIds));
+    } catch {
+      // 保存できなくても表示には困らない
+    }
+  }, [focusedLabelIds]);
+
+  useEffect(() => {
+    const nav = viewSwitchRef.current;
+    const active = nav?.querySelector<HTMLElement>('.view-switch-btn.active');
+    if (!nav || !active) return;
+    const navRect = nav.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    if (activeRect.right > navRect.right) nav.scrollLeft += activeRect.right - navRect.right + 4;
+    else if (activeRect.left < navRect.left) nav.scrollLeft += activeRect.left - navRect.left - 4;
+  }, [view, focusedLabels]);
 
   /** 検索中は、当たったものが隠れないよう棚を開けておく（この状態は覚えない） */
   const shelfOpen = completedOpen || (query.trim() !== '' && doneRows.length > 0);
@@ -305,14 +359,14 @@ export function TasksPage() {
       if (!item.filed) fileable += 1;
     }
     // 残りと合計時間は、いま見ている表示の分だけ数える（today なら today の合計）
-    for (const row of view === 'today' ? todayRows : allRows) {
+    for (const row of view === 'today' ? todayRows : focusedLabelId ? focusRows : allRows) {
       const { item } = row;
       if (item.type !== 'task' || item.done) continue;
       remaining += 1;
       remainingMinutes += item.estimate ?? 0;
     }
     return { remaining, remainingMinutes, completed, fileable };
-  }, [allRows, todayRows, view, items]);
+  }, [allRows, todayRows, focusRows, focusedLabelId, view]);
 
   const applyFocus = useCallback((pending: PendingFocus): boolean => {
     const map = pending.target === 'note' ? noteRefs.current : titleRefs.current;
@@ -389,11 +443,11 @@ export function TasksPage() {
       const fallback = rows[index - 1]?.item.id ?? rows[index + 1]?.item.id ?? null;
       taskStore.remove(id);
       if (noteOpenId === id) setNoteOpenId(null);
-      if (estimateEditId === id) setEstimateEditId(null);
+      if (deadlineOpenId === id) setDeadlineOpenId(null);
       if (colorOpenId === id) setColorOpenId(null);
       requestFocus(fallback);
     },
-    [rowIndexOf, rows, noteOpenId, estimateEditId, colorOpenId, requestFocus]
+    [rowIndexOf, rows, noteOpenId, deadlineOpenId, colorOpenId, requestFocus]
   );
 
   /** 開く前にフォーカスがあった場所。閉じたらそこへ返す */
@@ -414,14 +468,14 @@ export function TasksPage() {
     [requestFocus]
   );
 
-  const handleEstimateEditingChange = useCallback(
-    (id: string, editing: boolean) => {
-      if (editing) {
+  const handleDeadlineOpenChange = useCallback(
+    (id: string, open: boolean) => {
+      if (open) {
         rememberFocus();
-        setEstimateEditId(id);
+        setDeadlineOpenId(id);
         return;
       }
-      setEstimateEditId(null);
+      setDeadlineOpenId(null);
       restoreFocus(id);
     },
     [rememberFocus, restoreFocus]
@@ -448,7 +502,7 @@ export function TasksPage() {
     requestAnimationFrame(() => {
       const active = document.activeElement;
       if (active instanceof HTMLElement) {
-        if (active.closest('.color-popover') || active.closest('.estimate-input')) return;
+        if (active.closest('.color-popover') || active.closest('.deadline-popover')) return;
         if (active.closest<HTMLElement>('.row')?.dataset.rowId === id) return;
       }
       taskStore.removeEmpty(id);
@@ -466,7 +520,7 @@ export function TasksPage() {
   const addLabel = useCallback(
     (anchorId: string | null) => {
       setView('all');
-      setEstimateEditId(null);
+      setDeadlineOpenId(null);
       setColorOpenId(null);
       requestFocus(taskStore.insertAfter(anchorId, { type: 'section' }));
     },
@@ -475,14 +529,23 @@ export function TasksPage() {
 
   const setViewMode = useCallback((next: ViewMode) => {
     setView(next);
-    setEstimateEditId(null);
+    setDeadlineOpenId(null);
     setColorOpenId(null);
   }, []);
+
+  const toggleLabelFocus = useCallback((id: string) => {
+    if (focusedLabelIds.includes(id)) {
+      setFocusedLabelIds((current) => current.filter((focusedId) => focusedId !== id));
+      if (view === labelView(id)) setViewMode('all');
+    } else {
+      setFocusedLabelIds((current) => [...current, id]);
+    }
+  }, [focusedLabelIds, setViewMode, view]);
 
   /** board の列の下から、そのラベルにタスクを足す（ラベルなしの列はルートの末尾へ） */
   const addTaskToColumn = useCallback(
     (labelId: string | null) => {
-      setEstimateEditId(null);
+      setDeadlineOpenId(null);
       setColorOpenId(null);
       requestFocus(labelId ? taskStore.insertAfter(labelId, { asChild: true }) : taskStore.insertAfter(null));
     },
@@ -532,8 +595,8 @@ export function TasksPage() {
       const mod = event.metaKey || event.ctrlKey;
 
       if (event.key === 'Escape') {
-        if (estimateEditId) {
-          handleEstimateEditingChange(estimateEditId, false);
+        if (deadlineOpenId) {
+          handleDeadlineOpenChange(deadlineOpenId, false);
           event.preventDefault();
           return;
         }
@@ -610,6 +673,12 @@ export function TasksPage() {
         setViewMode('today');
         return;
       }
+      const focusIndex = FOCUS_SHORTCUT_CODES.findIndex((code) => code === event.code);
+      if (event.altKey && !mod && !event.shiftKey && !event.isComposing && focusIndex >= 0 && focusedLabels[focusIndex]) {
+        event.preventDefault();
+        setViewMode(labelView(focusedLabels[focusIndex].id));
+        return;
+      }
       if (mod && event.code === 'KeyF') {
         event.preventDefault();
         searchRef.current?.focus();
@@ -625,16 +694,17 @@ export function TasksPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
-    estimateEditId,
+    deadlineOpenId,
     colorOpenId,
     helpOpen,
     query,
     rows,
     activeId,
     requestFocus,
-    handleEstimateEditingChange,
+    handleDeadlineOpenChange,
     handleColorOpenChange,
     setViewMode,
+    focusedLabels,
   ]);
 
   const handleTitleKeyDown = (
@@ -668,7 +738,7 @@ export function TasksPage() {
     // ---- 詳細パネル ----
     if (mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'i') {
       event.preventDefault();
-      if (item.type === 'task') setInspectId(item.id);
+      if (item.type === 'task') setInspector({ id: item.id, focus: 'title' });
       return;
     }
 
@@ -735,7 +805,7 @@ export function TasksPage() {
       }
       if (event.code === 'KeyE' && item.type === 'task') {
         event.preventDefault();
-        handleEstimateEditingChange(item.id, true);
+        setInspector({ id: item.id, focus: 'estimate' });
         return;
       }
       // タスクならクエスト種別、ラベルなら色を順に切り替える
@@ -814,8 +884,9 @@ export function TasksPage() {
       burstIndex={burstOrder.get(row.item.id)}
       isActive={activeId === row.item.id}
       noteOpen={noteOpenId === row.item.id}
-      estimateEditing={estimateEditId === row.item.id}
+      deadlineOpen={deadlineOpenId === row.item.id}
       colorOpen={colorOpenId === row.item.id}
+      isFocusedLabel={focusedLabelIds.includes(row.item.id)}
       registerTitle={registerTitle}
       registerNote={registerNote}
       onKeyDown={handleTitleKeyDown}
@@ -826,27 +897,28 @@ export function TasksPage() {
       onToggleDone={toggleDone}
       onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
       onCycleKind={taskStore.cycleKind}
-      onSetEstimate={taskStore.setEstimate}
-      onEstimateEditingChange={handleEstimateEditingChange}
+      onSetDeadline={taskStore.setDeadline}
+      onDeadlineOpenChange={handleDeadlineOpenChange}
       onColorOpenChange={handleColorOpenChange}
       onRemove={removeRow}
       onTitleBlur={handleTitleBlur}
       onSetLabelColor={setLabelColor}
-      onInspect={setInspectId}
+      onToggleLabelFocus={toggleLabelFocus}
+      onInspect={(id) => setInspector({ id, focus: 'title' })}
     />
   );
 
-  const inspected = inspectId ? items[inspectId] : undefined;
+  const inspected = inspector ? items[inspector.id] : undefined;
   const closeInspector = () => {
-    const id = inspectId;
-    setInspectId(null);
+    const id = inspector?.id;
+    setInspector(null);
     if (id) requestFocus(id);
   };
 
   return (
     <section className={`page${view === 'board' ? ' page--board' : ''}${indexLabels.length > 0 ? ' page--indexed' : ''}`}>
       <div className="tasks-toolbar">
-        <div className="view-switch" role="tablist" aria-label="表示">
+        <div ref={viewSwitchRef} className="view-switch" role="tablist" aria-label="表示">
           <button
             type="button"
             role="tab"
@@ -878,6 +950,23 @@ export function TasksPage() {
             today
             <span className="view-switch-count">{todayNumbers.size}</span>
           </button>
+          {focusedLabels.map((label, index) => (
+            <button
+              key={label.id}
+              type="button"
+              role="tab"
+              aria-selected={view === labelView(label.id)}
+              aria-label={label.text.trim() || '無題のラベル'}
+              aria-keyshortcuts={focusShortcut(index) ? `Alt+${index + 4}` : undefined}
+              className={`view-switch-btn view-switch-btn--focus${view === labelView(label.id) ? ' active' : ''}`}
+              onClick={() => setViewMode(labelView(label.id))}
+              title={`${label.text.trim() || '無題のラベル'}${focusShortcut(index) ? ` (${focusShortcut(index)})` : ''}`}
+              style={label.color ? { '--focus-label-color': LABEL_COLORS[label.color] } as CSSProperties : undefined}
+            >
+              <span className="view-switch-dot" aria-hidden />
+              <span className="view-switch-label">{label.text.trim() || '無題のラベル'}</span>
+            </button>
+          ))}
         </div>
 
         <input
@@ -887,6 +976,7 @@ export function TasksPage() {
           placeholder="検索（⌘F）"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             if (e.key === 'Escape') {
               e.preventDefault();
               setQuery('');
@@ -1073,6 +1163,7 @@ export function TasksPage() {
           key={inspected.id}
           item={inspected}
           items={items}
+          initialFocus={inspector?.focus ?? 'title'}
           todayDate={todayDate}
           onClose={closeInspector}
           onTextChange={taskStore.setText}
@@ -1083,7 +1174,7 @@ export function TasksPage() {
           onSetEstimate={taskStore.setEstimate}
           onSetKind={taskStore.setKind}
           onRemove={(id) => {
-            setInspectId(null);
+            setInspector(null);
             removeRow(id);
           }}
           onAddAttachment={taskStore.addAttachment}

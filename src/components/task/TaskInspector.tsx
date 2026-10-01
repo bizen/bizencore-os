@@ -12,6 +12,7 @@ import { TaskFileInput, TaskFileLink } from './TaskFileContext';
 export interface TaskInspectorProps {
   item: Item;
   items: ItemMap;
+  initialFocus: 'title' | 'estimate';
   todayDate: string;
   onClose: () => void;
   onTextChange: (id: string, text: string) => void;
@@ -154,12 +155,13 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
 
 /**
  * タスクの詳細パネル。行に載せきれない項目と操作をここに集める。
- * 行のボタンは残したまま足しているので、どちらからでも同じ値を変えられる。
+ * 作業想定時間など、行に置かない項目もここで編集する。
  */
 export function TaskInspector(props: TaskInspectorProps) {
   const {
     item,
     items,
+    initialFocus,
     todayDate,
     onClose,
     onTextChange,
@@ -176,19 +178,25 @@ export function TaskInspector(props: TaskInspectorProps) {
   const titleRef = useAutoGrow();
   const noteRef = useAutoGrow();
   const criteriaRef = useAutoGrow();
+  const estimateRef = useRef<HTMLInputElement | null>(null);
   const [estimateDraft, setEstimateDraft] = useState<string | null>(null);
   const [contextDraft, setContextDraft] = useState('');
   const contextRef = useAutoGrow();
   const attachments = liveAttachments(item.attachments);
   const isToday = item.assignedDate === todayDate;
 
-  // 開いたら本文にフォーカスする
+  // 通常は本文へ。⌥E から開いたときは想定時間へ直行する
   useEffect(() => {
+    if (initialFocus === 'estimate') {
+      estimateRef.current?.focus();
+      estimateRef.current?.select();
+      return;
+    }
     const el = titleRef.current;
     if (!el) return;
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
-  }, [item.id, titleRef]);
+  }, [item.id, initialFocus, titleRef]);
 
   const commitEstimate = () => {
     if (estimateDraft === null) return;
@@ -398,6 +406,7 @@ export function TaskInspector(props: TaskInspectorProps) {
             想定時間
           </label>
           <input
+            ref={estimateRef}
             id={`estimate-${item.id}`}
             className="inspector-input"
             value={estimateDraft ?? estimateInputValue(item.estimate)}

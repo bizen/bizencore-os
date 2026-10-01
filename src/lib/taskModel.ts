@@ -146,6 +146,15 @@ export function flattenAll(items: ItemMap): Row[] {
   return rows;
 }
 
+/** ラベル自身とその子孫だけを、all と同じ深さ・並びで取り出す */
+export function rowsForLabel(rows: Row[], labelId: string): Row[] {
+  const start = rows.findIndex((row) => row.depth === 0 && row.item.type === 'section' && row.item.id === labelId);
+  if (start < 0) return [];
+  let end = start + 1;
+  while (end < rows.length && rows[end].depth > 0) end++;
+  return rows.slice(start, end);
+}
+
 /** today 割り当てタスクとその子孫だけを、today を深さ0として並べ直す */
 export function flattenToday(items: ItemMap, todayDate: string): Row[] {
   const rows: Row[] = [];

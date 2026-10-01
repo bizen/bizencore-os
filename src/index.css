@@ -758,15 +758,24 @@ body {
 .view-switch {
   display: flex;
   gap: 0.15rem;
+  min-width: 0;
+  max-width: min(65%, calc(100% - 8rem));
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 0.18rem;
   border: 1px solid var(--hairline);
   border-radius: 9px;
   background: rgba(var(--surface-rgb), 0.025);
-  flex-shrink: 0;
+  flex: 0 1 auto;
+}
+
+.view-switch::-webkit-scrollbar {
+  display: none;
 }
 
 .view-switch-btn {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 0.4rem;
   padding: 0.32rem 0.7rem;
@@ -776,8 +785,27 @@ body {
   color: var(--text-secondary);
   font: inherit;
   font-size: 0.8rem;
+  white-space: nowrap;
   cursor: pointer;
   transition: color 0.15s, background-color 0.15s;
+}
+
+.view-switch-btn--focus {
+  max-width: 10rem;
+}
+
+.view-switch-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.view-switch-dot {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--focus-label-color, var(--text-secondary));
 }
 
 .view-switch-btn:hover {
@@ -1083,6 +1111,7 @@ body {
 }
 
 .meta-kind,
+.meta-focus,
 .meta-remove,
 .meta-inspect {
   display: grid;
@@ -1096,6 +1125,20 @@ body {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s, color 0.15s;
+}
+
+.meta-focus {
+  width: 24px;
+  height: 24px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.meta-focus:hover,
+.meta-focus:focus-visible,
+.meta-focus.is-on {
+  color: var(--label-color, var(--accent-color));
+  opacity: 1;
 }
 
 .meta-kind {
@@ -1151,15 +1194,15 @@ body {
 /* 触れている行か、値が入っているものだけ見せる */
 .row:hover .meta-kind,
 .row:hover .meta-today,
-.row:hover .estimate-chip,
+.row:hover .deadline-chip,
 .row:hover .color-dot,
 .row.is-active .meta-kind,
 .row.is-active .meta-today,
-.row.is-active .estimate-chip,
+.row.is-active .deadline-chip,
 .row.is-active .color-dot,
 .meta-kind.is-set,
 .meta-today.is-on,
-.estimate-chip.has-estimate {
+.deadline-chip.is-set {
   opacity: 1;
 }
 
@@ -1186,45 +1229,80 @@ body {
   outline-offset: 2px;
 }
 
-/* ---------- 作業想定時間 ---------- */
+/* ---------- 期限 ---------- */
 
-.estimate-chip {
-  display: block;
+.deadline-field {
+  width: 46px;
+}
+
+.deadline-chip {
+  display: grid;
+  place-items: center;
   width: 100%;
+  height: 22px;
   padding: 0;
-  border: none;
-  border-radius: 3px;
+  border: 0;
+  border-radius: 4px;
   background: none;
-  color: rgba(var(--muted-rgb), 0.4);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
-  text-align: right;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s, color 0.15s;
 }
 
-.estimate-chip.has-estimate {
-  color: var(--text-secondary);
+.deadline-chip.is-overdue {
+  color: var(--danger-soft);
 }
 
-.estimate-input {
+.deadline-popover {
+  position: fixed;
+  z-index: 1000;
+  visibility: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 0.45rem;
+  width: 232px;
+  padding: 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--popover-bg);
+  box-shadow: 0 14px 34px -14px rgba(0, 0, 0, 0.55);
+}
+
+.deadline-popover input {
+  min-width: 0;
   width: 100%;
-  padding: 0.04rem 0.25rem;
-  border: 1px solid var(--accent-color);
-  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
   background: var(--input-bg);
   color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  outline: none;
+  font: inherit;
+  font-size: 0.78rem;
 }
 
-.estimate-input::placeholder {
-  color: rgba(var(--muted-rgb), 0.3);
+.deadline-popover input[type='date'] {
+  grid-column: 1 / -1;
+}
+
+.deadline-popover button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.deadline-popover button:hover {
+  color: var(--danger-color);
 }
 
 /* ---------- ラベルの色 ---------- */
@@ -1935,7 +2013,7 @@ body {
   .row .meta-today,
   .row .meta-remove,
   .row .meta-inspect,
-  .row .estimate-chip {
+  .row .deadline-chip {
     opacity: 1;
   }
 }
