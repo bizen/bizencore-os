@@ -228,6 +228,7 @@ interface TaskView {
     completed_by?: "user" | "agent";
     completed_by_client?: string;
     label?: string;
+    parent_task?: string;
     estimate_minutes?: number;
     today?: string;
     due_date?: string;
@@ -330,10 +331,11 @@ export const list = internalQuery({
         label: v.optional(v.string()),
         today: v.optional(v.union(v.boolean(), v.string())),
         query: v.optional(v.string()),
+        flat: v.optional(v.boolean()),
         limit: v.optional(v.number()),
         offset: v.optional(v.number()),
     },
-    handler: async (ctx, { userId, includeDone, label, today, query, limit = 50, offset = 0 }) => {
+    handler: async (ctx, { userId, includeDone, label, today, query, flat, limit = 50, offset = 0 }) => {
         if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ConvexError("limit must be 1-100");
         if (!Number.isInteger(offset) || offset < 0) throw new ConvexError("offset must be a non-negative integer");
         if (query && query.length > 200) throw new ConvexError("query must be at most 200 characters");
@@ -367,7 +369,7 @@ export const list = internalQuery({
             if (todayDate) {
                 // today はサブタスクにも付くので、深さによらず拾う
                 if (item.assignedDate !== todayDate) continue;
-            } else if (!term && parent?.type === "task") {
+            } else if (!term && !flat && parent?.type === "task") {
                 // サブタスクは親の下にまとめて出すので、単体では並べない
                 continue;
             }
@@ -378,15 +380,19 @@ export const list = internalQuery({
         }
 
         const page = picked.slice(offset, offset + limit);
-        const tasks = await Promise.all(page.map((item) => {
-            const subtasks = term ? [] : childrenOf(items, item.id).filter((s) => s.text.trim());
-            return toView(
+        const tasks = await Promise.all(page.map(async (item) => {
+            const subtasks = term || flat ? [] : childrenOf(items, item.id).filter((s) => s.text.trim());
+            const view = await toView(
                 ctx,
                 userId,
                 item,
                 labelOf(item)?.text.trim(),
                 includeDone ? subtasks : subtasks.filter((s) => !s.done)
             );
+            if (flat && item.parentId && byId.get(item.parentId)?.type === "task") {
+                view.parent_task = byId.get(item.parentId)?.text;
+            }
+            return view;
         }));
 
         const result = {
@@ -401,6 +407,123 @@ export const list = internalQuery({
             today_date: todayDate,
             today_remaining_minutes: remainingMinutes(items, picked),
         };
+    },
+});
+
+/** A selected task is read again by ID so the agent never works from a stale picker page. */
+export const get = internalQuery({
+    args: { userId: v.string(), taskId: v.string() },
+    handler: async (ctx, { userId, taskId }) => {
+        const items = await loadItems(ctx, userId);
+        const byId = new Map(items.map((item) => [item.id, item]));
+        const target = byId.get(taskId);
+        if (!target || target.type !== "task") throw new ConvexError("task not found");
+
+        const path: { id: string; text: string; type: "task" | "section" }[] = [];
+        const seen = new Set<string>();
+        let parent = target.parentId ? byId.get(target.parentId) : undefined;
+        while (parent && !seen.has(parent.id)) {
+            seen.add(parent.id);
+            path.unshift({ id: parent.id, text: parent.text, type: parent.type });
+            parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+        }
+        const label = [...path].reverse().find((entry) => entry.type === "section")?.text;
+        const visited = new Set<string>();
+        const build = async (item: StoredItem): Promise<TaskView> => {
+            visited.add(item.id);
+            const children = childrenOf(items, item.id)
+                .filter((child) => child.type === "task" && !visited.has(child.id));
+            const view = await toView(ctx, userId, item, item.id === target.id ? label : undefined, []);
+            if (children.length) view.subtasks = await Promise.all(children.map(build));
+            return view;
+        };
+        return { task: await build(target), path };
+    },
+});
+
+/** Preserve partial work without ever completing the selected parent implicitly. */
+export const recordProgress = internalMutation({
+    args: {
+        userId: v.string(),
+        taskId: v.string(),
+        completedSubtaskIds: v.array(v.string()),
+        remainingSubtasks: v.array(v.object({ text: v.string(), note: v.optional(v.string()) })),
+        progressNote: v.optional(v.string()),
+        clientName: v.optional(v.string()),
+    },
+    handler: async (ctx, { userId, taskId, completedSubtaskIds, remainingSubtasks, progressNote, clientName }) => {
+        const items = await loadItems(ctx, userId);
+        const byId = new Map(items.map((item) => [item.id, item]));
+        const target = byId.get(taskId);
+        if (!target || target.type !== "task") throw new ConvexError("task not found");
+        if (target.done) throw new ConvexError("task is already complete");
+        if (completedSubtaskIds.length > 100 || remainingSubtasks.length > 50) {
+            throw new ConvexError("too many subtasks in one update");
+        }
+        const selected = new Set(completedSubtaskIds);
+        if (selected.size !== completedSubtaskIds.length) throw new ConvexError("duplicate completed_subtask_ids");
+        for (const id of completedSubtaskIds) {
+            const item = byId.get(id);
+            if (!item || item.type !== "task" || id === target.id || !isInside(byId, id, target.id)) {
+                throw new ConvexError("completed subtask must belong to the selected task");
+            }
+            if (subtreeOf(items, id).some((child) => child.id !== id && child.type === "task" && !child.done && !selected.has(child.id))) {
+                throw new ConvexError("complete unfinished descendants first");
+            }
+        }
+        if (remainingSubtasks.length && depthOf(byId, taskId) >= MAX_DEPTH) {
+            throw new ConvexError("task is at maximum depth; attach a progress note instead");
+        }
+        const directChildren = childrenOf(items, taskId);
+        const existingByText = new Map(directChildren.map((item) => [item.text.trim().toLocaleLowerCase(), item]));
+        const newSubtasks: { text: string; note?: string }[] = [];
+        const reused: { id: string; text: string }[] = [];
+        const requested = new Set<string>();
+        for (const subtask of remainingSubtasks) {
+            const text = subtask.text.trim();
+            if (!text || text.length > 500) throw new ConvexError("subtask text must be 1-500 characters");
+            const key = text.toLocaleLowerCase();
+            if (requested.has(key)) continue;
+            requested.add(key);
+            const existing = existingByText.get(key);
+            if (existing?.done) throw new ConvexError("matching subtask is already complete; describe the remaining action separately");
+            if (existing) reused.push({ id: existing.id, text: existing.text });
+            else newSubtasks.push({ text, note: subtask.note?.trim() || undefined });
+        }
+        if (progressNote && progressNote.trim().length > 4000) throw new ConvexError("progress_note is too long");
+        const duplicateNote = progressNote?.trim() && liveAttachments(target.attachments).some((att) =>
+            att.kind === "text" && att.text === progressNote.trim() && att.by === "ai");
+        if (progressNote?.trim() && !duplicateNote && liveAttachments(target.attachments).length >= MAX_ATTACHMENTS) {
+            throw new ConvexError(`a task holds at most ${MAX_ATTACHMENTS} attachments`);
+        }
+
+        let stamp = stampAfter(items);
+        for (const id of completedSubtaskIds) {
+            const item = byId.get(id)!;
+            if (item.done) continue;
+            await writeItem(ctx, userId, {
+                ...item, done: true, completedBy: "ai", completedByClient: clientLabel(clientName), updatedAt: stamp++,
+            });
+        }
+        const added: { id: string; text: string }[] = [];
+        let order = nextOrder(items, taskId);
+        for (const subtask of newSubtasks) {
+            const item: StoredItem = {
+                id: crypto.randomUUID(), type: "task", parentId: taskId, order: order++, text: subtask.text,
+                note: subtask.note, done: false, createdBy: "ai", createdByClient: clientLabel(clientName),
+                createdAt: stamp, updatedAt: stamp++,
+            };
+            await writeItem(ctx, userId, item);
+            added.push({ id: item.id, text: item.text });
+        }
+        if (progressNote?.trim() && !duplicateNote) {
+            const attachment = attachmentFrom({ text: progressNote.trim(), title: "作業の途中経過" }, "ai", crypto.randomUUID(), stamp++);
+            if (!attachment) throw new ConvexError("invalid progress_note");
+            await writeItem(ctx, userId, {
+                ...target, attachments: [...(target.attachments ?? []), attachment], updatedAt: stamp,
+            });
+        }
+        return { task_id: taskId, done: false, completed_subtask_ids: completedSubtaskIds, added_subtasks: added, existing_subtasks: reused };
     },
 });
 

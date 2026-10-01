@@ -163,8 +163,35 @@ http.route({
             label: typeof body.label === "string" ? body.label : undefined,
             today: typeof body.today === "string" || typeof body.today === "boolean" ? body.today : undefined,
             query: typeof body.query === "string" ? body.query : undefined,
+            flat: body.flat === true,
             limit: typeof body.limit === "number" ? body.limit : undefined,
             offset: typeof body.offset === "number" ? body.offset : undefined,
+        })
+    ),
+});
+
+http.route({
+    path: "/mcp/get",
+    method: "POST",
+    handler: route((ctx, body) =>
+        ctx.runQuery(internal.mcpTasks.get, {
+            userId: body.userId as string,
+            taskId: String(body.taskId ?? ""),
+        })
+    ),
+});
+
+http.route({
+    path: "/mcp/record-progress",
+    method: "POST",
+    handler: route((ctx, body) =>
+        ctx.runMutation(internal.mcpTasks.recordProgress, {
+            userId: body.userId as string,
+            taskId: String(body.taskId ?? ""),
+            completedSubtaskIds: (Array.isArray(body.completedSubtaskIds) ? body.completedSubtaskIds : []) as string[],
+            remainingSubtasks: (Array.isArray(body.remainingSubtasks) ? body.remainingSubtasks : []) as { text: string; note?: string }[],
+            progressNote: typeof body.progressNote === "string" ? body.progressNote : undefined,
+            clientName: typeof body.clientName === "string" ? body.clientName : undefined,
         })
     ),
 });

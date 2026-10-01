@@ -68,6 +68,7 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           <p className="help-mcp-intro">接続時にbizencoreアカウントで認証します。</p>
+          <p className="help-mcp-intro">タスクをAIに任せるときは「bizencoreのwork_on_taskでタスクを選んで進めて」と伝えてください。フォーム内で検索やページ移動ができます。フォームが出ない場合は、一覧から選んだタスクのIDを伝えれば始められます。途中で止まった作業は、完了したサブタスクと残りの作業を記録します。</p>
 
           <details className="help-mcp-guide">
             <summary>ChatGPT <ChevronRight size={15} aria-hidden /></summary>
@@ -99,6 +100,7 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
             <summary>Codex <ChevronRight size={15} aria-hidden /></summary>
             <p>ターミナルで登録・認証します。ツールが見えない場合は新しいセッションを開いてください。</p>
             <pre><code>{`codex mcp add bizencore --url ${MCP_URL}\ncodex mcp login bizencore`}</code></pre>
+            <p>DesktopとCLIのどちらでも、チャットで「bizencoreのwork_on_taskを使って」と依頼できます。</p>
             <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noopener noreferrer">
               公式手順 <ExternalLink size={12} aria-hidden />
             </a>
@@ -108,6 +110,7 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
             <summary>Claude Code <ChevronRight size={15} aria-hidden /></summary>
             <p>ターミナルで登録し、Claude Codeの「/mcp」から認証します。</p>
             <pre><code>{`claude mcp add --transport http --scope user bizencore ${MCP_URL}`}</code></pre>
+            <p>CLIでは「/mcp__bizencore__work_on_task」を起動できます。DesktopのCodeタブでは、コマンドが見えなければチャットで同じ名前を指定してください。</p>
             <a href="https://code.claude.com/docs/en/mcp" target="_blank" rel="noopener noreferrer">
               公式手順 <ExternalLink size={12} aria-hidden />
             </a>

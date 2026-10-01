@@ -9,7 +9,7 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { add, addMany, complete, list, previewDelete, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { add, addMany, complete, get, list, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
 function memoryContext() {
   const rows = { syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
@@ -122,6 +122,19 @@ test('list_tasks searches subtasks and returns bounded pages', async () => {
   assert.equal(rows.syncItems.length, 3);
 });
 
+test('flat task pages include subtasks so every unfinished task can be selected', async () => {
+  const { ctx } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Launch' });
+  const child = await add._handler(ctx, { userId: 'user-1', text: 'Check copy', parentId: parent.id });
+  const first = await list._handler(ctx, { userId: 'user-1', flat: true, limit: 1 });
+  assert.equal(first.total_matching, 2);
+  assert.equal(first.tasks[0].id, parent.id);
+  const second = await list._handler(ctx, { userId: 'user-1', flat: true, limit: 1, offset: first.next_offset });
+  assert.equal(second.tasks[0].id, child.id);
+  assert.equal(second.tasks[0].parent_task, 'Launch');
+  assert.equal(second.next_offset, undefined);
+});
+
 test('unknown labels never silently add tasks at the top level', async () => {
   const { ctx, rows } = memoryContext();
   await assert.rejects(add._handler(ctx, { userId: 'user-1', text: 'File report', label: 'Unknown' }), /label not found/);
@@ -187,4 +200,72 @@ test('bulk MCP creation records the client on parents and subtasks', async () =>
     assert.equal(item.createdBy, 'ai');
     assert.equal(item.createdByClient, 'Codex');
   }
+});
+
+test('get_task reads the selected task by ID with its full nested progress and isolates users', async () => {
+  const { ctx, rows } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Ship launch', note: 'Check all assets', completionCriteria: 'Live and verified' });
+  const child = await add._handler(ctx, { userId: 'user-1', text: 'Build page', parentId: parent.id });
+  await add._handler(ctx, { userId: 'user-1', text: 'Run mobile checks', parentId: child.id });
+  const parentRow = rows.syncItems.find((row) => row.itemId === parent.id);
+  parentRow.payload = JSON.stringify({ ...JSON.parse(parentRow.payload), attachments: [{
+    id: 'attachment-1', kind: 'text', text: 'Approved brief', by: 'human', createdAt: 1,
+  }] });
+
+  const detail = await get._handler(ctx, { userId: 'user-1', taskId: parent.id });
+  assert.equal(detail.task.note, 'Check all assets');
+  assert.equal(detail.task.completion_criteria, 'Live and verified');
+  assert.equal(detail.task.attachments[0].text, 'Approved brief');
+  assert.equal(detail.task.subtasks[0].subtasks[0].text, 'Run mobile checks');
+  const childDetail = await get._handler(ctx, { userId: 'user-1', taskId: child.id });
+  assert.deepEqual(childDetail.path, [{ id: parent.id, text: 'Ship launch', type: 'task' }]);
+  await assert.rejects(get._handler(ctx, { userId: 'user-2', taskId: parent.id }), /task not found/);
+});
+
+test('record_task_progress checks only verified subtasks, adds remaining work once, and leaves parent open', async () => {
+  const { ctx, rows } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Ship launch' });
+  const done = await add._handler(ctx, { userId: 'user-1', text: 'Build page', parentId: parent.id });
+  const input = {
+    userId: 'user-1', taskId: parent.id, completedSubtaskIds: [done.id],
+    remainingSubtasks: [{ text: 'Run mobile checks', note: 'Check 375px' }],
+    progressNote: 'The page is built; mobile verification remains.', clientName: 'Codex',
+  };
+  const first = await recordProgress._handler(ctx, input);
+  assert.equal(first.added_subtasks.length, 1);
+  const retry = await recordProgress._handler(ctx, input);
+  assert.equal(retry.added_subtasks.length, 0);
+  assert.equal(retry.existing_subtasks[0].id, first.added_subtasks[0].id);
+  assert.equal(rows.syncItems.length, 3);
+
+  const detail = await get._handler(ctx, { userId: 'user-1', taskId: parent.id });
+  assert.equal(detail.task.done, false);
+  assert.equal(detail.task.subtasks[0].done, true);
+  assert.equal(detail.task.subtasks[0].completed_by_client, 'Codex');
+  assert.equal(detail.task.subtasks[1].done, false);
+  assert.equal(detail.task.subtasks[1].note, 'Check 375px');
+  assert.equal(detail.task.attachments.length, 1);
+  await assert.rejects(recordProgress._handler(ctx, {
+    userId: 'user-1', taskId: parent.id, completedSubtaskIds: [],
+    remainingSubtasks: [{ text: 'Build page' }],
+  }), /already complete/);
+});
+
+test('record_task_progress rejects foreign children and premature parent-subtask completion', async () => {
+  const { ctx, rows } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Ship launch' });
+  const child = await add._handler(ctx, { userId: 'user-1', text: 'Build page', parentId: parent.id });
+  const grandchild = await add._handler(ctx, { userId: 'user-1', text: 'Check mobile', parentId: child.id });
+  const other = await add._handler(ctx, { userId: 'user-2', text: 'Private task' });
+  await assert.rejects(recordProgress._handler(ctx, {
+    userId: 'user-1', taskId: parent.id, completedSubtaskIds: [other.id], remainingSubtasks: [],
+  }), /must belong/);
+  await assert.rejects(recordProgress._handler(ctx, {
+    userId: 'user-1', taskId: parent.id, completedSubtaskIds: [child.id], remainingSubtasks: [],
+  }), /descendants first/);
+  assert.equal(rows.syncItems.filter((row) => JSON.parse(row.payload).done).length, 0);
+  await recordProgress._handler(ctx, {
+    userId: 'user-1', taskId: parent.id, completedSubtaskIds: [child.id, grandchild.id], remainingSubtasks: [],
+  });
+  assert.equal((await get._handler(ctx, { userId: 'user-1', taskId: parent.id })).task.done, false);
 });

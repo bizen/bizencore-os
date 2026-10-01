@@ -25,7 +25,7 @@ Call list_tasks first when you need to know what is already there, or to get the
 
 Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
 
-This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. Ask the user when uncertain. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
+This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. Ask the user when uncertain. For work_on_task, start doing the selected task in this conversation. If it cannot be completed, use record_task_progress to check only verified subtasks, add specific remaining subtasks, and keep the parent unfinished. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
 
 const clerk = createClerkClient({
   secretKey: clerkSecretKey(),
@@ -34,7 +34,8 @@ const clerk = createClerkClient({
 
 type ConfirmationState =
   | { kind: 'delete'; taskId: string; text: string; count: number }
-  | { kind: 'label'; operation: string; requested: string };
+  | { kind: 'label'; operation: string; requested: string }
+  | { kind: 'work'; options: { label: string; id: string }[]; requestedQuery?: string; activeQuery?: string; label?: string; today?: boolean; offset: number };
 
 const confirmationState = createRequestStateCodec<ConfirmationState>({
   key: createHash('sha256').update(mcpSecret()).digest(),
@@ -199,26 +200,185 @@ export async function deleteWithConfirmation(ctx: ServerContext, taskId: string)
   }
 }
 
+async function selectedTask(ctx: ServerContext, taskId: string): Promise<CallToolResult> {
+  try {
+    const detail = await fetchConvex(ctx, 'get', { taskId }) as { task: { done: boolean } };
+    if (detail.task.done) throw new Error('このタスクは既に完了しています。未完了のタスクを選んでください。');
+    return json({
+      ...detail,
+      next_action: 'Read the task, attachments, completion criteria and all subtasks. Work on it now in this conversation. If fully verified, complete_task. Otherwise, record_task_progress with only verified completed subtasks, concrete remaining subtasks and a short progress note. Never mark the parent complete for partial work.',
+    });
+  } catch (error) {
+    return toolError(error);
+  }
+}
+
+export async function workOnTask(
+  ctx: ServerContext,
+  taskId?: string,
+  query?: string,
+  label?: string,
+  today?: boolean
+): Promise<CallToolResult | InputRequiredResult> {
+  if (taskId) return selectedTask(ctx, taskId);
+  try {
+    const response = inputResponse(ctx.mcpReq.inputResponses, 'task');
+    if (response.kind !== 'missing') {
+      const state = ctx.mcpReq.requestState<ConfirmationState>();
+      if (!state || state.kind !== 'work' || state.requestedQuery !== query || state.label !== label || state.today !== today) {
+        throw new Error('タスク選択が無効になりました。もう一度選んでください。');
+      }
+      if (response.kind === 'elicit' && response.action !== 'accept') return json({ cancelled: true });
+      const answer = acceptedContent(ctx.mcpReq.inputResponses, 'task', z.object({
+        task: z.string().optional(), search: z.string().optional(),
+      }));
+      if (answer?.search?.trim()) {
+        return workTaskPage(ctx, query, answer.search.trim().slice(0, 200), label, today, 0);
+      }
+      const chosen = answer?.task;
+      const selected = state.options.find((option) => option.label === chosen);
+      if (!selected) throw new Error('選択されたタスクが見つかりません。もう一度選んでください。');
+      if (selected.id === '__next__') return workTaskPage(ctx, query, state.activeQuery, label, today, state.offset + 30);
+      if (selected.id === '__prev__') return workTaskPage(ctx, query, state.activeQuery, label, today, Math.max(0, state.offset - 30));
+      if (selected.id === '__all__') return workTaskPage(ctx, query, undefined, label, today, 0);
+      return selectedTask(ctx, selected.id);
+    }
+    return workTaskPage(ctx, query, query, label, today, 0);
+  } catch (error) {
+    return toolError(error);
+  }
+}
+
+async function workTaskPage(
+  ctx: ServerContext,
+  requestedQuery: string | undefined,
+  activeQuery: string | undefined,
+  label: string | undefined,
+  today: boolean | undefined,
+  offset: number
+): Promise<CallToolResult | InputRequiredResult> {
+  try {
+    const result = await fetchConvex(ctx, 'list', {
+      query: activeQuery, label, today, flat: true, limit: 30, offset,
+    }) as {
+      tasks: { id: string; text: string; label?: string; parent_task?: string; due_date?: string }[];
+      total_matching: number;
+      next_offset?: number;
+    };
+    if (!result.total_matching && !activeQuery) return json({ tasks: [], message: '未完了のタスクが見つかりません。' });
+    const options = result.tasks.map((task) => ({
+      id: task.id,
+      label: `${task.text.slice(0, 75)}${task.parent_task ? ` · ${task.parent_task.slice(0, 35)}` : ''}${task.label ? ` · ${task.label}` : ''}${task.due_date ? ` · ${task.due_date}` : ''} [${task.id.slice(0, 8)}]`,
+    }));
+    if (offset > 0) options.push({ id: '__prev__', label: '← 前の30件' });
+    if (result.next_offset !== undefined) options.push({ id: '__next__', label: '次の30件 →' });
+    if (activeQuery) options.push({ id: '__all__', label: '検索を解除して全件を見る' });
+    const end = offset + result.tasks.length;
+    return inputRequired({
+      requestState: await confirmationState.mint({ kind: 'work', options, requestedQuery, activeQuery, label, today, offset }, ctx),
+      inputRequests: {
+        task: inputRequired.elicit({
+          message: `${result.total_matching}件中 ${result.total_matching ? offset + 1 : 0}–${end}件を表示。タスクを選ぶか、検索語を入力してください。`,
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              task: { type: 'string', enum: options.map((option) => option.label), title: 'タスク / ページ移動' },
+              search: { type: 'string', title: '検索', description: 'タイトルやメモで絞り込む。入力すると選択より優先されます。' },
+            },
+          },
+        }),
+      },
+    });
+  } catch (error) {
+    return toolError(error);
+  }
+}
+
 const handler = createMcpHandler(
   (server) => {
+    server.registerPrompt(
+      'work_on_task',
+      {
+        title: 'Work on a bizencore task',
+        description: 'Choose one unfinished task from bizencore and start working on it now.',
+        argsSchema: z.object({ task_id: z.string().optional().describe('Optional task ID to skip the picker') }),
+      },
+      ({ task_id }) => ({
+        messages: [{
+          role: 'user' as const,
+          content: {
+            type: 'text' as const,
+            text: `Use the bizencore work_on_task tool${task_id ? ` with task_id ${task_id}` : ' to let me select one unfinished task'}. If your client cannot display the selection form, use list_tasks and ask me to choose a task, then call work_on_task with its exact ID. Read the returned task's latest note, attachments, subtasks and completion criteria. Start the actual work in this conversation. When verified complete, call complete_task. If unfinished, call record_task_progress: check only verified finished subtasks, add concrete remaining subtasks without duplication, and attach a brief progress note. Keep the parent incomplete. Report what is done and what remains.`,
+          },
+        }],
+      })
+    );
+
     server.registerTool(
       'list_tasks',
       {
         title: "Read the user's task list",
         description:
-          "Read the user's task list: open tasks, labels, ids, deadlines, completion criteria and attached context. Unfinished tasks only unless include_done is set. Narrow with label, today or query. Returns up to 50 tasks by default; use next_offset to read more. today: true uses the account's saved time zone.",
+          "Read the user's task list: open tasks, labels, ids, deadlines, completion criteria and attached context. Unfinished tasks only unless include_done is set. Narrow with label, today or query; include_subtasks returns every task as a separate row. Returns up to 50 tasks by default; use next_offset to read more. today: true uses the account's saved time zone.",
         inputSchema: z.object({
           include_done: z.boolean().optional().describe('Also return finished tasks'),
           label: z.string().optional().describe('Only tasks under this label (a name from list_tasks)'),
           today: z.union([z.boolean(), z.string()]).optional().describe('true uses the account time zone; YYYY-MM-DD remains supported'),
           query: z.string().max(200).optional().describe('Case-insensitive text search in task title and note, including subtasks'),
+          include_subtasks: z.boolean().optional().describe('Return every subtask as its own row, not only under its parent'),
           limit: z.number().int().min(1).max(100).optional().describe('Tasks per page, default 50, maximum 100'),
           offset: z.number().int().min(0).optional().describe('Pass the previous next_offset to read the next page'),
         }),
         annotations: { readOnlyHint: true },
       },
-      ({ include_done, label, today, query, limit, offset }, ctx) =>
-        call(ctx, 'list', { includeDone: include_done, label, today, query, limit, offset })
+      ({ include_done, label, today, query, include_subtasks, limit, offset }, ctx) =>
+        call(ctx, 'list', { includeDone: include_done, label, today, query, flat: include_subtasks, limit, offset })
+    );
+
+    server.registerTool(
+      'get_task',
+      {
+        title: 'Read one task and its full subtree',
+        description: 'Fetch a task by exact ID, including its latest note, context attachments, completion criteria, parent path and all nested subtasks with their completion states.',
+        inputSchema: z.object({ task_id: z.string() }),
+        annotations: { readOnlyHint: true },
+      },
+      ({ task_id }, ctx) => call(ctx, 'get', { taskId: task_id })
+    );
+
+    server.registerTool(
+      'work_on_task',
+      {
+        title: 'Choose a task and start work',
+        description: 'Choose one unfinished task from a picker, then return its fresh full details and execution instructions. Optional task_id skips the picker and works in clients without elicitation. Use query or label to narrow large lists; today: true selects only today tasks.',
+        inputSchema: z.object({
+          task_id: z.string().optional(),
+          query: z.string().max(200).optional(),
+          label: z.string().optional(),
+          today: z.boolean().optional(),
+        }),
+      },
+      ({ task_id, query, label, today }, ctx) => workOnTask(ctx, task_id, query, label, today)
+    );
+
+    server.registerTool(
+      'record_task_progress',
+      {
+        title: 'Record partial work on a task',
+        description: 'For work_on_task when the parent is not finished: check only verified completed subtasks, add concrete unfinished subtasks without duplicating direct children, and optionally attach a progress note. The parent remains unchecked. Descendants must be completed before their parent subtask.',
+        inputSchema: z.object({
+          task_id: z.string(),
+          completed_subtask_ids: z.array(z.string()).default([]),
+          remaining_subtasks: z.array(z.object({ text: z.string(), note: z.string().optional() })).default([]),
+          progress_note: z.string().max(4000).optional(),
+        }),
+      },
+      ({ task_id, completed_subtask_ids, remaining_subtasks, progress_note }, ctx) => call(ctx, 'record-progress', {
+        taskId: task_id,
+        completedSubtaskIds: completed_subtask_ids,
+        remainingSubtasks: remaining_subtasks,
+        progressNote: progress_note,
+      })
     );
 
     server.registerTool(

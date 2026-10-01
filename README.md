@@ -118,7 +118,10 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 
 | ツール | 動作 |
 | --- | --- |
-| `list_tasks` | 残っているタスク、ラベル名、id を返す。`label`、`today`、`query` で絞り込み。既定で50件、最大100件ずつ。続きは `next_offset` を `offset` に渡す |
+| `list_tasks` | 残っているタスク、ラベル名、id を返す。`label`、`today`、`query` で絞り込み。`include_subtasks` で子も独立した候補にする。既定で50件、最大100件ずつ。続きは `next_offset` を `offset` に渡す |
+| `get_task` | 指定IDの最新メモ、添付、完了条件、親の経路、全階層のサブタスクを読む |
+| `work_on_task` | 未完了タスクをフォーム内で検索・30件ずつページ移動して1件選び、最新情報を返して会話内で作業を始める。サブタスクも選べる。フォーム非対応時は `task_id` で直接指定 |
+| `record_task_progress` | 親は未完了のまま、検証済みサブタスクだけチェックし、残作業のサブタスクと途中経過を記録する。再送しても同名の直下サブタスクは増やさない |
 | `add_task` | 1件足す（メモ / 既存ラベル / 想定時間 / 親タスク指定） |
 | `add_tasks` | まとめて足す。並びは渡した順。サブタスクも一緒に渡せる |
 | `delete_task` | 消す（子も一緒）。MCP クライアントで対象を確認できたときだけ実行 |
@@ -127,6 +130,12 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 | `add_label` | ラベルを1つ作る（いちばん下に） |
 | `move_task` | タスクを別のラベル、または別のタスクの下へ移す（子もついてくる） |
 | `label_to_task` | ラベルをタスクに変える。中のタスクはサブタスクになる |
+
+MCPプロンプト `work_on_task` も公開する。Claude Code CLIでは
+`/mcp__bizencore__work_on_task` から起動できる。Codex Desktop/CLIや
+Claude Code DesktopのCodeタブでは、チャットで `work_on_task` の使用を依頼できる。
+選択フォームが表示されない場合は `list_tasks` で候補を見て、選んだIDを
+`work_on_task` に渡す。MCP Apps専用のHTMLピッカーは未実装。
 
 `add_task` は既存のラベルにしか入れない。無いラベルを指定したときは
 MCP のエリシテーションで既存ラベルを選んでもらい、確認できなければ書き込まない。
