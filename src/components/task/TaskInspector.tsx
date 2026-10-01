@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { AI_TARGETS, buildTaskHandoff } from '../../lib/aiHandoff';
 import { MAX_ATTACHMENTS, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
 import { isCloudConfigured } from '../../lib/cloudConfig';
+import { showDatePicker } from '../../lib/nativeDatePicker';
 import { QUEST_IMG, QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
 import { estimateInputValue, parseEstimate } from '../../lib/taskEstimate';
 import type { Item, ItemMap, TaskKind } from '../../lib/taskModel';
@@ -410,6 +411,7 @@ export function TaskInspector(props: TaskInspectorProps) {
               className="inspector-input"
               value={item.dueDate ?? ''}
               onChange={(e) => onSetDeadline(item.id, e.target.value || undefined, item.dueTime)}
+              onClick={(e) => showDatePicker(e.currentTarget)}
               aria-label="期限の日付"
             />
             {item.dueDate ? (

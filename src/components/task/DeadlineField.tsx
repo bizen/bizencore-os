@@ -1,6 +1,7 @@
 import { CalendarDays, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { showDatePicker } from '../../lib/nativeDatePicker';
 
 const POPOVER_WIDTH = 232;
 const VIEWPORT_MARGIN = 8;
@@ -89,7 +90,7 @@ function DeadlinePopover({
     popover.style.top = `${Math.max(VIEWPORT_MARGIN, top)}px`;
     popover.style.left = `${left}px`;
     popover.style.visibility = 'visible';
-    dateRef.current?.focus();
+    if (dateRef.current) showDatePicker(dateRef.current);
   }, [anchorRef]);
 
   useEffect(() => {
@@ -121,6 +122,7 @@ function DeadlinePopover({
         type="date"
         value={dueDate ?? ''}
         onChange={(event) => onSave(event.target.value || undefined, dueTime)}
+        onClick={(event) => showDatePicker(event.currentTarget)}
         aria-label="期限の日付"
       />
       {dueDate ? (
