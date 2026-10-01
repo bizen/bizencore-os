@@ -26,7 +26,7 @@ export const FIELD_GROUPS = {
   text: ['text'],
   note: ['note'],
   completionCriteria: ['completionCriteria'],
-  done: ['done', 'filed'],
+  done: ['done', 'filed', 'completedBy'],
   kind: ['kind'],
   color: ['color'],
   estimate: ['estimate'],

@@ -39,6 +39,7 @@ interface StoredItem {
     note?: string;
     completionCriteria?: string;
     done: boolean;
+    completedBy?: "ai";
     filed?: boolean;
     kind?: "main" | "tanomi";
     color?: string;
@@ -74,6 +75,7 @@ function parsePayload(row: SyncRow): StoredItem | null {
             dueDate: typeof raw.dueDate === "string" && isDateString(raw.dueDate) ? raw.dueDate : undefined,
             dueTime: typeof raw.dueDate === "string" && isDateString(raw.dueDate) && typeof raw.dueTime === "string" && isTimeString(raw.dueTime) ? raw.dueTime : undefined,
             done: raw.done === true,
+            completedBy: raw.done === true && raw.completedBy === "ai" ? "ai" : undefined,
             createdAt: typeof raw.createdAt === "number" ? raw.createdAt : row.updatedAt,
             updatedAt: row.updatedAt,
             deletedAt: row.deletedAt,
@@ -302,8 +304,15 @@ export const list = internalQuery({
         includeDone: v.optional(v.boolean()),
         label: v.optional(v.string()),
         today: v.optional(v.union(v.boolean(), v.string())),
+        query: v.optional(v.string()),
+        limit: v.optional(v.number()),
+        offset: v.optional(v.number()),
     },
-    handler: async (ctx, { userId, includeDone, label, today }) => {
+    handler: async (ctx, { userId, includeDone, label, today, query, limit = 50, offset = 0 }) => {
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ConvexError("limit must be 1-100");
+        if (!Number.isInteger(offset) || offset < 0) throw new ConvexError("offset must be a non-negative integer");
+        if (query && query.length > 200) throw new ConvexError("query must be at most 200 characters");
+        const term = query?.trim().toLocaleLowerCase();
         const todayDate = await resolveToday(ctx, userId, today);
 
         const items = await loadItems(ctx, userId);
@@ -333,17 +342,19 @@ export const list = internalQuery({
             if (todayDate) {
                 // today はサブタスクにも付くので、深さによらず拾う
                 if (item.assignedDate !== todayDate) continue;
-            } else if (parent?.type === "task") {
+            } else if (!term && parent?.type === "task") {
                 // サブタスクは親の下にまとめて出すので、単体では並べない
                 continue;
             }
             if (!includeDone && item.done) continue;
             if (wantedLabel && labelOf(item)?.id !== wantedLabel.id) continue;
+            if (term && !`${item.text}\n${item.note ?? ""}`.toLocaleLowerCase().includes(term)) continue;
             picked.push(item);
         }
 
-        const tasks = await Promise.all(picked.map((item) => {
-            const subtasks = childrenOf(items, item.id).filter((s) => s.text.trim());
+        const page = picked.slice(offset, offset + limit);
+        const tasks = await Promise.all(page.map((item) => {
+            const subtasks = term ? [] : childrenOf(items, item.id).filter((s) => s.text.trim());
             return toView(
                 ctx,
                 userId,
@@ -353,13 +364,28 @@ export const list = internalQuery({
             );
         }));
 
-        if (!todayDate) return { labels: [...new Set(labels)], tasks };
-        return {
+        const result = {
             labels: [...new Set(labels)],
             tasks,
+            total_matching: picked.length,
+            ...(offset + page.length < picked.length ? { next_offset: offset + page.length } : {}),
+        };
+        if (!todayDate) return result;
+        return {
+            ...result,
             today_date: todayDate,
             today_remaining_minutes: remainingMinutes(items, picked),
         };
+    },
+});
+
+export const previewDelete = internalQuery({
+    args: { userId: v.string(), taskId: v.string() },
+    handler: async (ctx, { userId, taskId }) => {
+        const items = await loadItems(ctx, userId);
+        const target = items.find((item) => item.id === taskId && item.type === "task");
+        if (!target) throw new ConvexError("task not found");
+        return { id: target.id, text: target.text, count: subtreeOf(items, target.id).length };
     },
 });
 
@@ -379,6 +405,7 @@ export const add = internalMutation({
     handler: async (ctx, { userId, text, note, label, estimateMinutes, parentId, dueDate, dueTime, completionCriteria, idempotencyKey }) => {
         const trimmed = text.trim();
         if (!trimmed) throw new ConvexError("text is empty");
+        if (label !== undefined && !label.trim() && !parentId) throw new ConvexError("label is empty");
         validateDeadline(dueDate, dueTime);
         if (idempotencyKey !== undefined && (!idempotencyKey.trim() || idempotencyKey.length > 128)) {
             throw new ConvexError("idempotency_key must be 1-128 characters");
@@ -402,8 +429,6 @@ export const add = internalMutation({
         const byId = new Map(items.map((i) => [i.id, i]));
 
         let parent: string | null = null;
-        let labelNotFound: string | undefined;
-
         if (parentId) {
             const target = byId.get(parentId);
             if (!target) throw new ConvexError("parent not found");
@@ -413,9 +438,8 @@ export const add = internalMutation({
             const found = items.find(
                 (i) => i.type === "section" && i.text.trim().toLowerCase() === wanted
             );
-            // 勝手にラベルを増やすと散らかるので、無ければルートに置いて知らせる
-            if (found) parent = found.id;
-            else labelNotFound = label.trim();
+            if (!found) throw new ConvexError("label not found");
+            parent = found.id;
         }
 
         const now = stampAfter(items);
@@ -438,7 +462,7 @@ export const add = internalMutation({
         }
 
         await writeItem(ctx, userId, item);
-        const response = { id: item.id, text: item.text, label_not_found: labelNotFound };
+        const response = { id: item.id, text: item.text };
         await rememberAdd(ctx, userId, autoKey, request, response);
         if (explicitKey) await rememberAdd(ctx, userId, explicitKey, request, response);
         return response;
@@ -456,13 +480,14 @@ export const complete = internalMutation({
         let stamp = stampAfter(items);
 
         // 子タスクも一緒に。クライアントの toggleDone と揃える
-        const subtree = [target, ...childrenOf(items, target.id)];
+        const subtree = subtreeOf(items, target.id);
         for (const item of subtree) {
             if (item.type !== "task" || item.done === next) continue;
             await writeItem(ctx, userId, {
                 ...item,
                 done: next,
                 filed: next ? item.filed : undefined,
+                completedBy: next ? "ai" : undefined,
                 updatedAt: stamp++,
             });
         }
@@ -764,21 +789,20 @@ export const addMany = internalMutation({
     handler: async (ctx, { userId, tasks, label, parentId }) => {
         if (tasks.length === 0) throw new ConvexError("tasks is empty");
         if (tasks.some((t) => !t.text.trim())) throw new ConvexError("text is empty");
+        if (label !== undefined && !label.trim() && !parentId) throw new ConvexError("label is empty");
 
         const items = await loadItems(ctx, userId);
         const byId = new Map(items.map((i) => [i.id, i]));
 
         let parent: string | null = null;
-        let labelNotFound: string | undefined;
-
         if (parentId) {
             const target = byId.get(parentId);
             if (!target) throw new ConvexError("parent not found");
             parent = target.id;
         } else if (label?.trim()) {
             const found = findLabel(items, label);
-            if (found) parent = found.id;
-            else labelNotFound = label.trim();
+            if (!found) throw new ConvexError("label not found");
+            parent = found.id;
         }
 
         const hasSubtasks = tasks.some((t) => t.subtasks?.length);
@@ -823,7 +847,7 @@ export const addMany = internalMutation({
             }
         }
 
-        return { added, label_not_found: labelNotFound };
+        return { added };
     },
 });
 
@@ -849,14 +873,17 @@ function subtreeOf(items: StoredItem[], id: string): StoredItem[] {
  * 行は残して deletedAt を打つ。消えたことを他の端末の pull に伝えるため。
  */
 export const remove = internalMutation({
-    args: { userId: v.string(), taskId: v.string() },
-    handler: async (ctx, { userId, taskId }) => {
+    args: { userId: v.string(), taskId: v.string(), expectedText: v.string(), expectedCount: v.number() },
+    handler: async (ctx, { userId, taskId, expectedText, expectedCount }) => {
         const items = await loadItems(ctx, userId);
         const target = items.find((i) => i.id === taskId);
         if (!target || target.type !== "task") throw new ConvexError("task not found");
 
-        let stamp = stampAfter(items);
         const doomed = subtreeOf(items, target.id);
+        if (target.text !== expectedText || doomed.length !== expectedCount) {
+            throw new ConvexError("task changed; confirm deletion again");
+        }
+        let stamp = stampAfter(items);
         for (const item of doomed) {
             const updatedAt = stamp++;
             await writeItem(ctx, userId, { ...item, deletedAt: updatedAt, updatedAt });

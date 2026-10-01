@@ -1,6 +1,8 @@
 import { createClerkClient } from '@clerk/backend';
-import type { AuthInfo, CallToolResult, ServerContext } from '@modelcontextprotocol/server';
+import { acceptedContent, createRequestStateCodec, inputRequired, inputResponse } from '@modelcontextprotocol/server';
+import type { AuthInfo, CallToolResult, InputRequiredResult, ServerContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, withMcpAuth } from 'mcp-handler';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { clerkPublishableKey, clerkSecretKey, convexSiteUrl, mcpSecret } from './_lib/env.js';
 
@@ -19,15 +21,25 @@ const INSTRUCTIONS = `bizencore is the user's own task list — the one they loo
 
 Use add_task when the user asks you to remember something, or when your conversation produces a follow-up they will have to do themselves. One line, in the user's language (usually Japanese), phrased as the user would write it — not as a report to them.
 
-Call list_tasks first when you need to know what is already there, or to get the exact label names and task ids. Labels are the user's own groupings; add_task only files a task under a label that already exists.
+Call list_tasks first when you need to know what is already there, or to get the exact label names and task ids. Use query for a title or note search, and next_offset for another page. Labels are the user's own groupings; add_task only files a task under a label that already exists. If a label is unknown, ask the user to choose one rather than guessing.
 
 Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
 
-This is the user's list, not a scratchpad. Do not add duplicates, do not add things they did not ask for, and do not complete a task unless they said it is done. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone. Completion criteria describe the intended end state; check them before suggesting completion.`;
+This is the user's list, not a scratchpad. Do not add duplicates, do not add things they did not ask for, and do not complete a task unless they said it is done. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone. Completion criteria describe the intended end state; check them before suggesting completion.`;
 
 const clerk = createClerkClient({
   secretKey: clerkSecretKey(),
   publishableKey: clerkPublishableKey(),
+});
+
+type ConfirmationState =
+  | { kind: 'delete'; taskId: string; text: string; count: number }
+  | { kind: 'label'; operation: string; requested: string };
+
+const confirmationState = createRequestStateCodec<ConfirmationState>({
+  key: createHash('sha256').update(mcpSecret()).digest(),
+  ttlSeconds: 600,
+  bind: (ctx) => `${userIdOf(ctx)}\0${ctx.http?.authInfo?.clientId ?? ''}`,
 });
 
 let clientNames: { at: number; values: Map<string, string> } | undefined;
@@ -71,6 +83,33 @@ function json(value: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
 }
 
+function toolError(error: unknown): CallToolResult {
+  return {
+    isError: true,
+    content: [{ type: 'text', text: error instanceof Error ? error.message : 'Unknown error' }],
+  };
+}
+
+async function fetchConvex(
+  ctx: ServerContext,
+  path: string,
+  body: Record<string, unknown>
+): Promise<unknown> {
+  const clientId = ctx.http?.authInfo?.clientId;
+  const clientName = await clientNameOf(clientId);
+  const response = await fetch(`${convexSiteUrl()}/mcp/${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${mcpSecret()}`,
+    },
+    body: JSON.stringify({ ...body, userId: userIdOf(ctx), clientId, clientName }),
+  });
+  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+  if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+  return payload;
+}
+
 /** Convex 側が返した理由（「そのラベルは無い」など）は、そのままエージェントに見せる */
 async function call(
   ctx: ServerContext,
@@ -78,28 +117,85 @@ async function call(
   body: Record<string, unknown>
 ): Promise<CallToolResult> {
   try {
-    const clientId = ctx.http?.authInfo?.clientId;
-    const clientName = await clientNameOf(clientId);
-    const response = await fetch(`${convexSiteUrl()}/mcp/${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${mcpSecret()}`,
-      },
-      body: JSON.stringify({ ...body, userId: userIdOf(ctx), clientId, clientName }),
-    });
-
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    if (!response.ok) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: payload?.error ?? `HTTP ${response.status}` }],
-      };
-    }
-    return json(payload);
+    return json(await fetchConvex(ctx, path, body));
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return { isError: true, content: [{ type: 'text', text: message }] };
+    return toolError(error);
+  }
+}
+
+export async function withResolvedLabel(
+  ctx: ServerContext,
+  label: string | undefined,
+  operation: string,
+  write: (label: string | undefined) => Promise<CallToolResult>
+): Promise<CallToolResult | InputRequiredResult> {
+  if (label === undefined) return write(undefined);
+  if (!label.trim()) return toolError(new Error('ラベル名が空です。ラベルなしにするなら label を省略してください。'));
+  try {
+    const { labels } = await fetchConvex(ctx, 'list', { limit: 1 }) as { labels: string[] };
+    const exact = labels.find((name) => name.trim().toLocaleLowerCase() === label.trim().toLocaleLowerCase());
+    if (exact) return write(exact);
+    if (labels.length === 0) throw new Error('ラベルがありません。先にラベルを作成してください。');
+
+    const response = inputResponse(ctx.mcpReq.inputResponses, 'label');
+    if (response.kind !== 'missing') {
+      const state = ctx.mcpReq.requestState<ConfirmationState>();
+      if (!state || state.kind !== 'label' || state.operation !== operation || state.requested !== label) {
+        throw new Error('ラベルの確認が無効になりました。もう一度選んでください。');
+      }
+      if (response.kind === 'elicit' && response.action !== 'accept') return json({ cancelled: true });
+      const chosen = acceptedContent(ctx.mcpReq.inputResponses, 'label', z.object({ label: z.string() }))?.label;
+      const matched = labels.find((name) => name === chosen);
+      if (!matched) throw new Error('選択されたラベルが見つかりません。もう一度選んでください。');
+      return write(matched);
+    }
+
+    return inputRequired({
+      requestState: await confirmationState.mint({ kind: 'label', operation, requested: label }, ctx),
+      inputRequests: {
+        label: inputRequired.elicit({
+          message: `「${label}」というラベルは見つかりません。保存先を選んでください。`,
+          requestedSchema: {
+            type: 'object',
+            properties: { label: { type: 'string', enum: labels, title: 'ラベル' } },
+            required: ['label'],
+          },
+        }),
+      },
+    });
+  } catch (error) {
+    return toolError(error);
+  }
+}
+
+export async function deleteWithConfirmation(ctx: ServerContext, taskId: string): Promise<CallToolResult | InputRequiredResult> {
+  try {
+    const preview = await fetchConvex(ctx, 'preview-delete', { taskId }) as { id: string; text: string; count: number };
+    const response = inputResponse(ctx.mcpReq.inputResponses, 'confirm');
+    if (response.kind !== 'missing') {
+      const state = ctx.mcpReq.requestState<ConfirmationState>();
+      if (!state || state.kind !== 'delete' || state.taskId !== taskId ||
+          state.text !== preview.text || state.count !== preview.count) {
+        throw new Error('タスクが変更されました。削除をもう一度確認してください。');
+      }
+      if (response.kind === 'elicit' && response.action !== 'accept') return json({ cancelled: true });
+      const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', z.object({ confirm: z.boolean() }))?.confirm;
+      if (!confirmed) return json({ cancelled: true });
+      return call(ctx, 'delete', { taskId, expectedText: preview.text, expectedCount: preview.count });
+    }
+
+    const descendants = preview.count - 1;
+    return inputRequired({
+      requestState: await confirmationState.mint({ kind: 'delete', taskId, text: preview.text, count: preview.count }, ctx),
+      inputRequests: {
+        confirm: inputRequired.elicit({
+          message: `「${preview.text}」を削除しますか？${descendants ? `サブタスク ${descendants} 件も削除されます。` : ''}`,
+          requestedSchema: z.object({ confirm: z.boolean().describe('削除する場合のみ true') }),
+        }),
+      },
+    });
+  } catch (error) {
+    return toolError(error);
   }
 }
 
@@ -110,16 +206,19 @@ const handler = createMcpHandler(
       {
         title: "Read the user's task list",
         description:
-          "Read the user's task list: open tasks, labels, ids, deadlines, completion criteria and attached context. Unfinished tasks only unless include_done is set. Narrow with label or today; today: true uses the account's saved time zone.",
+          "Read the user's task list: open tasks, labels, ids, deadlines, completion criteria and attached context. Unfinished tasks only unless include_done is set. Narrow with label, today or query. Returns up to 50 tasks by default; use next_offset to read more. today: true uses the account's saved time zone.",
         inputSchema: z.object({
           include_done: z.boolean().optional().describe('Also return finished tasks'),
           label: z.string().optional().describe('Only tasks under this label (a name from list_tasks)'),
           today: z.union([z.boolean(), z.string()]).optional().describe('true uses the account time zone; YYYY-MM-DD remains supported'),
+          query: z.string().max(200).optional().describe('Case-insensitive text search in task title and note, including subtasks'),
+          limit: z.number().int().min(1).max(100).optional().describe('Tasks per page, default 50, maximum 100'),
+          offset: z.number().int().min(0).optional().describe('Pass the previous next_offset to read the next page'),
         }),
         annotations: { readOnlyHint: true },
       },
-      ({ include_done, label, today }, ctx) =>
-        call(ctx, 'list', { includeDone: include_done, label, today })
+      ({ include_done, label, today, query, limit, offset }, ctx) =>
+        call(ctx, 'list', { includeDone: include_done, label, today, query, limit, offset })
     );
 
     server.registerTool(
@@ -127,7 +226,7 @@ const handler = createMcpHandler(
       {
         title: "Add a task to the user's list",
         description:
-          "Put one task into the user's list. Write it as a line the user would write for themselves, in their language. Use label only with a name from list_tasks; an unknown label leaves the task at the top level and is reported back. Use parent_task_id for a subtask. Reuse idempotency_key on retries; identical requests are also deduplicated briefly even if the key changes.",
+          "Put one task into the user's list. Write it as a line the user would write for themselves, in their language. An unknown label asks the user to choose an existing one; it never silently files at the top level. Use parent_task_id for a subtask. Reuse idempotency_key on retries; identical requests are also deduplicated briefly even if the key changes.",
         inputSchema: z.object({
           text: z.string().describe('One line, like a task list entry'),
           note: z.string().optional().describe('Details or context, shown under the task'),
@@ -141,17 +240,17 @@ const handler = createMcpHandler(
         }),
       },
       ({ text, note, label, estimate_minutes, parent_task_id, due_date, due_time, completion_criteria, idempotency_key }, ctx) =>
-        call(ctx, 'add', {
+        withResolvedLabel(ctx, parent_task_id ? undefined : label, 'add_task', (resolvedLabel) => call(ctx, 'add', {
           text,
           note,
-          label,
+          label: resolvedLabel,
           estimateMinutes: estimate_minutes,
           parentId: parent_task_id,
           dueDate: due_date,
           dueTime: due_time,
           completionCriteria: completion_criteria,
           idempotencyKey: idempotency_key,
-        })
+        }))
     );
 
     server.registerTool(
@@ -181,7 +280,7 @@ const handler = createMcpHandler(
         }),
       },
       ({ tasks, label, parent_task_id }, ctx) =>
-        call(ctx, 'add-many', {
+        withResolvedLabel(ctx, parent_task_id ? undefined : label, 'add_tasks', (resolvedLabel) => call(ctx, 'add-many', {
           tasks: tasks.map((t) => ({
             text: t.text,
             note: t.note,
@@ -192,9 +291,9 @@ const handler = createMcpHandler(
               estimateMinutes: s.estimate_minutes,
             })),
           })),
-          label,
+          label: resolvedLabel,
           parentId: parent_task_id,
-        })
+        }))
     );
 
     server.registerTool(
@@ -232,13 +331,13 @@ const handler = createMcpHandler(
       {
         title: 'Delete a task',
         description:
-          'Delete a task from the list, together with its subtasks. Only when the user asked for it to be deleted — a finished task is checked off with complete_task, not deleted.',
+          'Delete a task from the list, together with its subtasks, only after the user confirms the specific task in an elicitation. A finished task is checked off with complete_task, not deleted. If the client cannot show the confirmation, use the web app instead.',
         inputSchema: z.object({
           task_id: z.string(),
         }),
         annotations: { destructiveHint: true },
       },
-      ({ task_id }, ctx) => call(ctx, 'delete', { taskId: task_id })
+      ({ task_id }, ctx) => deleteWithConfirmation(ctx, task_id)
     );
 
     server.registerTool(
@@ -297,7 +396,8 @@ const handler = createMcpHandler(
         }),
       },
       ({ task_id, label, parent_task_id }, ctx) =>
-        call(ctx, 'move', { taskId: task_id, label, parentTaskId: parent_task_id })
+        withResolvedLabel(ctx, parent_task_id ? undefined : label, 'move_task', (resolvedLabel) =>
+          call(ctx, 'move', { taskId: task_id, label: resolvedLabel, parentTaskId: parent_task_id }))
     );
 
     server.registerTool(
@@ -311,12 +411,15 @@ const handler = createMcpHandler(
           into_label: z.string().optional().describe('An existing label to put the new task under'),
         }),
       },
-      ({ label, into_label }, ctx) => call(ctx, 'label-to-task', { label, intoLabel: into_label })
+      ({ label, into_label }, ctx) =>
+        withResolvedLabel(ctx, into_label, 'label_to_task', (resolvedLabel) =>
+          call(ctx, 'label-to-task', { label, intoLabel: resolvedLabel }))
     );
   },
   {
     serverInfo: { name: 'bizencore', version: '0.1.0' },
     instructions: INSTRUCTIONS,
+    requestState: { verify: confirmationState.verify },
   }
 );
 

@@ -9,10 +9,10 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { add, list } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { add, complete, list, previewDelete, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
 function memoryContext() {
-  const rows = { syncItems: [], mcpIdempotency: [], userPreferences: [] };
+  const rows = { syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
   let nextId = 0;
   const db = {
     query(table) {
@@ -100,4 +100,69 @@ test('list_tasks today: true uses the saved account time zone', async () => {
   assert.equal(result.today_date, today);
   assert.equal(result.tasks.length, 1);
   assert.equal(result.tasks[0].text, 'Due today');
+});
+
+test('list_tasks searches subtasks and returns bounded pages', async () => {
+  const { ctx, rows } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Launch plan' });
+  const child = await add._handler(ctx, { userId: 'user-1', text: 'Review press kit', parentId: parent.id });
+  await add._handler(ctx, { userId: 'user-1', text: 'Review schedule' });
+
+  const first = await list._handler(ctx, { userId: 'user-1', query: 'REVIEW', limit: 1 });
+  assert.equal(first.total_matching, 2);
+  assert.equal(first.tasks.length, 1);
+  assert.equal(first.tasks[0].id, child.id);
+  assert.equal(first.next_offset, 1);
+  const second = await list._handler(ctx, { userId: 'user-1', query: 'review', limit: 1, offset: first.next_offset });
+  assert.equal(second.tasks[0].text, 'Review schedule');
+  assert.equal(second.next_offset, undefined);
+
+  await assert.rejects(list._handler(ctx, { userId: 'user-1', limit: 101 }), /limit must be 1-100/);
+  await assert.rejects(list._handler(ctx, { userId: 'user-1', offset: -1 }), /offset must be a non-negative integer/);
+  assert.equal(rows.syncItems.length, 3);
+});
+
+test('unknown labels never silently add tasks at the top level', async () => {
+  const { ctx, rows } = memoryContext();
+  await assert.rejects(add._handler(ctx, { userId: 'user-1', text: 'File report', label: 'Unknown' }), /label not found/);
+  await assert.rejects(add._handler(ctx, { userId: 'user-1', text: 'File report', label: '   ' }), /label is empty/);
+  assert.equal(rows.syncItems.length, 0);
+});
+
+test('delete checks the confirmed task snapshot before removing its subtree', async () => {
+  const { ctx, rows } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Launch plan' });
+  await add._handler(ctx, { userId: 'user-1', text: 'Review press kit', parentId: parent.id });
+  const preview = await previewDelete._handler(ctx, { userId: 'user-1', taskId: parent.id });
+  assert.deepEqual(preview, { id: parent.id, text: 'Launch plan', count: 2 });
+  await assert.rejects(remove._handler(ctx, {
+    userId: 'user-1', taskId: parent.id, expectedText: preview.text, expectedCount: 1,
+  }), /task changed/);
+  assert.equal(rows.syncItems.filter((row) => row.deletedAt).length, 0);
+  const result = await remove._handler(ctx, {
+    userId: 'user-1', taskId: parent.id, expectedText: preview.text, expectedCount: preview.count,
+  });
+  assert.equal(result.deleted, 2);
+  assert.equal(rows.syncItems.filter((row) => row.deletedAt).length, 2);
+});
+
+test('MCP completion marks changed tasks as AI-completed and clears the mark on reopen', async () => {
+  const { ctx, rows } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Ship release' });
+  const child = await add._handler(ctx, { userId: 'user-1', text: 'Run checks', parentId: parent.id });
+  await add._handler(ctx, { userId: 'user-1', text: 'Check migration', parentId: child.id });
+
+  await complete._handler(ctx, { userId: 'user-1', taskId: parent.id });
+  for (const row of rows.syncItems) {
+    const item = JSON.parse(row.payload);
+    assert.equal(item.done, true);
+    assert.equal(item.completedBy, 'ai');
+    assert.equal(item.stamps.done > 0, true);
+  }
+
+  await complete._handler(ctx, { userId: 'user-1', taskId: child.id, done: false });
+  const reopened = JSON.parse(rows.syncItems.find((row) => row.itemId === child.id).payload);
+  assert.equal(reopened.done, false);
+  assert.equal(reopened.completedBy, undefined);
+  assert.equal(JSON.parse(rows.syncItems.find((row) => row.itemId === parent.id).payload).completedBy, 'ai');
 });

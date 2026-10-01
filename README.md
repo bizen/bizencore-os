@@ -118,10 +118,10 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 
 | ツール | 動作 |
 | --- | --- |
-| `list_tasks` | 残っているタスク、ラベル名、id を返す。`label` で絞る。`today` に日付を渡すと today の分と残りの見積もり合計（`today_remaining_minutes`） |
+| `list_tasks` | 残っているタスク、ラベル名、id を返す。`label`、`today`、`query` で絞り込み。既定で50件、最大100件ずつ。続きは `next_offset` を `offset` に渡す |
 | `add_task` | 1件足す（メモ / 既存ラベル / 想定時間 / 親タスク指定） |
 | `add_tasks` | まとめて足す。並びは渡した順。サブタスクも一緒に渡せる |
-| `delete_task` | 消す（子も一緒）。頼まれたときだけ |
+| `delete_task` | 消す（子も一緒）。MCP クライアントで対象を確認できたときだけ実行 |
 | `complete_task` | 完了にする（子も一緒）。`done: false` で戻す |
 | `update_task` | 文言・メモ・想定時間を直す。`today` に日付（YYYY-MM-DD）で today に入れる / 空文字で外す |
 | `add_label` | ラベルを1つ作る（いちばん下に） |
@@ -129,7 +129,8 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 | `label_to_task` | ラベルをタスクに変える。中のタスクはサブタスクになる |
 
 `add_task` は既存のラベルにしか入れない。無いラベルを指定したときは
-ルートに置いて `label_not_found` で知らせる（勝手にラベルが増えないように）。
+MCP のエリシテーションで既存ラベルを選んでもらい、確認できなければ書き込まない。
+削除も同様に確認が必要。エリシテーション非対応のクライアントでは、Web アプリから操作する。
 
 必要な環境変数（Convex と Vercel の両方）:
 

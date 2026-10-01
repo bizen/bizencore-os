@@ -24,11 +24,13 @@ function useAutoGrow(value: string) {
  */
 function CheckBox({
   done,
+  completedByAi,
   bursting,
   todayNumber,
   onToggle,
 }: {
   done: boolean;
+  completedByAi: boolean;
   bursting: boolean;
   todayNumber?: number;
   onToggle: () => void;
@@ -36,11 +38,11 @@ function CheckBox({
   return (
     <button
       type="button"
-      className={`check${done ? ' is-checked' : ''}${bursting ? ' is-bursting' : ''}`}
+      className={`check${done ? ' is-checked' : ''}${completedByAi ? ' is-ai-checked' : ''}${bursting ? ' is-bursting' : ''}`}
       onClick={onToggle}
       tabIndex={-1}
       aria-pressed={done}
-      aria-label={done ? '未完了に戻す' : '完了にする'}
+      aria-label={done ? (completedByAi ? 'AIが完了・未完了に戻す' : '未完了に戻す') : '完了にする'}
       title="⌘Enter"
     >
       <span className="check-fill" aria-hidden />
@@ -164,6 +166,7 @@ export function TaskRow(props: TaskRowProps) {
           ) : (
             <CheckBox
               done={item.done}
+              completedByAi={item.done && item.completedBy === 'ai'}
               bursting={burstIndex !== undefined}
               todayNumber={todayNumber}
               onToggle={() => onToggleDone(item.id)}

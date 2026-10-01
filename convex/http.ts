@@ -162,6 +162,20 @@ http.route({
             includeDone: body.includeDone === true,
             label: typeof body.label === "string" ? body.label : undefined,
             today: typeof body.today === "string" || typeof body.today === "boolean" ? body.today : undefined,
+            query: typeof body.query === "string" ? body.query : undefined,
+            limit: typeof body.limit === "number" ? body.limit : undefined,
+            offset: typeof body.offset === "number" ? body.offset : undefined,
+        })
+    ),
+});
+
+http.route({
+    path: "/mcp/preview-delete",
+    method: "POST",
+    handler: route((ctx, body) =>
+        ctx.runQuery(internal.mcpTasks.previewDelete, {
+            userId: body.userId as string,
+            taskId: String(body.taskId ?? ""),
         })
     ),
 });
@@ -292,6 +306,8 @@ http.route({
         ctx.runMutation(internal.mcpTasks.remove, {
             userId: body.userId as string,
             taskId: String(body.taskId ?? ""),
+            expectedText: String(body.expectedText ?? ""),
+            expectedCount: Number(body.expectedCount ?? 0),
         })
     ),
 });
