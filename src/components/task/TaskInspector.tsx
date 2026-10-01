@@ -1,6 +1,7 @@
 import { Check, Copy, ExternalLink, FileText, Link2, Paperclip, Trash2, X } from 'lucide-react';
+import { SignedIn, SignedOut } from '@clerk/clerk-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AI_TARGETS, buildTaskPrompt } from '../../lib/aiHandoff';
+import { AI_TARGETS, buildTaskHandoff } from '../../lib/aiHandoff';
 import { MAX_ATTACHMENTS, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
 import { isCloudConfigured } from '../../lib/cloudConfig';
 import { QUEST_IMG, QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
@@ -75,6 +76,82 @@ function actorLabel(actor: Item['createdBy'], client?: string): string {
   return '不明';
 }
 
+function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap; canUseMcp: boolean }) {
+  const [mode, setMode] = useState<'mcp' | 'text'>(canUseMcp ? 'mcp' : 'text');
+  const [copied, setCopied] = useState<string | null>(null);
+  const prompt = buildTaskHandoff(item, items, mode);
+
+  const copy = async (id: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(id);
+      setTimeout(() => setCopied((current) => (current === id ? null : current)), 1600);
+    } catch {
+      window.prompt('コピーしてください', value);
+    }
+  };
+
+  return (
+    <section className="inspector-section">
+      <h3 className="inspector-label">AI ハンドオフ</h3>
+      <div className="inspector-handoff-mode" role="group" aria-label="AIへの渡し方">
+        <button type="button" className={mode === 'mcp' ? 'is-on' : ''} aria-pressed={mode === 'mcp'} disabled={!canUseMcp} onClick={() => setMode('mcp')}>MCPで進める</button>
+        <button type="button" className={mode === 'text' ? 'is-on' : ''} aria-pressed={mode === 'text'} onClick={() => setMode('text')}>内容だけ渡す</button>
+      </div>
+      <p className="inspector-hint">
+        {mode === 'mcp'
+          ? '選んだAIにも同じアカウントのbizencore MCP接続が必要です。接続できれば最新情報を読み、進捗を反映できます。'
+          : canUseMcp
+            ? '指示文をコピーします。WebのAIでは開いた会話に貼り付けてください。進捗の自動反映と添付ファイルの転送はできません。'
+            : 'MCP連携にはサインインが必要です。指示文をコピーし、WebのAIでは開いた会話に貼り付けてください。進捗の自動反映と添付ファイルの転送はできません。'}
+      </p>
+      <div className="inspector-ai">
+        {AI_TARGETS.map((target) =>
+          target.kind === 'open' && mode === 'mcp' ? (
+            <a
+              key={target.id}
+              className="inspector-ai-btn"
+              href={target.url(prompt)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {target.name}
+              <ExternalLink size={13} aria-hidden />
+            </a>
+          ) : target.kind === 'open' ? (
+            <button
+              key={target.id}
+              type="button"
+              className="inspector-ai-btn"
+              onClick={() => {
+                void copy(target.id, prompt);
+                window.open(target.url(''), '_blank', 'noopener,noreferrer');
+              }}
+              title="指示文をコピーして会話を開く"
+            >
+              {target.name}
+              {copied === target.id ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+              {copied === target.id ? <span className="inspector-copied">会話に貼り付けてください</span> : null}
+            </button>
+          ) : (
+            <button
+              key={target.id}
+              type="button"
+              className="inspector-ai-btn"
+              onClick={() => void copy(target.id, target.command(prompt))}
+              title="起動コマンドをコピー"
+            >
+              {target.name}
+              {copied === target.id ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+              {copied === target.id ? <span className="inspector-copied">コピーしました</span> : null}
+            </button>
+          )
+        )}
+      </div>
+    </section>
+  );
+}
+
 /**
  * タスクの詳細パネル。行に載せきれない項目と操作をここに集める。
  * 行のボタンは残したまま足しているので、どちらからでも同じ値を変えられる。
@@ -100,7 +177,6 @@ export function TaskInspector(props: TaskInspectorProps) {
   const noteRef = useAutoGrow();
   const criteriaRef = useAutoGrow();
   const [estimateDraft, setEstimateDraft] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
   const [contextDraft, setContextDraft] = useState('');
   const contextRef = useAutoGrow();
   const attachments = liveAttachments(item.attachments);
@@ -125,23 +201,11 @@ export function TaskInspector(props: TaskInspectorProps) {
     setEstimateDraft(null);
   };
 
-  const copyCommand = async (id: string, command: string) => {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(id);
-      setTimeout(() => setCopied((current) => (current === id ? null : current)), 1600);
-    } catch {
-      window.prompt('コピーしてください', command);
-    }
-  };
-
   /** 入力欄の中身を添える。添えられたら欄を空にする */
   const addContext = (value: string) => {
     if (!value.trim()) return;
     if (onAddAttachment(item.id, { text: value })) setContextDraft('');
   };
-
-  const prompt = buildTaskPrompt(item, items);
 
   return (
     <aside
@@ -378,38 +442,12 @@ export function TaskInspector(props: TaskInspectorProps) {
         </div>
       </section>
 
-      <section className="inspector-section">
-        <h3 className="inspector-label">AI ハンドオフ</h3>
-        <p className="inspector-hint">本文・メモ・サブタスクをまとめた指示文で始めます。</p>
-        <div className="inspector-ai">
-          {AI_TARGETS.map((target) =>
-            target.kind === 'open' ? (
-              <a
-                key={target.id}
-                className="inspector-ai-btn"
-                href={target.url(prompt)}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {target.name}
-                <ExternalLink size={13} aria-hidden />
-              </a>
-            ) : (
-              <button
-                key={target.id}
-                type="button"
-                className="inspector-ai-btn"
-                onClick={() => copyCommand(target.id, target.command(prompt))}
-                title="起動コマンドをコピー"
-              >
-                {target.name}
-                {copied === target.id ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
-                {copied === target.id ? <span className="inspector-copied">コピーしました</span> : null}
-              </button>
-            )
-          )}
-        </div>
-      </section>
+      {isCloudConfigured ? (
+        <>
+          <SignedIn><TaskAiHandoff item={item} items={items} canUseMcp /></SignedIn>
+          <SignedOut><TaskAiHandoff item={item} items={items} canUseMcp={false} /></SignedOut>
+        </>
+      ) : <TaskAiHandoff item={item} items={items} canUseMcp={false} />}
 
       <div className="inspector-foot">
         <button type="button" className="ghost-btn inspector-remove" onClick={() => onRemove(item.id)}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
@@ -845,38 +845,6 @@ export function TasksPage() {
 
   return (
     <section className={`page${view === 'board' ? ' page--board' : ''}${indexLabels.length > 0 ? ' page--indexed' : ''}`}>
-      <div className={`tasks-layout${indexLabels.length > 0 ? ' has-index' : ''}`}>
-        {indexLabels.length > 0 ? (
-          <nav className="label-index" aria-label="ラベルの目次">
-            <ul className="label-index-list">
-              {indexLabels.map(({ item }) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className={`label-index-link${currentLabelId === item.id ? ' is-current' : ''}`}
-                    aria-current={currentLabelId === item.id ? 'location' : undefined}
-                    title={item.text.trim() || '無題のラベル'}
-                    onClick={() => {
-                      setCurrentLabelId(item.id);
-                      document.getElementById(`label-${item.id}`)?.scrollIntoView({
-                        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-                        block: 'start',
-                      });
-                    }}
-                  >
-                    <span
-                      className="label-index-mark"
-                      style={{ backgroundColor: item.color ? LABEL_COLORS[item.color] : undefined }}
-                      aria-hidden
-                    />
-                    <span className="label-index-name">{item.text.trim() || '無題のラベル'}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        ) : null}
-        <div className="tasks-content">
       <div className="tasks-toolbar">
         <div className="view-switch" role="tablist" aria-label="表示">
           <button
@@ -942,11 +910,49 @@ export function TasksPage() {
           ?
         </button>
       </div>
-
+      <div className={`tasks-layout${indexLabels.length > 0 ? ' has-index' : ''}`}>
+        {indexLabels.length > 0 ? (
+          <nav className="label-index" aria-label="ラベルの目次">
+            <ul className="label-index-list">
+              {indexLabels.map(({ item }) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`label-index-link${currentLabelId === item.id ? ' is-current' : ''}`}
+                    aria-current={currentLabelId === item.id ? 'location' : undefined}
+                    title={item.text.trim() || '無題のラベル'}
+                    onClick={() => {
+                      setCurrentLabelId(item.id);
+                      document.getElementById(`label-${item.id}`)?.scrollIntoView({
+                        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                        block: 'start',
+                      });
+                    }}
+                  >
+                    <span
+                      className="label-index-mark"
+                      style={{ backgroundColor: item.color ? LABEL_COLORS[item.color] : undefined }}
+                      aria-hidden
+                    />
+                    <span className="label-index-name">{item.text.trim() || '無題のラベル'}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : null}
+        <div className="tasks-content">
       {view === 'board' ? (
         <div className="board" role="list" aria-label="ラベルごとの列">
           {boardColumns.map((column) => (
-            <section key={column.key} className="board-col" role="listitem">
+            <section
+              key={column.key}
+              className="board-col"
+              role="listitem"
+              style={column.label?.item.color
+                ? { '--board-color': LABEL_COLORS[column.label.item.color] } as CSSProperties
+                : undefined}
+            >
               <div className="board-col-head">
                 {column.label ? (
                   <ul className="row-list">{renderRow(column.label)}</ul>

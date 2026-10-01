@@ -14,7 +14,7 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { deleteWithConfirmation, withResolvedLabel, workOnTask } = await import(
+const { deleteWithConfirmation, withResolvedLabel, workOnTask, workOnTaskPrompt } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`
 );
 
@@ -113,6 +113,7 @@ test('work_on_task presents readable choices and re-fetches the selected task by
     const payload = JSON.parse(selected.content[0].text);
     assert.equal(payload.task.note, 'Fresh details');
     assert.match(payload.next_action, /record_task_progress/);
+    assert.doesNotMatch(payload.next_action, /Call the bizencore work_on_task tool/);
     assert.deepEqual(mock.calls.map((call) => call.path), ['list', 'get']);
     assert.equal(mock.calls[1].body.taskId, 'task-1');
 
@@ -130,6 +131,24 @@ test('work_on_task supports exact IDs without elicitation and rejects completed 
     const result = await workOnTask(context(), 'task-1');
     assert.equal(result.isError, true);
     assert.deepEqual(mock.calls.map((call) => call.path), ['get']);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('work_on_task prompt includes fresh task data for an exact ID', async () => {
+  const mock = mockConvex({ get: { task: { id: 'task-1', text: 'Fresh title', done: false, note: 'Latest note' }, path: [] } });
+  try {
+    const prompt = await workOnTaskPrompt(context(), 'task-1');
+    const text = prompt.messages[0].content.text;
+    assert.match(text, /Latest note/);
+    assert.match(text, /start work/);
+    assert.doesNotMatch(text, /Call the bizencore work_on_task tool/);
+    assert.deepEqual(mock.calls.map((call) => call.path), ['get']);
+
+    const withoutId = await workOnTaskPrompt(context());
+    assert.match(withoutId.messages[0].content.text, /choose a task/);
+    assert.equal(mock.calls.length, 1);
   } finally {
     mock.restore();
   }

@@ -1,12 +1,13 @@
 import { attachmentLabel, liveAttachments } from './attachments';
 import { childrenOf, isLive, type Item, type ItemMap } from './taskModel';
+import { buildMcpHandoffPrompt } from './taskWorkPrompt';
 
 /**
  * タスクを AI に渡すための指示文。本文・ラベル・親タスク・メモ・サブタスクを
- * ひとまとめにする。Web の AI には URL で、CLI の AI にはコマンドで渡す。
+ * ひとまとめにする。MCP を使わないときのテキスト版。
  */
 export function buildTaskPrompt(item: Item, items: ItemMap): string {
-  const lines = ['次のタスクを進めるのを手伝ってください。', '', `タスク: ${item.text.trim() || '（無題）'}`];
+  const lines = ['次のタスクに着手してください。', '', `タスク: ${item.text.trim() || '（無題）'}`];
 
   const parents: string[] = [];
   let label: string | undefined;
@@ -39,7 +40,7 @@ export function buildTaskPrompt(item: Item, items: ItemMap): string {
       if (att.kind === 'link') {
         lines.push(`- ${attachmentLabel(att)}: ${att.url}`);
       } else if (att.kind === 'file') {
-        lines.push(`- ファイル: ${attachmentLabel(att)}（MCP の list_tasks から参照）`);
+        lines.push(`- ファイル: ${attachmentLabel(att)}（この方法ではファイルの実体を渡せません）`);
       } else if (att.title) {
         lines.push(`- ${att.title}`, ...(att.text ?? '').split('\n').map((line) => `  > ${line}`));
       } else {
@@ -50,7 +51,12 @@ export function buildTaskPrompt(item: Item, items: ItemMap): string {
     }
   }
 
+  lines.push('', '完了できたことと残作業を分けて報告してください。これは現在の内容のコピーであり、bizencore への進捗の自動反映はできません。');
   return lines.join('\n');
+}
+
+export function buildTaskHandoff(item: Item, items: ItemMap, mode: 'mcp' | 'text'): string {
+  return mode === 'mcp' ? buildMcpHandoffPrompt(item.id, item.text) : buildTaskPrompt(item, items);
 }
 
 /** シェルにそのまま貼れるよう、単一引用符で囲む */
@@ -62,7 +68,7 @@ export type AiTarget =
   | { id: string; name: string; kind: 'open'; url: (prompt: string) => string }
   | { id: string; name: string; kind: 'copy'; command: (prompt: string) => string };
 
-/** Web の AI は指示文を入れた新しい会話を開き、CLI の AI は起動コマンドをコピーする */
+/** Web の AI は新しい会話を開き、CLI の AI は起動コマンドをコピーする */
 export const AI_TARGETS: AiTarget[] = [
   { id: 'claude', name: 'Claude', kind: 'open', url: (p) => `https://claude.ai/new?q=${encodeURIComponent(p)}` },
   { id: 'chatgpt', name: 'ChatGPT', kind: 'open', url: (p) => `https://chatgpt.com/?q=${encodeURIComponent(p)}` },

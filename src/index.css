@@ -234,6 +234,7 @@ body {
 /* ---------- Page ---------- */
 
 .page {
+  --toolbar-sticky-top: 4.65rem;
   width: 100%;
   max-width: 720px;
   display: flex;
@@ -273,7 +274,7 @@ body {
 
 .label-index {
   position: sticky;
-  top: 6rem;
+  top: calc(var(--toolbar-sticky-top) + 3.75rem);
   transform: translateX(min(0px, calc(453px - 44vw)));
   align-self: start;
   max-height: calc(100vh - 9rem);
@@ -335,7 +336,7 @@ body {
 }
 
 .row--section.row--root {
-  scroll-margin-top: 6rem;
+  scroll-margin-top: calc(var(--toolbar-sticky-top) + 3.75rem);
 }
 
 @media (max-width: 860px) {
@@ -350,7 +351,7 @@ body {
   }
 
   .label-index {
-    top: 4.5rem;
+    top: calc(var(--toolbar-sticky-top) + 3.75rem);
     transform: none;
     z-index: 8;
     width: 100%;
@@ -384,13 +385,13 @@ body {
   }
 
   .row--section.row--root {
-    scroll-margin-top: 9rem;
+    scroll-margin-top: calc(var(--toolbar-sticky-top) + 6.5rem);
   }
 }
 
 @media (max-width: 640px) {
-  .label-index {
-    top: 3.75rem;
+  .page {
+    --toolbar-sticky-top: 3.9rem;
   }
 }
 
@@ -406,15 +407,17 @@ body {
 }
 
 .board-col {
-  flex: 0 0 320px;
+  flex: 1 0 clamp(280px, 24vw, 360px);
   min-width: 0;
+  max-width: 480px;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.6rem 0.5rem 0.5rem;
   background: var(--card-bg);
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
+  background: color-mix(in srgb, var(--board-color, var(--card-bg)) 11%, var(--card-bg));
+  border: 1px solid color-mix(in srgb, var(--board-color, var(--hairline)) 24%, var(--hairline));
+  border-radius: 8px;
   scroll-snap-align: start;
 }
 
@@ -516,8 +519,15 @@ body {
 }
 
 @media (max-width: 640px) {
+  .board {
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+  }
+
   .board-col {
-    flex-basis: 85vw;
+    flex: 0 0 100%;
+    max-width: 100%;
+    scroll-snap-stop: always;
   }
 }
 
@@ -755,9 +765,17 @@ body {
 /* ---------- Tasks ---------- */
 
 .tasks-toolbar {
+  position: sticky;
+  top: var(--toolbar-sticky-top);
+  z-index: 9;
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  align-self: center;
+  width: min(100%, 720px);
+  padding: 0.45rem 0;
+  background: var(--bg-color);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .view-switch {
@@ -831,6 +849,24 @@ body {
   width: 2rem;
   padding: 0.35rem 0;
   font-family: var(--font-mono);
+}
+
+@media (max-width: 400px) {
+  .tasks-toolbar {
+    gap: 0.35rem;
+  }
+
+  .view-switch-btn {
+    padding-inline: 0.45rem;
+  }
+
+  .tasks-search {
+    padding-inline: 0.45rem;
+  }
+
+  .tasks-help-btn {
+    width: 1.8rem;
+  }
 }
 
 /* ---------- 行 ---------- */
@@ -2465,6 +2501,42 @@ body {
 .inspector-hint {
   font-size: 0.78rem;
   color: var(--text-secondary);
+}
+
+.inspector-handoff-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: rgba(var(--surface-rgb), 0.03);
+}
+
+.inspector-handoff-mode button {
+  min-width: 0;
+  padding: 0.45rem 0.3rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.inspector-handoff-mode button.is-on {
+  background: rgba(var(--accent-rgb), 0.13);
+  color: var(--text-primary);
+}
+
+.inspector-handoff-mode button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.inspector-handoff-mode button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .inspector-ai {
