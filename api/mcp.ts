@@ -18,7 +18,7 @@ import { workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
  * ここは中継だけ。並びや親子の面倒は Convex 側の mcpTasks が持つ。
  */
 
-const INSTRUCTIONS = `bizencore is the user's own task list. For work_on_task, let the user select a task, read its latest details, do the work now, and record verified completion or partial progress. Never mark an unfinished parent complete.
+const INSTRUCTIONS = `bizencore is the user's own task list. For work_on_task, let the user choose a label and then a task. Read its latest details, clarify missing essentials with concrete options and a recommendation, continue the work in the same conversation, and record verified completion or partial progress. Never mark an unfinished parent complete.
 
 Use add_task when the user asks you to remember something, or when your conversation produces a follow-up they will have to do themselves. One line, in the user's language (usually Japanese), phrased as the user would write it — not as a report to them.
 
@@ -26,7 +26,7 @@ Call list_tasks first when you need to know what is already there, or to get the
 
 Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
 
-This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. Ask the user when uncertain. For work_on_task, start doing the selected task in this conversation. If it cannot be completed, use record_task_progress to check only verified subtasks, add specific remaining subtasks, and keep the parent unfinished. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
+This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. Ask only for information needed to take the next responsible step, and resume work after the answer. Save durable decisions as concise task context. For work_on_task, start doing the selected task in this conversation. If it cannot be completed, use record_task_progress to check only verified subtasks, add specific remaining subtasks, and note the blocker while keeping the parent unfinished. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
 
 const clerk = createClerkClient({
   secretKey: clerkSecretKey(),
@@ -36,7 +36,8 @@ const clerk = createClerkClient({
 type ConfirmationState =
   | { kind: 'delete'; taskId: string; text: string; count: number }
   | { kind: 'label'; operation: string; requested: string }
-  | { kind: 'work'; options: { label: string; id: string }[]; requestedQuery?: string; activeQuery?: string; label?: string; today?: boolean; offset: number };
+  | { kind: 'work-label'; options: { label: string; value?: string }[]; requestedQuery?: string; requestedLabel?: string; today?: boolean }
+  | { kind: 'work'; options: { label: string; id: string }[]; requestedQuery?: string; activeQuery?: string; requestedLabel?: string; activeLabel?: string; today?: boolean; offset: number };
 
 const confirmationState = createRequestStateCodec<ConfirmationState>({
   key: createHash('sha256').update(mcpSecret()).digest(),
@@ -232,10 +233,25 @@ export async function workOnTask(
 ): Promise<CallToolResult | InputRequiredResult> {
   if (taskId) return selectedTask(ctx, taskId);
   try {
+    const labelResponse = inputResponse(ctx.mcpReq.inputResponses, 'work_label');
+    if (labelResponse.kind !== 'missing') {
+      const state = ctx.mcpReq.requestState<ConfirmationState>();
+      if (!state || state.kind !== 'work-label' || state.requestedQuery !== query ||
+          state.requestedLabel !== label || state.today !== today) {
+        throw new Error('ラベル選択が無効になりました。もう一度選んでください。');
+      }
+      if (labelResponse.kind === 'elicit' && labelResponse.action !== 'accept') return json({ cancelled: true });
+      const chosen = acceptedContent(ctx.mcpReq.inputResponses, 'work_label', z.object({ label: z.string() }))?.label;
+      const selected = state.options.find((option) => option.label === chosen);
+      if (!selected) throw new Error('選択されたラベルが見つかりません。もう一度選んでください。');
+      return workTaskPage(ctx, query, query, label, selected.value, today, 0);
+    }
+
     const response = inputResponse(ctx.mcpReq.inputResponses, 'task');
     if (response.kind !== 'missing') {
       const state = ctx.mcpReq.requestState<ConfirmationState>();
-      if (!state || state.kind !== 'work' || state.requestedQuery !== query || state.label !== label || state.today !== today) {
+      if (!state || state.kind !== 'work' || state.requestedQuery !== query ||
+          state.requestedLabel !== label || state.today !== today) {
         throw new Error('タスク選択が無効になりました。もう一度選んでください。');
       }
       if (response.kind === 'elicit' && response.action !== 'accept') return json({ cancelled: true });
@@ -243,17 +259,57 @@ export async function workOnTask(
         task: z.string().optional(), search: z.string().optional(),
       }));
       if (answer?.search?.trim()) {
-        return workTaskPage(ctx, query, answer.search.trim().slice(0, 200), label, today, 0);
+        return workTaskPage(ctx, query, answer.search.trim().slice(0, 200), label, state.activeLabel, today, 0);
       }
       const chosen = answer?.task;
       const selected = state.options.find((option) => option.label === chosen);
       if (!selected) throw new Error('選択されたタスクが見つかりません。もう一度選んでください。');
-      if (selected.id === '__next__') return workTaskPage(ctx, query, state.activeQuery, label, today, state.offset + 30);
-      if (selected.id === '__prev__') return workTaskPage(ctx, query, state.activeQuery, label, today, Math.max(0, state.offset - 30));
-      if (selected.id === '__all__') return workTaskPage(ctx, query, undefined, label, today, 0);
+      if (selected.id === '__next__') return workTaskPage(ctx, query, state.activeQuery, label, state.activeLabel, today, state.offset + 30);
+      if (selected.id === '__prev__') return workTaskPage(ctx, query, state.activeQuery, label, state.activeLabel, today, Math.max(0, state.offset - 30));
+      if (selected.id === '__all__') return workTaskPage(ctx, query, undefined, label, state.activeLabel, today, 0);
+      if (selected.id === '__labels__') return workLabelPage(ctx, query, label, today);
       return selectedTask(ctx, selected.id);
     }
-    return workTaskPage(ctx, query, query, label, today, 0);
+    return label === undefined
+      ? workLabelPage(ctx, query, label, today)
+      : workTaskPage(ctx, query, query, label, label, today, 0);
+  } catch (error) {
+    return toolError(error);
+  }
+}
+
+async function workLabelPage(
+  ctx: ServerContext,
+  query: string | undefined,
+  requestedLabel: string | undefined,
+  today: boolean | undefined
+): Promise<CallToolResult | InputRequiredResult> {
+  try {
+    const result = await fetchConvex(ctx, 'list', { flat: true, limit: 1, query, today }) as {
+      labels: string[]; total_matching: number;
+    };
+    if (!result.total_matching) return json({ tasks: [], message: '未完了のタスクが見つかりません。' });
+    if (result.labels.length === 0) return workTaskPage(ctx, query, query, requestedLabel, undefined, today, 0);
+
+    const options: { label: string; value?: string }[] = [{ label: 'すべてのタスク', value: undefined }];
+    for (const name of result.labels) {
+      let display = name;
+      while (options.some((option) => option.label === display)) display += '（ラベル）';
+      options.push({ label: display, value: name });
+    }
+    return inputRequired({
+      requestState: await confirmationState.mint({ kind: 'work-label', options, requestedQuery: query, requestedLabel, today }, ctx),
+      inputRequests: {
+        work_label: inputRequired.elicit({
+          message: '最初にラベルを選んでください。',
+          requestedSchema: {
+            type: 'object',
+            properties: { label: { type: 'string', enum: options.map((option) => option.label), title: 'ラベル' } },
+            required: ['label'],
+          },
+        }),
+      },
+    });
   } catch (error) {
     return toolError(error);
   }
@@ -263,19 +319,23 @@ async function workTaskPage(
   ctx: ServerContext,
   requestedQuery: string | undefined,
   activeQuery: string | undefined,
-  label: string | undefined,
+  requestedLabel: string | undefined,
+  activeLabel: string | undefined,
   today: boolean | undefined,
   offset: number
 ): Promise<CallToolResult | InputRequiredResult> {
   try {
     const result = await fetchConvex(ctx, 'list', {
-      query: activeQuery, label, today, flat: true, limit: 30, offset,
+      query: activeQuery, label: activeLabel, today, flat: true, limit: 30, offset,
     }) as {
+      labels: string[];
       tasks: { id: string; text: string; label?: string; parent_task?: string; due_date?: string }[];
       total_matching: number;
       next_offset?: number;
     };
-    if (!result.total_matching && !activeQuery) return json({ tasks: [], message: '未完了のタスクが見つかりません。' });
+    if (!result.total_matching && !activeQuery && !result.labels?.length) {
+      return json({ tasks: [], message: '未完了のタスクが見つかりません。' });
+    }
     const options = result.tasks.map((task) => ({
       id: task.id,
       label: `${task.text.slice(0, 75)}${task.parent_task ? ` · ${task.parent_task.slice(0, 35)}` : ''}${task.label ? ` · ${task.label}` : ''}${task.due_date ? ` · ${task.due_date}` : ''} [${task.id.slice(0, 8)}]`,
@@ -283,12 +343,13 @@ async function workTaskPage(
     if (offset > 0) options.push({ id: '__prev__', label: '← 前の30件' });
     if (result.next_offset !== undefined) options.push({ id: '__next__', label: '次の30件 →' });
     if (activeQuery) options.push({ id: '__all__', label: '検索を解除して全件を見る' });
+    if (result.labels?.length) options.push({ id: '__labels__', label: '← ラベルを選び直す' });
     const end = offset + result.tasks.length;
     return inputRequired({
-      requestState: await confirmationState.mint({ kind: 'work', options, requestedQuery, activeQuery, label, today, offset }, ctx),
+      requestState: await confirmationState.mint({ kind: 'work', options, requestedQuery, activeQuery, requestedLabel, activeLabel, today, offset }, ctx),
       inputRequests: {
         task: inputRequired.elicit({
-          message: `${result.total_matching}件中 ${result.total_matching ? offset + 1 : 0}–${end}件を表示。タスクを選ぶか、検索語を入力してください。`,
+          message: `${activeLabel ? `「${activeLabel}」` : 'すべて'}の未完了タスク ${result.total_matching}件中 ${result.total_matching ? offset + 1 : 0}–${end}件を表示。タスクを選ぶか、検索語を入力してください。`,
           requestedSchema: {
             type: 'object',
             properties: {
@@ -310,7 +371,7 @@ const handler = createMcpHandler(
       'work_on_task',
       {
         title: 'Work on a bizencore task',
-        description: 'Choose one unfinished task from bizencore and start working on it now.',
+        description: 'Choose a label, then an unfinished task. Clarify what is missing, do the work, and record the outcome.',
         argsSchema: z.object({ task_id: z.string().optional().describe('Optional task ID to skip the picker') }),
       },
       ({ task_id }, ctx) => workOnTaskPrompt(ctx, task_id)
@@ -351,14 +412,15 @@ const handler = createMcpHandler(
     server.registerTool(
       'work_on_task',
       {
-        title: 'Choose a task and start work',
-        description: 'Choose one unfinished task from a picker, then return its fresh full details and execution instructions. Optional task_id skips the picker and works in clients without elicitation. Use query or label to narrow large lists; today: true selects only today tasks.',
+        title: 'Choose a label and task, then start work',
+        description: 'Choose a label and then an unfinished task, returning its fresh details and instructions to clarify, work, and record the outcome. Optional task_id skips both forms for clients without elicitation; label skips the first form. Search and pagination are available in the task form; today: true limits tasks to today.',
         inputSchema: z.object({
           task_id: z.string().optional(),
           query: z.string().max(200).optional(),
           label: z.string().optional(),
           today: z.boolean().optional(),
         }),
+        annotations: { readOnlyHint: true },
       },
       ({ task_id, query, label, today }, ctx) => workOnTask(ctx, task_id, query, label, today)
     );

@@ -122,7 +122,7 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 | --- | --- |
 | `list_tasks` | 残っているタスク、ラベル名、id を返す。`label`、`today`、`query` で絞り込み。`include_subtasks` で子も独立した候補にする。既定で50件、最大100件ずつ。続きは `next_offset` を `offset` に渡す |
 | `get_task` | 指定IDの最新メモ、添付、完了条件、親の経路、全階層のサブタスクを読む |
-| `work_on_task` | 未完了タスクをフォーム内で検索・30件ずつページ移動して1件選び、最新情報を返して会話内で作業を始める。サブタスクも選べる。フォーム非対応時は `task_id` で直接指定 |
+| `work_on_task` | ラベル（全件も可）→未完了タスクの順に選び、最新情報と作業指示を返す。タスク選択では検索・30件ずつのページ移動・ラベル選択への戻りができる。フォーム非対応時は `task_id` で直接指定 |
 | `record_task_progress` | 親は未完了のまま、検証済みサブタスクだけチェックし、残作業のサブタスクと途中経過を記録する。再送しても同名の直下サブタスクは増やさない |
 | `add_task` | 1件足す（メモ / 既存ラベル / 想定時間 / 親タスク指定） |
 | `add_tasks` | まとめて足す。並びは渡した順。サブタスクも一緒に渡せる |
@@ -134,10 +134,16 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 | `label_to_task` | ラベルをタスクに変える。中のタスクはサブタスクになる |
 
 MCPプロンプト `work_on_task` も公開する。Claude Code CLIでは
-`/mcp__bizencore__work_on_task` から起動できる。Codex Desktop/CLIや
-Claude Code DesktopのCodeタブでは、チャットで `work_on_task` の使用を依頼できる。
-選択フォームが表示されない場合は `list_tasks` で候補を見て、選んだIDを
-`work_on_task` に渡す。MCP Apps専用のHTMLピッカーは未実装。
+`/mcp__bizencore__work_on_task` から起動できる。Codex CLIでは
+`skills/bizencore-work-on-task` をユーザースコープにインストールすると、
+`$bizencore-work-on-task` からラベル→タスクの会話選択を始められる。
+このリポジトリで `mkdir -p ~/.agents/skills && cp -R skills/bizencore-work-on-task ~/.agents/skills/` を実行する。
+Codex DesktopやClaude Code DesktopのCodeタブでは、チャットで
+`work_on_task` の使用を依頼できる。
+選択フォームが表示されない場合は `list_tasks` でラベル、次にタスクを選び、
+選んだIDを `work_on_task` に渡す。AIは最新情報を確認し、不足があれば選択肢と
+推奨案を示して相談する。判断できたら同じ会話で作業を続け、検証済みの完了か
+途中経過・質問待ちの理由を記録する。MCP Apps専用のHTMLピッカーは未実装。
 
 `add_task` は既存のラベルにしか入れない。無いラベルを指定したときは
 MCP のエリシテーションで既存ラベルを選んでもらい、確認できなければ書き込まない。

@@ -68,7 +68,7 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           <p className="help-mcp-intro">接続時にbizencoreアカウントで認証します。</p>
-          <p className="help-mcp-intro">AIとの会話では「bizencoreのwork_on_taskでタスクを選んで進めて」と伝えてください。選択フォームが使えるクライアントでは検索・ページ移動ができます。フォームが出なければ、AIにタスク一覧を出してもらい、会話で一つ選べます。タスクの詳細パネルから始める場合は「MCPで進める」を選んでください。どちらも途中で止まった作業は、完了したサブタスクと残りの作業を記録します。</p>
+          <p className="help-mcp-intro">AIとの会話では「bizencoreのwork_on_taskで進めて」と伝えてください。対応クライアントではラベル、タスクの順に選べます。フォームが出なければ、AIと会話しながら選べます。タスクの詳細パネルから始める場合は「MCPで進める」を選んでください。情報が足りなければAIと相談してから作業し、完了または途中経過を記録します。</p>
 
           <details className="help-mcp-guide">
             <summary>ChatGPT <ChevronRight size={15} aria-hidden /></summary>
@@ -100,7 +100,7 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
             <summary>Codex <ChevronRight size={15} aria-hidden /></summary>
             <p>ターミナルで登録・認証します。ツールが見えない場合は新しいセッションを開いてください。</p>
             <pre><code>{`codex mcp add bizencore --url ${MCP_URL}\ncodex mcp login bizencore`}</code></pre>
-            <p>DesktopとCLIのどちらでも、チャットで「bizencoreのwork_on_taskを使って」と依頼できます。</p>
+            <p>CLIでは <code>$bizencore-work-on-task</code> を起動すると、ラベルとタスクを会話で選べます（スキルのインストールが必要）。Desktopではチャットで「bizencoreのwork_on_taskを使って」と依頼できます。</p>
             <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noopener noreferrer">
               公式手順 <ExternalLink size={12} aria-hidden />
             </a>

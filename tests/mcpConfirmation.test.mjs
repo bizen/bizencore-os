@@ -97,29 +97,43 @@ test('unknown labels require an explicit choice before a write', async () => {
   }
 });
 
-test('work_on_task presents readable choices and re-fetches the selected task by ID', async () => {
+test('work_on_task chooses a label before a task and re-fetches the selected task by ID', async () => {
   const mock = mockConvex({
-    list: { tasks: [{ id: 'task-1', text: 'Review mobile layout', label: 'Build' }], total_matching: 1 },
+    list: { labels: ['Build'], tasks: [{ id: 'task-1', text: 'Review mobile layout', label: 'Build' }], total_matching: 1 },
     get: { task: { id: 'task-1', text: 'Review mobile layout', done: false, note: 'Fresh details' }, path: [] },
   });
   try {
-    const picker = await workOnTask(context());
+    const labels = await workOnTask(context());
+    assert.equal(labels.resultType, 'input_required');
+    assert.deepEqual(labels.inputRequests.work_label.params.requestedSchema.properties.label.enum, ['すべてのタスク', 'Build']);
+    assert.equal(mock.calls[0].body.flat, true);
+
+    const forgedLabel = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Private' } } }, stateOf(labels)));
+    assert.equal(forgedLabel.isError, true);
+    assert.equal(mock.calls.length, 1);
+    const changedFilter = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Build' } } }, stateOf(labels)), undefined, 'different');
+    assert.equal(changedFilter.isError, true);
+    assert.equal(mock.calls.length, 1);
+
+    const picker = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Build' } } }, stateOf(labels)));
     assert.equal(picker.resultType, 'input_required');
     const choice = picker.inputRequests.task.params.requestedSchema.properties.task.enum[0];
     assert.match(choice, /Review mobile layout/);
-    assert.equal(mock.calls[0].path, 'list');
+    assert.equal(mock.calls[1].body.label, 'Build');
 
     const selected = await workOnTask(context({ task: { action: 'accept', content: { task: choice } } }, stateOf(picker)));
     const payload = JSON.parse(selected.content[0].text);
     assert.equal(payload.task.note, 'Fresh details');
     assert.match(payload.next_action, /record_task_progress/);
+    assert.match(payload.next_action, /ask focused questions/);
+    assert.match(payload.next_action, /continue working in this same conversation/);
     assert.doesNotMatch(payload.next_action, /Call the bizencore work_on_task tool/);
-    assert.deepEqual(mock.calls.map((call) => call.path), ['list', 'get']);
-    assert.equal(mock.calls[1].body.taskId, 'task-1');
+    assert.deepEqual(mock.calls.map((call) => call.path), ['list', 'list', 'get']);
+    assert.equal(mock.calls[2].body.taskId, 'task-1');
 
     const forged = await workOnTask(context({ task: { action: 'accept', content: { task: 'Other task' } } }, stateOf(picker)));
     assert.equal(forged.isError, true);
-    assert.equal(mock.calls.length, 2);
+    assert.equal(mock.calls.length, 3);
   } finally {
     mock.restore();
   }
@@ -142,12 +156,12 @@ test('work_on_task prompt includes fresh task data for an exact ID', async () =>
     const prompt = await workOnTaskPrompt(context(), 'task-1');
     const text = prompt.messages[0].content.text;
     assert.match(text, /Latest note/);
-    assert.match(text, /start work/);
+    assert.match(text, /do the actual work/);
     assert.doesNotMatch(text, /Call the bizencore work_on_task tool/);
     assert.deepEqual(mock.calls.map((call) => call.path), ['get']);
 
     const withoutId = await workOnTaskPrompt(context());
-    assert.match(withoutId.messages[0].content.text, /choose a task/);
+    assert.match(withoutId.messages[0].content.text, /choose a label and then an unfinished task/);
     assert.equal(mock.calls.length, 1);
   } finally {
     mock.restore();
@@ -159,37 +173,95 @@ test('work_on_task can page through all tasks and search within the form', async
   const mock = mockConvex({
     list: (body) => {
       const matching = body.query ? all.filter((task) => task.text.includes(body.query)) : all;
-      return { tasks: matching.slice(body.offset ?? 0, (body.offset ?? 0) + 30), total_matching: matching.length,
+      return { labels: ['Build'], tasks: matching.slice(body.offset ?? 0, (body.offset ?? 0) + 30), total_matching: matching.length,
         ...((body.offset ?? 0) + 30 < matching.length ? { next_offset: (body.offset ?? 0) + 30 } : {}) };
     },
     get: { task: { id: 'task-30', text: 'Task 30', done: false }, path: [] },
   });
   try {
-    const first = await workOnTask(context());
+    const work = (ctx) => workOnTask(ctx, undefined, undefined, 'Build');
+    const first = await work(context());
     assert.equal(first.resultType, 'input_required');
     assert.equal(mock.calls[0].body.flat, true);
     const choices = first.inputRequests.task.params.requestedSchema.properties.task.enum;
-    assert.equal(choices.length, 31);
-    const next = await workOnTask(context({ task: { action: 'accept', content: { task: '次の30件 →' } } }, stateOf(first)));
+    assert.equal(choices.length, 32);
+    const next = await work(context({ task: { action: 'accept', content: { task: '次の30件 →' } } }, stateOf(first)));
     assert.equal(next.resultType, 'input_required');
     assert.equal(mock.calls[1].body.offset, 30);
+    assert.equal(mock.calls[1].body.label, 'Build');
     const lastChoice = next.inputRequests.task.params.requestedSchema.properties.task.enum[0];
     assert.match(lastChoice, /Task 30/);
-    const selected = await workOnTask(context({ task: { action: 'accept', content: { task: lastChoice } } }, stateOf(next)));
+    const selected = await work(context({ task: { action: 'accept', content: { task: lastChoice } } }, stateOf(next)));
     assert.equal(JSON.parse(selected.content[0].text).task.id, 'task-30');
 
-    const search = await workOnTask(context({ task: { action: 'accept', content: { search: 'Task 30' } } }, stateOf(first)));
+    const search = await work(context({ task: { action: 'accept', content: { search: 'Task 30' } } }, stateOf(first)));
     assert.equal(search.resultType, 'input_required');
     assert.equal(mock.calls.at(-1).body.query, 'Task 30');
-    assert.equal(search.inputRequests.task.params.requestedSchema.properties.task.enum.length, 2);
+    assert.equal(mock.calls.at(-1).body.label, 'Build');
+    assert.equal(search.inputRequests.task.params.requestedSchema.properties.task.enum.length, 3);
 
-    const emptySearch = await workOnTask(context({ task: { action: 'accept', content: { search: 'No match' } } }, stateOf(first)));
+    const emptySearch = await work(context({ task: { action: 'accept', content: { search: 'No match' } } }, stateOf(first)));
     assert.equal(emptySearch.resultType, 'input_required');
-    assert.deepEqual(emptySearch.inputRequests.task.params.requestedSchema.properties.task.enum, ['検索を解除して全件を見る']);
-    const reset = await workOnTask(context({ task: { action: 'accept', content: { task: '検索を解除して全件を見る' } } }, stateOf(emptySearch)));
+    assert.deepEqual(emptySearch.inputRequests.task.params.requestedSchema.properties.task.enum, ['検索を解除して全件を見る', '← ラベルを選び直す']);
+    const reset = await work(context({ task: { action: 'accept', content: { task: '検索を解除して全件を見る' } } }, stateOf(emptySearch)));
     assert.equal(reset.resultType, 'input_required');
     assert.equal(mock.calls.at(-1).body.query, undefined);
+
+    const back = await work(context({ task: { action: 'accept', content: { task: '← ラベルを選び直す' } } }, stateOf(first)));
+    assert.equal(back.resultType, 'input_required');
+    assert.ok(back.inputRequests.work_label);
   } finally {
     mock.restore();
+  }
+});
+
+test('work_on_task all-label option includes unlabeled tasks and keeps the selection across search', async () => {
+  const mock = mockConvex({
+    list: (body) => ({
+      labels: ['Build'], total_matching: 1,
+      tasks: [{ id: 'task-1', text: 'Unlabeled task' }].filter((task) => !body.label && (!body.query || task.text.includes(body.query))),
+    }),
+  });
+  try {
+    const labels = await workOnTask(context());
+    const allTasks = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'すべてのタスク' } } }, stateOf(labels)));
+    assert.equal(allTasks.resultType, 'input_required');
+    assert.equal(mock.calls.at(-1).body.label, undefined);
+    assert.match(allTasks.inputRequests.task.params.requestedSchema.properties.task.enum[0], /Unlabeled task/);
+    const searched = await workOnTask(context({ task: { action: 'accept', content: { search: 'Unlabeled' } } }, stateOf(allTasks)));
+    assert.equal(searched.resultType, 'input_required');
+    assert.equal(mock.calls.at(-1).body.label, undefined);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('work_on_task can return from an empty label and skips label selection when there are no labels', async () => {
+  const mock = mockConvex({
+    list: (body) => ({
+      labels: ['Build', 'Empty'], total_matching: body.label === 'Empty' ? 0 : 1,
+      tasks: body.label === 'Empty' ? [] : [{ id: 'task-1', text: 'Unlabeled task' }],
+    }),
+  });
+  try {
+    const labels = await workOnTask(context());
+    const empty = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Empty' } } }, stateOf(labels)));
+    assert.equal(empty.resultType, 'input_required');
+    assert.deepEqual(empty.inputRequests.task.params.requestedSchema.properties.task.enum, ['← ラベルを選び直す']);
+    const back = await workOnTask(context({ task: { action: 'accept', content: { task: '← ラベルを選び直す' } } }, stateOf(empty)));
+    assert.equal(back.resultType, 'input_required');
+    assert.ok(back.inputRequests.work_label);
+  } finally {
+    mock.restore();
+  }
+
+  const unlabeled = mockConvex({ list: { labels: [], total_matching: 1, tasks: [{ id: 'task-1', text: 'Unlabeled task' }] } });
+  try {
+    const picker = await workOnTask(context());
+    assert.equal(picker.resultType, 'input_required');
+    assert.ok(picker.inputRequests.task);
+    assert.equal(unlabeled.calls.length, 2);
+  } finally {
+    unlabeled.restore();
   }
 });

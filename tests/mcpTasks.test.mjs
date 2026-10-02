@@ -251,6 +251,22 @@ test('record_task_progress checks only verified subtasks, adds remaining work on
   }), /already complete/);
 });
 
+test('record_task_progress can preserve a consultation blocker without inventing subtasks', async () => {
+  const { ctx } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Share tasks with a partner' });
+  const input = {
+    userId: 'user-1', taskId: parent.id, completedSubtaskIds: [], remainingSubtasks: [],
+    progressNote: 'Need a decision on whether task attachments are visible to the partner.',
+  };
+  await recordProgress._handler(ctx, input);
+  await recordProgress._handler(ctx, input);
+  const detail = await get._handler(ctx, { userId: 'user-1', taskId: parent.id });
+  assert.equal(detail.task.done, false);
+  assert.deepEqual(detail.task.subtasks ?? [], []);
+  assert.equal(detail.task.attachments.length, 1);
+  assert.match(detail.task.attachments[0].text, /attachments are visible/);
+});
+
 test('record_task_progress rejects foreign children and premature parent-subtask completion', async () => {
   const { ctx, rows } = memoryContext();
   const parent = await add._handler(ctx, { userId: 'user-1', text: 'Ship launch' });
