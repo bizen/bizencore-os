@@ -40,10 +40,10 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: '⌘Z', label: '取り消し', footer: { label: '取り消し' } },
   { keys: '⌥1 / ⌥2 / ⌥3', label: 'all / board / today' },
   { keys: '⌥4〜⌥9', label: 'フォーカスを追加した順に切り替える（先頭6件）' },
-  { keys: '⌘F', label: '検索' },
+  { keys: '⌘F', label: '検索を開く' },
   { keys: '⌘K', label: 'tasks ⇄ count を切り替え' },
   { keys: '⌘/', label: 'ヘルプを開く / 閉じる', footer: { label: 'ヘルプ' } },
-  { keys: 'Esc', label: '編集をやめる / 検索を消す' },
+  { keys: 'Esc', label: '編集をやめる / 検索を閉じる' },
 ];
 
 export const FOOTER_SHORTCUTS = SHORTCUTS.filter((s) => s.footer).map((s) => ({

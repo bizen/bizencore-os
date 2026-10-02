@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
 import { TaskRow } from '../components/task/TaskRow';
@@ -172,10 +172,6 @@ function filterRows(rows: Row[], query: string): Row[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return rows;
 
-  const matches = (item: Item) =>
-    item.text.toLowerCase().includes(needle) ||
-    (item.note ?? '').toLowerCase().includes(needle);
-
   const kept: Row[] = [];
   const ancestors: Row[] = [];
   const emitted = new Set<string>();
@@ -184,7 +180,7 @@ function filterRows(rows: Row[], query: string): Row[] {
     ancestors.length = row.depth;
     ancestors[row.depth] = row;
 
-    if (!matches(row.item)) continue;
+    if (!matchesQuery(row.item, needle)) continue;
     for (let d = 0; d <= row.depth; d++) {
       const ancestor = ancestors[d];
       if (!ancestor || emitted.has(ancestor.item.id)) continue;
@@ -194,6 +190,11 @@ function filterRows(rows: Row[], query: string): Row[] {
   }
 
   return kept;
+}
+
+function matchesQuery(item: Item, needle: string): boolean {
+  return item.text.toLowerCase().includes(needle) ||
+    (item.note ?? '').toLowerCase().includes(needle);
 }
 
 export function TasksPage() {
@@ -209,6 +210,7 @@ export function TasksPage() {
     !focusedLabelIds.includes(selectedLabelId) || !isLive(selectedLabel) || selectedLabel.type !== 'section'
   ) ? 'all' : selectedView;
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
   const [deadlineOpenId, setDeadlineOpenId] = useState<string | null>(null);
@@ -223,6 +225,8 @@ export function TasksPage() {
   const titleRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const noteRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
+  const searchPanelRef = useRef<HTMLDivElement | null>(null);
   const viewSwitchRef = useRef<HTMLDivElement | null>(null);
   const pendingFocus = useRef<PendingFocus | null>(null);
 
@@ -330,6 +334,23 @@ export function TasksPage() {
     () => (shelfOpen ? [...activeRows, ...doneRows] : activeRows),
     [shelfOpen, activeRows, doneRows]
   );
+  const searchResults = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return needle ? rows.filter((row) => matchesQuery(row.item, needle)) : [];
+  }, [query, rows]);
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery('');
+    searchButtonRef.current?.focus();
+  };
+
+  const chooseSearchResult = (row: Row) => {
+    if (doneRows.some((doneRow) => doneRow.item.id === row.item.id)) setCompletedOpen(true);
+    setSearchOpen(false);
+    setQuery('');
+    pendingFocus.current = { id: row.item.id, target: 'title', caret: 'end', misses: 0 };
+  };
 
   const todayNumbers = useMemo(() => {
     const numbers = new Map<string, number>();
@@ -594,6 +615,18 @@ export function TasksPage() {
       if (event.defaultPrevented) return;
       const mod = event.metaKey || event.ctrlKey;
 
+      if (searchOpen) {
+        if (event.key === 'Escape' && !event.isComposing) {
+          event.preventDefault();
+          closeSearch();
+        } else if (mod && event.code === 'KeyF') {
+          event.preventDefault();
+          searchRef.current?.focus();
+          searchRef.current?.select();
+        }
+        return;
+      }
+
       if (inspector) {
         if (event.key === 'Escape' && !event.isComposing) {
           event.preventDefault();
@@ -618,10 +651,6 @@ export function TasksPage() {
           setHelpOpen(false);
           event.preventDefault();
           return;
-        }
-        if (query) {
-          setQuery('');
-          event.preventDefault();
         }
         return;
       }
@@ -690,8 +719,7 @@ export function TasksPage() {
       }
       if (mod && event.code === 'KeyF') {
         event.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
+        setSearchOpen(true);
         return;
       }
       if (mod && event.code === 'Slash') {
@@ -706,7 +734,7 @@ export function TasksPage() {
     deadlineOpenId,
     colorOpenId,
     helpOpen,
-    query,
+    searchOpen,
     rows,
     activeId,
     requestFocus,
@@ -979,26 +1007,17 @@ export function TasksPage() {
           ))}
         </div>
 
-        <input
-          ref={searchRef}
-          className="tasks-search"
-          value={query}
-          placeholder="検索（⌘F）"
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              setQuery('');
-              e.currentTarget.blur();
-            }
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              requestFocus(rows[0]?.item.id);
-            }
-          }}
-          aria-label="タスクを検索"
-        />
+        <button
+          ref={searchButtonRef}
+          type="button"
+          className="ghost-btn tasks-search-btn"
+          onClick={() => setSearchOpen(true)}
+          title="検索（⌘F）"
+          aria-label="検索"
+          aria-haspopup="dialog"
+        >
+          <Search size={16} aria-hidden />
+        </button>
 
         <button
           type="button"
@@ -1167,6 +1186,88 @@ export function TasksPage() {
       </div>
 
       {helpOpen ? <KeyboardHelp onClose={() => setHelpOpen(false)} /> : null}
+
+      {searchOpen ? (
+        <div className="task-search-backdrop" role="dialog" aria-modal="true" aria-label="検索" onClick={closeSearch}>
+          <div
+            ref={searchPanelRef}
+            className="task-search-panel"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') return;
+              const focusable = searchPanelRef.current?.querySelectorAll<HTMLElement>('input, button');
+              if (!focusable?.length) return;
+              const first = focusable[0];
+              const last = focusable[focusable.length - 1];
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+              }
+            }}
+          >
+            <div className="task-search-field">
+              <Search size={18} aria-hidden />
+              <input
+                ref={searchRef}
+                autoFocus
+                value={query}
+                placeholder="検索"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                  if (event.key === 'Enter' && searchResults[0]) {
+                    event.preventDefault();
+                    chooseSearchResult(searchResults[0]);
+                  } else if (event.key === 'ArrowDown' && searchResults.length > 0) {
+                    event.preventDefault();
+                    searchPanelRef.current?.querySelector<HTMLButtonElement>('.task-search-result')?.focus();
+                  }
+                }}
+                aria-label="タスクを検索"
+              />
+              <button type="button" className="task-search-close" onClick={closeSearch} aria-label="検索を閉じる" title="閉じる">
+                <X size={17} aria-hidden />
+              </button>
+            </div>
+            {query.trim() ? (
+              <div className="task-search-matches">
+                {searchResults.length > 0 ? (
+                  <>
+                    <p className="task-search-count">{searchResults.length} 件</p>
+                    <ul className="task-search-results">
+                      {searchResults.map((row) => (
+                        <li key={row.item.id}>
+                          <button
+                            type="button"
+                            className="task-search-result"
+                            onClick={() => chooseSearchResult(row)}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                              event.preventDefault();
+                              const buttons = Array.from(searchPanelRef.current?.querySelectorAll<HTMLButtonElement>('.task-search-result') ?? []);
+                              const index = buttons.indexOf(event.currentTarget);
+                              const next = buttons[index + (event.key === 'ArrowDown' ? 1 : -1)];
+                              (next ?? (event.key === 'ArrowUp' ? searchRef.current : event.currentTarget))?.focus();
+                            }}
+                          >
+                            <span className="task-search-result-title">{row.item.text.trim() || '無題'}</span>
+                            <span className="task-search-result-meta">
+                              {row.item.type === 'section' ? 'ラベル' : row.item.filed ? '完了済み' : parentPath(row.item, items) || 'タスク'}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : <p className="task-search-empty">一致するタスクはありません。</p>}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {inspected && !inspected.deletedAt && inspected.type === 'task' ? (
         <TaskInspector

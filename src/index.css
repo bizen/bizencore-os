@@ -768,7 +768,7 @@ body {
   display: flex;
   gap: 0.15rem;
   min-width: 0;
-  max-width: min(65%, calc(100% - 8rem));
+  max-width: calc(100% - 5.5rem);
   overflow-x: auto;
   scrollbar-width: none;
   padding: 0.18rem;
@@ -835,27 +835,13 @@ body {
   background: rgba(var(--surface-rgb), 0.07);
 }
 
-.tasks-search {
-  flex: 1;
-  min-width: 0;
-  padding: 0.42rem 0.7rem;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: rgba(var(--surface-rgb), 0.03);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 0.85rem;
-  outline: none;
-  transition: border-color 0.15s, background-color 0.15s;
-}
-
-.tasks-search:hover {
-  background: rgba(var(--surface-rgb), 0.05);
-}
-
-.tasks-search:focus {
-  border-color: var(--accent-color);
-  background: var(--focus-bg);
+.tasks-search-btn {
+  margin-left: auto;
+  flex: 0 0 2rem;
+  display: grid;
+  place-items: center;
+  height: 2rem;
+  padding: 0;
 }
 
 .tasks-help-btn {
@@ -874,13 +860,146 @@ body {
     padding-inline: 0.45rem;
   }
 
-  .tasks-search {
-    padding-inline: 0.45rem;
+  .tasks-search-btn {
+    flex-basis: 1.8rem;
   }
 
   .tasks-help-btn {
     width: 1.8rem;
   }
+}
+
+.task-search-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: min(16vh, 8rem) 1rem 1rem;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.task-search-panel {
+  width: min(600px, 100%);
+  max-height: min(70dvh, 36rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+}
+
+.task-search-field {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 3.5rem;
+  padding: 0 1rem;
+  color: var(--text-secondary);
+}
+
+.task-search-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.task-search-field input::placeholder {
+  color: var(--text-secondary);
+}
+
+.task-search-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 1.8rem;
+  height: 1.8rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.task-search-close:hover,
+.task-search-close:focus-visible {
+  background: rgba(var(--surface-rgb), 0.07);
+  color: var(--text-primary);
+}
+
+.task-search-matches {
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--hairline);
+}
+
+.task-search-count {
+  padding: 0.6rem 1rem 0.25rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.task-search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0.45rem 0.45rem;
+}
+
+.task-search-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  min-height: 2.6rem;
+  padding: 0.55rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.84rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-search-result:hover,
+.task-search-result:focus-visible {
+  background: rgba(var(--surface-rgb), 0.07);
+  outline: none;
+}
+
+.task-search-result-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-search-result-meta {
+  flex: 0 1 auto;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-search-empty {
+  padding: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
 }
 
 /* ---------- 行 ---------- */
