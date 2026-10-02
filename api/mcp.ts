@@ -377,12 +377,12 @@ const handler = createMcpHandler(
       'open_task_picker',
       {
         title: 'Choose a bizencore task visually',
-        description: 'Open an interactive label, Today, deadline and search picker in MCP Apps-capable clients. Wait for the user to choose; the app sends the exact task ID back to the conversation. In other clients use work_on_task or list_tasks.',
+        description: 'Offer an interactive label, Today, deadline and search picker in MCP Apps-capable clients. If no picker is visibly rendered, use work_on_task or list_tasks for conversational selection instead. A rendered app sends the exact task ID back to the conversation.',
         inputSchema: z.object({}),
         annotations: { readOnlyHint: true },
         _meta: { ui: { resourceUri: TASK_PICKER_URI } },
       },
-      async () => json({ message: 'タスク選択画面を開きました。選択されたタスクIDが会話に届くまで待ってください。' })
+      async () => json({ message: 'MCP Apps 対応クライアントではタスク選択画面が表示されます。画面が見えない場合は work_on_task か list_tasks で会話による選択に切り替えてください。画面が表示された場合のみ、選択されたタスクIDを待ってください。' })
     );
 
     registerAppResource(
