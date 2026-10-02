@@ -190,13 +190,22 @@ body {
 .brand {
   font-family: 'Geist', var(--font-family);
   font-weight: 500;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   font-size: 15px;
+  white-space: nowrap;
 }
 
 .brand i {
   font-family: 'Instrument Serif', 'Times New Roman', serif;
   font-style: italic;
+  font-weight: 400;
+  font-size: 17px;
+}
+
+.brand-os {
+  margin-left: 0.22em;
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-style: normal;
   font-weight: 400;
   font-size: 17px;
 }
@@ -2271,7 +2280,16 @@ body {
 
 @media (max-width: 640px) {
   .app-header {
+    gap: 0.5rem;
     padding: 0.9rem 1rem;
+  }
+
+  .app-header-end {
+    gap: 0.75rem;
+  }
+
+  .app-nav {
+    gap: 1rem;
   }
 
   .app-main {
@@ -2365,6 +2383,21 @@ body {
   .splash-wordmark {
     font-size: 0.9rem;
     letter-spacing: 0.28em;
+  }
+}
+
+@media (max-width: 360px) {
+  .app-header {
+    flex-wrap: wrap;
+  }
+
+  .app-header-end {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .page {
+    --toolbar-sticky-top: 5.5rem;
   }
 }
 /* ---------- 詳細パネル ---------- */
