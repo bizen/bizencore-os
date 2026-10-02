@@ -10,6 +10,7 @@ import { isCloudConfigured } from './lib/cloudConfig';
 import { CountPage } from './pages/CountPage';
 import { TasksPage } from './pages/TasksPage';
 import { applyTheme, readTheme, saveTheme, type Theme } from './lib/theme';
+import { Brand } from './components/Brand';
 
 const SPLASH_VISIBLE_MS = 1100;
 const SPLASH_FADE_MS = 450;
@@ -73,7 +74,7 @@ export default function App() {
 
       <div className="app-shell">
         <header className="app-header">
-          <div className="brand">bizen<i>core</i><span className="brand-os">OS</span></div>
+          <Brand />
           <div className="app-header-end">
             <nav className="app-nav">
               <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>

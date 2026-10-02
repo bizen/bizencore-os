@@ -42,6 +42,7 @@
   --inspector-shadow: rgba(0, 0, 0, 0.35);
 }
 
+:root:not([data-theme]),
 :root[data-theme='black'] {
   --bg-color: #0a0b0c;
   --card-bg: #17191b;

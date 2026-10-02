@@ -5,11 +5,11 @@ const STORAGE_KEY = 'bizencore.theme';
 export function readTheme(): Theme {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'black' || saved === 'white') return saved;
+    if (saved === 'original' || saved === 'black' || saved === 'white') return saved;
   } catch {
-    // Storage may be unavailable; keep the original appearance.
+    // Embedded hosts may block storage; use the same default there.
   }
-  return 'original';
+  return 'black';
 }
 
 export function applyTheme(theme: Theme): void {

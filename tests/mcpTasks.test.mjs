@@ -9,7 +9,7 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { add, addMany, complete, get, list, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { add, addMany, complete, get, list, taskView, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
 function memoryContext() {
   const rows = { syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
@@ -52,6 +52,42 @@ function memoryContext() {
   };
   return { ctx: { db }, rows };
 }
+
+test('embedded view preserves labels, hierarchy and account time zone without exposing sync internals', async () => {
+  const { ctx, rows } = memoryContext();
+  rows.userPreferences.push({ userId: 'user-1', timeZone: 'Australia/Melbourne', automatic: false });
+  rows.syncItems.push({ userId: 'user-1', itemId: 'label', updatedAt: 1, payload: JSON.stringify({ type: 'section', text: 'Build', note: 'Purpose', color: 'violet', order: 0 }) });
+  const parent = await add._handler(ctx, { userId: 'user-1', label: 'Build', text: 'Launch', completionCriteria: 'Verified', dueDate: '2026-10-05', clientName: 'Codex' });
+  await add._handler(ctx, { userId: 'user-1', parentId: parent.id, text: 'Test' });
+  await add._handler(ctx, { userId: 'other-user', text: 'Private other account' });
+  const result = await taskView._handler(ctx, { userId: 'user-1' });
+  assert.equal(result.items.length, 3);
+  assert.equal(result.time_zone, 'Australia/Melbourne');
+  assert.equal(result.items.find((item) => item.id === 'label').color, 'violet');
+  assert.equal(result.items.find((item) => item.id === 'label').note, 'Purpose');
+  const task = result.items.find((item) => item.id === parent.id);
+  assert.equal(task.parentId, 'label');
+  assert.equal(task.completionCriteria, 'Verified');
+  assert.equal(task.dueDate, '2026-10-05');
+  assert.equal(task.createdByClient, 'Codex');
+  assert.equal('stamps' in task, false);
+  assert.equal('attachments' in task, false);
+  assert.equal('userId' in task, false);
+  assert.equal(result.items.some((item) => item.text === 'Private other account'), false);
+});
+
+test('embedded view pages all rows and does not truncate a large account', async () => {
+  const { ctx, rows } = memoryContext();
+  for (let i = 0; i < 205; i++) rows.syncItems.push({ userId: 'user-1', itemId: `item-${i}`, updatedAt: i + 1, payload: JSON.stringify({ text: `Task ${i}`, order: i }) });
+  const first = await taskView._handler(ctx, { userId: 'user-1' });
+  const second = await taskView._handler(ctx, { userId: 'user-1', offset: first.next_offset });
+  assert.equal(first.items.length, 200);
+  assert.equal(second.items.length, 5);
+  assert.equal(second.next_offset, undefined);
+  assert.equal(first.total, 205);
+  assert.equal(new Set([...first.items, ...second.items].map((item) => item.id)).size, 205);
+  await assert.rejects(taskView._handler(ctx, { userId: 'user-1', offset: -1 }), /offset must be/);
+});
 
 test('add_task returns the original task on retries, even if the caller changes its key', async () => {
   const { ctx, rows } = memoryContext();

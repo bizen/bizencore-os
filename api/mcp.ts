@@ -36,7 +36,7 @@ const clerk = createClerkClient({
   publishableKey: clerkPublishableKey(),
 });
 
-const TASK_PICKER_URI = 'ui://bizencore/work-task-picker.html';
+const TASK_PICKER_URI = 'ui://bizencore/work-task-picker-v2.html';
 
 type ConfirmationState =
   | { kind: 'delete'; taskId: string; text: string; count: number }
@@ -397,8 +397,23 @@ const handler = createMcpHandler(
           uri: uri.href,
           mimeType: RESOURCE_MIME_TYPE,
           text: await readFile(join(process.cwd(), 'dist-mcp/index.html'), 'utf8'),
+          _meta: {
+            ui: { csp: { resourceDomains: ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'] } },
+          },
         }],
       })
+    );
+
+    registerAppTool(
+      server,
+      'get_task_view',
+      {
+        description: 'Read the current account task tree for the embedded bizencore list, including label colors and notes. Read-only; no changes to tasks.',
+        inputSchema: z.object({ offset: z.number().int().nonnegative().optional() }),
+        annotations: { readOnlyHint: true },
+        _meta: { ui: { visibility: ['app'] } },
+      },
+      ({ offset }, ctx) => call(ctx, 'task-view', { offset })
     );
 
     server.registerPrompt(

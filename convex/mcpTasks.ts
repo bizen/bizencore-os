@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { cleanupFiles } from "./fileCleanup";
 import { dateInTimeZone, isDateString, isTimeString } from "../src/lib/taskDates";
 import { coerceStamps, restamp, type Stamps } from "../src/lib/itemMerge";
+import { compareItems, isLabelColor, type Item } from "../src/lib/taskModel";
 import {
     MAX_ATTACHMENTS,
     attachmentFrom,
@@ -406,6 +407,43 @@ export const list = internalQuery({
             ...result,
             today_date: todayDate,
             today_remaining_minutes: remainingMinutes(items, picked),
+        };
+    },
+});
+
+/** Read-only MCP Apps projection: preserve the web list's tree and visual metadata. */
+export const taskView = internalQuery({
+    args: { userId: v.string(), offset: v.optional(v.number()) },
+    handler: async (ctx, { userId, offset = 0 }) => {
+        if (!Number.isInteger(offset) || offset < 0) throw new ConvexError("offset must be a non-negative integer");
+        const stored = await loadItems(ctx, userId);
+        // Explicitly project display fields; never send sync stamps or storage ownership references.
+        const items: Item[] = stored.map((item) => ({
+            id: item.id, type: item.type, parentId: item.parentId, order: item.order,
+            text: item.text, done: item.done, createdAt: item.createdAt, updatedAt: item.updatedAt,
+            ...(typeof item.note === "string" && item.note ? { note: item.note } : {}),
+            ...(item.completionCriteria ? { completionCriteria: item.completionCriteria } : {}),
+            ...(isLabelColor(item.color) ? { color: item.color } : {}),
+            ...(item.kind === "main" || item.kind === "tanomi" ? { kind: item.kind } : {}),
+            ...(item.filed === true ? { filed: true } : {}),
+            ...(item.assignedDate ? { assignedDate: item.assignedDate } : {}),
+            ...(item.dueDate ? { dueDate: item.dueDate } : {}),
+            ...(item.dueTime ? { dueTime: item.dueTime } : {}),
+            ...(typeof item.estimate === "number" ? { estimate: item.estimate } : {}),
+            ...(item.createdBy ? { createdBy: item.createdBy } : {}),
+            ...(item.createdByClient ? { createdByClient: item.createdByClient } : {}),
+            ...(item.completedBy ? { completedBy: item.completedBy } : {}),
+            ...(item.completedByClient ? { completedByClient: item.completedByClient } : {}),
+        })).sort(compareItems);
+        const prefs = await ctx.db.query("userPreferences").withIndex("by_user", (q) => q.eq("userId", userId)).unique();
+        const timeZone = prefs?.timeZone ?? "UTC";
+        const page = items.slice(offset, offset + 200);
+        return {
+            items: page,
+            today_date: dateInTimeZone(timeZone),
+            time_zone: timeZone,
+            total: items.length,
+            ...(offset + page.length < items.length ? { next_offset: offset + page.length } : {}),
         };
     },
 });

@@ -171,6 +171,17 @@ http.route({
 });
 
 http.route({
+    path: "/mcp/task-view",
+    method: "POST",
+    handler: route((ctx, body) =>
+        ctx.runQuery(internal.mcpTasks.taskView, {
+            userId: body.userId as string,
+            offset: typeof body.offset === "number" ? body.offset : undefined,
+        })
+    ),
+});
+
+http.route({
     path: "/mcp/get",
     method: "POST",
     handler: route((ctx, body) =>
