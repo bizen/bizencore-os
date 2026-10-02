@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.mcp-app.tsbuildinfo"
+  },
+  "include": ["mcp-app"]
+}

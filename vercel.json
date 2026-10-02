@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/mcp.ts": {
+      "includeFiles": "dist-mcp/index.html"
+    }
+  },
   "redirects": [
     {
       "source": "/:path*",

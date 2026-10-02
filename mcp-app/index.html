@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>タスクを選ぶ · bizencore</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="brand">bizencore os</span>
+        <h1>タスクを選ぶ</h1>
+      </header>
+
+      <div class="filters">
+        <label class="field">
+          <span>ラベル</span>
+          <select id="label"><option value="">すべて</option></select>
+        </label>
+        <label class="field">
+          <span>期限</span>
+          <select id="due">
+            <option value="all">すべて</option>
+            <option value="overdue">期限切れ</option>
+            <option value="week">7日以内</option>
+            <option value="dated">期限あり</option>
+          </select>
+        </label>
+        <label class="today"><input id="today" type="checkbox" /> Today</label>
+      </div>
+
+      <label class="search">
+        <span>検索</span>
+        <input id="query" type="search" placeholder="タスク名やメモ" autocomplete="off" />
+      </label>
+
+      <p id="status" role="status" aria-live="polite"></p>
+      <div id="tasks" class="tasks"></div>
+    </main>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

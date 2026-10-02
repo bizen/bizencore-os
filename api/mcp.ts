@@ -1,8 +1,11 @@
 import { createClerkClient } from '@clerk/backend';
+import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { acceptedContent, createRequestStateCodec, inputRequired, inputResponse } from '@modelcontextprotocol/server';
 import type { AuthInfo, CallToolResult, InputRequiredResult, ServerContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, withMcpAuth } from 'mcp-handler';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { clerkPublishableKey, clerkSecretKey, convexSiteUrl, mcpSecret } from './_lib/env.js';
 import { workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
@@ -18,7 +21,7 @@ import { workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
  * ここは中継だけ。並びや親子の面倒は Convex 側の mcpTasks が持つ。
  */
 
-const INSTRUCTIONS = `bizencore is the user's own task list. For work_on_task, let the user choose a label and then a task. Read its latest details, clarify missing essentials with concrete options and a recommendation, continue the work in the same conversation, and record verified completion or partial progress. Never mark an unfinished parent complete.
+const INSTRUCTIONS = `bizencore is the user's own task list. For work_on_task, let the user choose a label and then a task. In an MCP Apps-capable host, open_task_picker offers a visual picker; otherwise use elicitation or conversational selection. Read the selected task's latest details, clarify missing essentials with concrete options and a recommendation, continue the work in the same conversation, and record verified completion or partial progress. Never mark an unfinished parent complete.
 
 Use add_task when the user asks you to remember something, or when your conversation produces a follow-up they will have to do themselves. One line, in the user's language (usually Japanese), phrased as the user would write it — not as a report to them.
 
@@ -32,6 +35,8 @@ const clerk = createClerkClient({
   secretKey: clerkSecretKey(),
   publishableKey: clerkPublishableKey(),
 });
+
+const TASK_PICKER_URI = 'ui://bizencore/work-task-picker.html';
 
 type ConfirmationState =
   | { kind: 'delete'; taskId: string; text: string; count: number }
@@ -367,6 +372,33 @@ async function workTaskPage(
 
 const handler = createMcpHandler(
   (server) => {
+    registerAppTool(
+      server,
+      'open_task_picker',
+      {
+        title: 'Choose a bizencore task visually',
+        description: 'Open an interactive label, Today, deadline and search picker in MCP Apps-capable clients. Wait for the user to choose; the app sends the exact task ID back to the conversation. In other clients use work_on_task or list_tasks.',
+        inputSchema: z.object({}),
+        annotations: { readOnlyHint: true },
+        _meta: { ui: { resourceUri: TASK_PICKER_URI } },
+      },
+      async () => json({ message: 'タスク選択画面を開きました。選択されたタスクIDが会話に届くまで待ってください。' })
+    );
+
+    registerAppResource(
+      server,
+      'bizencore task picker',
+      TASK_PICKER_URI,
+      { mimeType: RESOURCE_MIME_TYPE },
+      async (uri) => ({
+        contents: [{
+          uri: uri.href,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: await readFile(join(process.cwd(), 'dist-mcp/index.html'), 'utf8'),
+        }],
+      })
+    );
+
     server.registerPrompt(
       'work_on_task',
       {
