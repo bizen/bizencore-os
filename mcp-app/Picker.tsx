@@ -13,6 +13,7 @@ export interface PickerClient {
   page(offset: number): Promise<Page>;
   detail(id: string): Promise<Detail>;
   send(text: string): Promise<void>;
+  open(url: string): Promise<void>;
 }
 
 function Dialog({ name, className, onClose, children }: { name: string; className: string; onClose: () => void; children: ReactNode }) {
@@ -179,11 +180,15 @@ export function Picker({ client }: { client: PickerClient }) {
     try {
       await client.send(handoffMessage(selected));
       setStatus('選んだタスクを会話に送りました。'); closeDetail();
-    } catch (e) { setDetailError(e instanceof Error ? e.message : '会話へ送信できませんでした。'); }
+    } catch (e) { setDetailError(`${e instanceof Error ? e.message : '会話へ送信できませんでした。'} タスクID: ${selected}`); }
     finally { setSending(false); }
   };
   const taskList = (list: Row[]) => <ul className="row-list">{list.map((row) => <TaskLine key={row.item.id} row={row} selected={selected} today={today} onSelect={select} onFocusLabel={toggleFocus} focused={focus} />)}</ul>;
   const todayCount = pickerRows(items, 'today', today).active.filter((row) => row.item.type === 'task' && !row.item.done).length;
+  const openLink = (url: string) => { void client.open(url).catch(() => {
+    if (selected) setDetailError('リンクを開けませんでした。');
+    else setStatus('リンクを開けませんでした。');
+  }); };
 
   return <main className="picker-shell">
     <header className="app-header"><Brand /><div className="picker-header-actions">
@@ -220,7 +225,7 @@ export function Picker({ client }: { client: PickerClient }) {
         </div>
       </div> : null}
     </div></div>
-    <footer className="picker-footer"><span>{Object.values(items).filter((item) => item.type === 'task' && !item.done).length} tasks</span><a href="https://app.bizencore.com" target="_blank" rel="noreferrer">bizencore OS <ArrowUpRight size={12} /></a></footer>
+    <footer className="picker-footer"><span>{Object.values(items).filter((item) => item.type === 'task' && !item.done).length} tasks</span><a href="https://app.bizencore.com" onClick={(e) => { e.preventDefault(); openLink('https://app.bizencore.com'); }}>bizencore OS <ArrowUpRight size={12} /></a></footer>
     {filters ? <Dialog name="締切で絞り込む" className="picker-settings" onClose={closeFilters}>
       <div className="inspector-head"><h2>締切</h2><button className="app-settings-btn" aria-label="絞り込みを閉じる" onClick={closeFilters}><X size={18} /></button></div>
       {([{ id: 'all', name: 'すべて' }, { id: 'overdue', name: '期限切れ' }, { id: 'week', name: '7日以内' }, { id: 'dated', name: '期限あり' }] as const).map((option) => <label key={option.id} className="picker-filter-option">
@@ -252,7 +257,7 @@ export function Picker({ client }: { client: PickerClient }) {
       {criteria ? <section className="inspector-section"><h3 className="inspector-label">完了条件</h3><p className="picker-detail-text">{criteria}</p></section> : null}
       {detail?.attachments?.length ? <section className="inspector-section"><h3 className="inspector-label">コンテキスト</h3>{detail.attachments.map((attachment) => <div className="picker-context" key={attachment.id}>
         <span>{attachment.title}</span>{attachment.text ? <p className="picker-detail-text">{attachment.text}</p> : null}
-        {attachment.url && /^https?:\/\//i.test(attachment.url) ? <a href={attachment.url} target="_blank" rel="noreferrer">{attachment.kind === 'file' ? 'ファイルを開く' : 'リンクを開く'} <ArrowUpRight size={12} /></a> : null}
+        {attachment.url && /^https?:\/\//i.test(attachment.url) ? <a href={attachment.url} onClick={(e) => { e.preventDefault(); openLink(attachment.url!); }}>{attachment.kind === 'file' ? 'ファイルを開く' : 'リンクを開く'} <ArrowUpRight size={12} /></a> : null}
       </div>)}</section> : null}
       {detailChildren.length ? <section className="inspector-section"><h3 className="inspector-label">サブタスク</h3>{detailChildren.map((item) => <button key={item.id} className="picker-subtask" onClick={() => select(item.id)}><span>{item.text}</span><ChevronRight size={14} /></button>)}</section> : null}
       {detailError ? <div className="picker-error" role="alert"><p>{detailError}</p>{!detail ? <button className="ghost-btn" onClick={() => { setDetailError(''); setDetailVersion((version) => version + 1); }}>再読み込み</button> : null}</div> : null}

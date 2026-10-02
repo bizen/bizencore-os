@@ -25,5 +25,9 @@ const client: PickerClient = {
     const result = await app.sendMessage({ role: 'user', content: [{ type: 'text', text }] });
     if (result.isError) throw new Error('このクライアントでは会話へ送信できませんでした。');
   },
+  open: async (url) => {
+    const result = await app.openLink({ url });
+    if (result.isError) throw new Error('リンクを開けませんでした。');
+  },
 };
 createRoot(document.getElementById('root')!).render(<Picker client={client} />);

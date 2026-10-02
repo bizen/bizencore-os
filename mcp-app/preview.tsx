@@ -31,5 +31,6 @@ const client: PickerClient = {
       attachments: id === 'picker' ? [{ id: 'context', title: '設計メモ', kind: 'text', text: '最新の情報を読んで、十分なら作業。不十分なら相談してから着手する。' }] : [] };
   },
   send: async () => {},
+  open: async () => {},
 };
 createRoot(document.getElementById('root')!).render(<Picker client={client} />);
