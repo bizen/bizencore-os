@@ -105,19 +105,20 @@ test('work_on_task chooses a label before a task and re-fetches the selected tas
   try {
     const labels = await workOnTask(context());
     assert.equal(labels.resultType, 'input_required');
-    assert.deepEqual(labels.inputRequests.work_label.params.requestedSchema.properties.label.enum, ['すべてのタスク', 'Build']);
+    assert.deepEqual(labels.inputRequests.work_label.params.requestedSchema.properties.label.enum, ['1. すべてのタスク', '2. Build']);
     assert.equal(mock.calls[0].body.flat, true);
 
     const forgedLabel = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Private' } } }, stateOf(labels)));
     assert.equal(forgedLabel.isError, true);
     assert.equal(mock.calls.length, 1);
-    const changedFilter = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Build' } } }, stateOf(labels)), undefined, 'different');
+    const changedFilter = await workOnTask(context({ work_label: { action: 'accept', content: { label: '2. Build' } } }, stateOf(labels)), undefined, 'different');
     assert.equal(changedFilter.isError, true);
     assert.equal(mock.calls.length, 1);
 
-    const picker = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Build' } } }, stateOf(labels)));
+    const picker = await workOnTask(context({ work_label: { action: 'accept', content: { label: '2. Build' } } }, stateOf(labels)));
     assert.equal(picker.resultType, 'input_required');
     const choice = picker.inputRequests.task.params.requestedSchema.properties.task.enum[0];
+    assert.match(choice, /^1\. /);
     assert.match(choice, /Review mobile layout/);
     assert.equal(mock.calls[1].body.label, 'Build');
 
@@ -190,6 +191,7 @@ test('work_on_task can page through all tasks and search within the form', async
     assert.equal(mock.calls[1].body.offset, 30);
     assert.equal(mock.calls[1].body.label, 'Build');
     const lastChoice = next.inputRequests.task.params.requestedSchema.properties.task.enum[0];
+    assert.match(lastChoice, /^31\. /);
     assert.match(lastChoice, /Task 30/);
     const selected = await work(context({ task: { action: 'accept', content: { task: lastChoice } } }, stateOf(next)));
     assert.equal(JSON.parse(selected.content[0].text).task.id, 'task-30');
@@ -224,7 +226,7 @@ test('work_on_task all-label option includes unlabeled tasks and keeps the selec
   });
   try {
     const labels = await workOnTask(context());
-    const allTasks = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'すべてのタスク' } } }, stateOf(labels)));
+    const allTasks = await workOnTask(context({ work_label: { action: 'accept', content: { label: '1. すべてのタスク' } } }, stateOf(labels)));
     assert.equal(allTasks.resultType, 'input_required');
     assert.equal(mock.calls.at(-1).body.label, undefined);
     assert.match(allTasks.inputRequests.task.params.requestedSchema.properties.task.enum[0], /Unlabeled task/);
@@ -245,7 +247,7 @@ test('work_on_task can return from an empty label and skips label selection when
   });
   try {
     const labels = await workOnTask(context());
-    const empty = await workOnTask(context({ work_label: { action: 'accept', content: { label: 'Empty' } } }, stateOf(labels)));
+    const empty = await workOnTask(context({ work_label: { action: 'accept', content: { label: '3. Empty' } } }, stateOf(labels)));
     assert.equal(empty.resultType, 'input_required');
     assert.deepEqual(empty.inputRequests.task.params.requestedSchema.properties.task.enum, ['← ラベルを選び直す']);
     const back = await workOnTask(context({ task: { action: 'accept', content: { task: '← ラベルを選び直す' } } }, stateOf(empty)));

@@ -296,11 +296,13 @@ async function workLabelPage(
     if (!result.total_matching) return json({ tasks: [], message: '未完了のタスクが見つかりません。' });
     if (result.labels.length === 0) return workTaskPage(ctx, query, query, requestedLabel, undefined, today, 0);
 
-    const options: { label: string; value?: string }[] = [{ label: 'すべてのタスク', value: undefined }];
+    const options: { label: string; value?: string }[] = [{ label: '1. すべてのタスク', value: undefined }];
+    const displays = new Set(['すべてのタスク']);
     for (const name of result.labels) {
       let display = name;
-      while (options.some((option) => option.label === display)) display += '（ラベル）';
-      options.push({ label: display, value: name });
+      while (displays.has(display)) display += '（ラベル）';
+      displays.add(display);
+      options.push({ label: `${options.length + 1}. ${display}`, value: name });
     }
     return inputRequired({
       requestState: await confirmationState.mint({ kind: 'work-label', options, requestedQuery: query, requestedLabel, today }, ctx),
@@ -341,9 +343,9 @@ async function workTaskPage(
     if (!result.total_matching && !activeQuery && !result.labels?.length) {
       return json({ tasks: [], message: '未完了のタスクが見つかりません。' });
     }
-    const options = result.tasks.map((task) => ({
+    const options = result.tasks.map((task, index) => ({
       id: task.id,
-      label: `${task.text.slice(0, 75)}${task.parent_task ? ` · ${task.parent_task.slice(0, 35)}` : ''}${task.label ? ` · ${task.label}` : ''}${task.due_date ? ` · ${task.due_date}` : ''} [${task.id.slice(0, 8)}]`,
+      label: `${offset + index + 1}. ${task.text.slice(0, 75)}${task.parent_task ? ` · ${task.parent_task.slice(0, 35)}` : ''}${task.label ? ` · ${task.label}` : ''}${task.due_date ? ` · ${task.due_date}` : ''} [${task.id.slice(0, 8)}]`,
     }));
     if (offset > 0) options.push({ id: '__prev__', label: '← 前の30件' });
     if (result.next_offset !== undefined) options.push({ id: '__next__', label: '次の30件 →' });
