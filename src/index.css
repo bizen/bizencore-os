@@ -1075,6 +1075,15 @@ body {
   gap: 0.05rem;
 }
 
+.row-lock-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  color: var(--text-secondary);
+}
+
 .row--locked .row-title { font-weight: 500; }
 .check:disabled { cursor: not-allowed; opacity: 0.45; }
 

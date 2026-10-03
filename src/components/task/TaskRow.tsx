@@ -1,4 +1,4 @@
-import { Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
+import { LockKeyhole, Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
 import { liveAttachments } from '../../lib/attachments';
@@ -177,7 +177,11 @@ export function TaskRow(props: TaskRowProps) {
         <div className="row-mark">
           {isSection ? (
             <span className="row-section-mark" aria-hidden />
-          ) : item.locked ? null : (
+          ) : item.locked ? (
+            <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中・詳細から解除できます">
+              <LockKeyhole size={14} aria-hidden />
+            </span>
+          ) : (
             <CheckBox
               done={item.done}
               completedByAi={item.done && item.completedBy === 'ai'}

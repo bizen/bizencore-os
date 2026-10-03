@@ -53,8 +53,8 @@ try {
         assert.equal(await lock.getAttribute('aria-checked'), 'true');
         await close();
         assert.equal(await container.locator('button.check').count(), 0);
-        assert.equal(await container.locator('.row-mark').textContent(), '');
-        assert.equal(await container.locator('.row-mark svg').count(), 0);
+        assert.equal(await container.getByRole('img', { name: 'ロック中・完了不可' }).count(), 1);
+        assert.equal(await container.locator('.row-lock-mark svg').count(), 1);
         assert.equal(await parent.locator('button.check').isDisabled(), true);
         await container.getByRole('textbox', { name: 'タスク', exact: true }).press('Meta+Enter');
         assert.equal((await container.getAttribute('class')).includes('is-done'), false);
@@ -81,13 +81,14 @@ try {
   await page.reload();
   await page.locator('[data-row-id="' + ids['読書リスト'] + '"].row--locked').waitFor();
   assert.equal(await container.locator('button.check').count(), 0);
-  assert.equal(await container.locator('.row-mark').textContent(), '');
+  assert.equal(await container.getByRole('img', { name: 'ロック中・完了不可' }).count(), 1);
   await page.getByRole('tab', { name: 'all', exact: true }).click();
   const focusButton = page.locator('[data-row-id="' + ids['生活'] + '"]').getByRole('button', { name: 'フォーカスに追加' });
   await focusButton.focus();
   await focusButton.press('Enter');
   await page.getByRole('tab', { name: '生活', exact: true }).click();
   assert.equal(await container.locator('button.check').count(), 0);
+  assert.equal(await container.getByRole('img', { name: 'ロック中・完了不可' }).count(), 1);
   await page.screenshot({ path: '/private/tmp/bizencore-task-lock-mobile.png', fullPage: true, animations: 'disabled' });
   assert.deepEqual(errors, []);
   console.log('Passed: actual TasksPage and inspector; 3 themes, desktop/mobile, All/Board, keyboard lock/completion, unlocked children, parent protection, persisted reload, focus view.');

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowUpRight, Check, ChevronRight, Filter, LoaderCircle, Minus, PanelRight, Plus, RefreshCw, Search, Settings2, X } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronRight, Filter, LoaderCircle, LockKeyhole, Minus, PanelRight, Plus, RefreshCw, Search, Settings2, X } from 'lucide-react';
 import { Brand } from '../src/components/Brand';
 import { LABEL_COLORS, childrenOf, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
 import { applyTheme, readTheme, saveTheme, type Theme } from '../src/lib/theme';
@@ -51,7 +51,7 @@ function TaskLine({ row, selected, today, onSelect, onFocusLabel, focused }: {
     style={{ '--depth': depth, '--label-color': color } as CSSProperties}>
     <div className="row-main">
       <div className="row-mark">
-        {label ? <span className="row-section-mark" /> : item.locked ? null : <span role="img" aria-label={item.done ? '完了' : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
+        {label ? <span className="row-section-mark" /> : item.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中"><LockKeyhole size={14} aria-hidden /></span> : <span role="img" aria-label={item.done ? '完了' : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
           <span className="check-fill" />{item.done ? <Check className="picker-check" size={14} /> : null}
         </span>}
       </div>
