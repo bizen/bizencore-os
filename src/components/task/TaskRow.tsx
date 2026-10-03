@@ -18,6 +18,23 @@ function useAutoGrow(value: string) {
     const el = ref.current;
     if (!el) return;
     fitTextarea(el);
+    let width = el.clientWidth;
+    let active = true;
+    // Text can wrap differently without its value changing (panel, viewport, fonts).
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fitTextarea(el);
+    });
+    observer.observe(el);
+    const fitAfterFonts = () => { if (active) fitTextarea(el); };
+    void document.fonts.ready.then(fitAfterFonts);
+    document.fonts.addEventListener('loadingdone', fitAfterFonts);
+    return () => {
+      active = false;
+      observer.disconnect();
+      document.fonts.removeEventListener('loadingdone', fitAfterFonts);
+    };
   }, [value]);
   return ref;
 }

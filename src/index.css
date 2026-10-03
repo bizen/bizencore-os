@@ -1173,6 +1173,8 @@ body {
   font-size: 0.94rem;
   line-height: 1.5;
   font-weight: 400;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   transition: color 0.28s ease;
 }
 
