@@ -1,13 +1,13 @@
 import { attachmentLabel, liveAttachments } from './attachments';
 import { childrenOf, isLive, type Item, type ItemMap } from './taskModel';
-import { buildMcpHandoffPrompt } from './taskWorkPrompt';
+import { buildMcpHandoffPrompt, TASK_START_INSTRUCTIONS } from './taskWorkPrompt';
 
 /**
  * タスクを AI に渡すための指示文。本文・ラベル・親タスク・メモ・サブタスクを
  * ひとまとめにする。MCP を使わないときのテキスト版。
  */
 export function buildTaskPrompt(item: Item, items: ItemMap): string {
-  const lines = ['次のタスクに着手してください。', '', `タスク: ${item.text.trim() || '（無題）'}`];
+  const lines = ['次のタスクについて、まず内容を整理し、今回どう進めたいか確認してください。', '', `タスク: ${item.text.trim() || '（無題）'}`];
 
   const parents: string[] = [];
   let label: string | undefined;
@@ -51,7 +51,7 @@ export function buildTaskPrompt(item: Item, items: ItemMap): string {
     }
   }
 
-  lines.push('', '完了できたことと残作業を分けて報告してください。これは現在の内容のコピーであり、bizencore への進捗の自動反映はできません。');
+  lines.push('', TASK_START_INSTRUCTIONS, '', '完了できたことと残作業を分けて報告してください。これは現在の内容のコピーであり、bizencore への進捗の自動反映はできません。');
   return lines.join('\n');
 }
 

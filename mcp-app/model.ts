@@ -1,4 +1,5 @@
 import { flattenAll, flattenToday, rowsForLabel, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
+import { workOnTaskInstructions } from '../src/lib/taskWorkPrompt';
 
 export type View = 'all' | 'board' | 'today' | `label:${string}`;
 export type DueFilter = 'all' | 'overdue' | 'week' | 'dated';
@@ -73,5 +74,5 @@ export function boardGroups(rows: Row[]): { label?: Item; rows: Row[] }[] {
 }
 
 export function handoffMessage(id: string): string {
-  return `bizencore のタスクに着手してください。タスクID: ${id}\nまず bizencore MCP の work_on_task をこの task_id で呼び、最新情報を読んでください。情報が足りなければ相談し、分かったら同じ会話で作業を続け、検証済みの完了または途中経過を記録してください。`;
+  return `bizencore のタスクについて、まず最新情報を整理し、今回どう進めたいか確認してください。タスクID: ${id}\n\n${workOnTaskInstructions(id)}`;
 }

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { build } from 'esbuild';
 
 const result = await build({ entryPoints: ['src/lib/taskWorkPrompt.ts'], bundle: true, platform: 'node', format: 'esm', write: false });
-const { TASK_PICKER_PENDING, workOnTaskInstructions } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
+const { TASK_PICKER_PENDING, TASK_START_INSTRUCTIONS, workOnTaskInstructions } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
 
 test('selection instructions prioritize Apps, native forms, then numbered text lists', () => {
   const prompt = workOnTaskInstructions();
@@ -37,4 +37,24 @@ test('exact-ID handoff and fresh task results never restart selection', () => {
   assert.match(latest, /latest task details are already included/);
   assert.doesNotMatch(latest, /open_task_picker|Numbered text lists/);
   assert.match(latest, /record_task_progress/);
+});
+
+test('every work entry point summarizes the task and waits for intent even with sufficient information', () => {
+  for (const prompt of [workOnTaskInstructions(), workOnTaskInstructions('task-1'), workOnTaskInstructions('task-1', true)]) {
+    assert.ok(prompt.includes(TASK_START_INSTRUCTIONS));
+    assert.ok(prompt.indexOf('First give a concise overview') < prompt.indexOf('Then ask one focused question'));
+    assert.match(prompt, /goal, current state, verified completed work, remaining work, and important uncertainties/);
+    assert.match(prompt, /Wait for the user's answer before implementation or task changes, even when the task information is sufficient/);
+    assert.match(prompt, /Accept free-form answers/);
+    assert.match(prompt, /Selecting a task, calling work_on_task, or a generic handoff.*is not an answer/);
+    assert.doesNotMatch(prompt, /Then do the actual work; do not stop after selecting/);
+  }
+});
+
+test('consultation does not imply execution and refreshing the task preserves the answered intent', () => {
+  assert.match(TASK_START_INSTRUCTIONS, /retain that intent across re-reads and do not ask the same opening question again/);
+  assert.match(TASK_START_INSTRUCTIONS, /If they want execution, do the actual work within the agreed scope/);
+  assert.match(TASK_START_INSTRUCTIONS, /without implementing; begin implementation only after they ask or agree to start execution/);
+  assert.match(TASK_START_INSTRUCTIONS, /Do not treat a settled design or sufficient information alone as permission/);
+  assert.match(TASK_START_INSTRUCTIONS, /Do not record progress or add subtasks merely because you are waiting for this initial intent answer/);
 });

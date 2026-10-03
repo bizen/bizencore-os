@@ -36,7 +36,9 @@ test('handoff uses the exact ID and requires reading latest information before w
   assert.match(handoffMessage('task-id'), /タスクID: task-id/);
   assert.match(handoffMessage('task-id'), /work_on_task/);
   assert.match(handoffMessage('task-id'), /最新情報/);
-  assert.match(handoffMessage('task-id'), /途中経過/);
+  assert.match(handoffMessage('task-id'), /record_task_progress/);
+  assert.match(handoffMessage('task-id'), /Then ask one focused question/);
+  assert.match(handoffMessage('task-id'), /Wait for the user's answer before implementation or task changes/);
 });
 test('deadline filtering preserves ancestors and uses the account day', () => {
   const tree = { ...items, child: { ...items.child, dueDate: '2026-10-02' }, standalone: { ...items.standalone, dueDate: '2026-10-05' } };

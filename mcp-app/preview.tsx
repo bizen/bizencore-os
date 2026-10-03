@@ -28,7 +28,7 @@ const client: PickerClient = {
     const item = items.find((task) => task.id === id)!;
     return { id, text: item.text, note: item.note, done: item.done, due_date: item.dueDate, completion_criteria: item.completionCriteria,
       subtasks: items.filter((task) => task.parentId === id).map((task) => ({ id: task.id, text: task.text, done: task.done })),
-      attachments: id === 'picker' ? [{ id: 'context', title: '設計メモ', kind: 'text', text: '最新の情報を読んで、十分なら作業。不十分なら相談してから着手する。' }] : [] };
+      attachments: id === 'picker' ? [{ id: 'context', title: '設計メモ', kind: 'text', text: '最新情報を整理し、作業を進めたいか相談したいかを確認する。回答を待ってから進める。' }] : [] };
   },
   send: async () => {},
   open: async () => {},

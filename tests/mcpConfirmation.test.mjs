@@ -126,6 +126,7 @@ test('work_on_task chooses a label before a task and re-fetches the selected tas
     const payload = JSON.parse(selected.content[0].text);
     assert.equal(payload.task.note, 'Fresh details');
     assert.match(payload.next_action, /record_task_progress/);
+    assert.match(payload.next_action, /Wait for the user's answer before implementation or task changes/);
     assert.match(payload.next_action, /ask focused questions/);
     assert.match(payload.next_action, /continue working in this same conversation/);
     assert.doesNotMatch(payload.next_action, /Call the bizencore work_on_task tool/);
@@ -158,6 +159,8 @@ test('work_on_task prompt includes fresh task data for an exact ID', async () =>
     const text = prompt.messages[0].content.text;
     assert.match(text, /Latest note/);
     assert.match(text, /do the actual work/);
+    assert.match(text, /Then ask one focused question/);
+    assert.match(text, /Wait for the user's answer before implementation or task changes/);
     assert.doesNotMatch(text, /Call the bizencore work_on_task tool/);
     assert.deepEqual(mock.calls.map((call) => call.path), ['get']);
 

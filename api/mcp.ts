@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { clerkPublishableKey, clerkSecretKey, convexSiteUrl, mcpSecret } from './_lib/env.js';
-import { TASK_PICKER_PENDING, TASK_SELECTION_INSTRUCTIONS, workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
+import { TASK_PICKER_PENDING, TASK_SELECTION_INSTRUCTIONS, TASK_START_INSTRUCTIONS, workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
 
 /*
  * bizencore の MCP サーバ。
@@ -21,7 +21,7 @@ import { TASK_PICKER_PENDING, TASK_SELECTION_INSTRUCTIONS, workOnTaskInstruction
  * ここは中継だけ。並びや親子の面倒は Convex 側の mcpTasks が持つ。
  */
 
-const INSTRUCTIONS = `bizencore is the user's own task list. ${TASK_SELECTION_INSTRUCTIONS} Read the selected task's latest details, clarify missing essentials with concrete options and a recommendation, continue the work in the same conversation, and record verified completion or partial progress. Never mark an unfinished parent complete.
+const INSTRUCTIONS = `bizencore is the user's own task list. ${TASK_SELECTION_INSTRUCTIONS} ${TASK_START_INSTRUCTIONS} Record verified completion or partial progress after agreed work or substantive consultation. Never mark an unfinished parent complete.
 
 Use add_task when the user asks you to remember something, or when your conversation produces a follow-up they will have to do themselves. One line, in the user's language (usually Japanese), phrased as the user would write it — not as a report to them.
 
@@ -29,7 +29,7 @@ Call list_tasks first when you need to know what is already there, or to get the
 
 Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
 
-This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. Ask only for information needed to take the next responsible step, and resume work after the answer. Save durable decisions as concise task context. For work_on_task, start doing the selected task in this conversation. If it cannot be completed, use record_task_progress to check only verified subtasks, add specific remaining subtasks, and note the blocker while keeping the parent unfinished. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
+This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. For work_on_task, summarize and confirm the user's intent before execution or consultation; follow their answer in this conversation. If agreed work cannot be completed, use record_task_progress to check only verified subtasks, add specific remaining subtasks, and note the blocker while keeping the parent unfinished. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
 
 const clerk = createClerkClient({
   secretKey: clerkSecretKey(),
@@ -426,7 +426,7 @@ const handler = createMcpHandler(
       'work_on_task',
       {
         title: 'Work on a bizencore task',
-        description: 'Choose through MCP Apps first, native forms second, and numbered text lists only if neither UI is usable. Read the latest task, clarify missing information, do the work, and record the outcome.',
+        description: 'Choose through MCP Apps first, native forms second, and numbered text lists only if neither UI is usable. Summarize the latest task, ask whether the user wants execution, consultation or to explain their intent, and wait for the answer before proceeding. Record verified outcomes afterwards.',
         argsSchema: z.object({ task_id: z.string().optional().describe('Optional task ID to skip the picker') }),
       },
       ({ task_id }, ctx) => workOnTaskPrompt(ctx, task_id)
@@ -467,8 +467,8 @@ const handler = createMcpHandler(
     server.registerTool(
       'work_on_task',
       {
-        title: 'Choose a label and task, then start work',
-        description: 'With task_id, read the selected task afresh and return work/progress instructions, bypassing all selection UI. Without task_id, open native label/task elicitation forms only as the fallback when MCP Apps is unavailable. Use open_task_picker first in MCP Apps-capable hosts and wait for selection; do not call the no-ID form while that picker is pending. If native forms are also unsupported, use list_tasks to offer plain numbered labels and then numbered tasks, wait for the number, and call this tool with the exact task_id. Native forms support search/pagination; label skips the label form and today: true limits tasks to today.',
+        title: 'Choose a label and task, then confirm how to proceed',
+        description: 'With task_id, read the selected task afresh, bypassing all selection UI. After selection by any method, summarize the goal, current state and remaining work, ask whether the user wants execution, consultation or to explain their intent, and wait before implementation or task changes. Keep an already answered intent for this task in the same conversation. Without task_id, open native label/task elicitation forms only as the fallback when MCP Apps is unavailable. Use open_task_picker first in MCP Apps-capable hosts and wait for selection; do not call the no-ID form while that picker is pending. If native forms are also unsupported, use list_tasks to offer plain numbered labels and then numbered tasks, wait for the number, and call this tool with the exact task_id. Native forms support search/pagination; label skips the label form and today: true limits tasks to today.',
         inputSchema: z.object({
           task_id: z.string().optional(),
           query: z.string().max(200).optional(),

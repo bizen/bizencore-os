@@ -24,6 +24,7 @@ test('MCP handoff sends the ID but not a stale private snapshot', () => {
   assert.match(prompt, /record_task_progress/);
   assert.doesNotMatch(prompt, /Private working note/);
   assert.match(prompt, /接続できない場合/);
+  assert.match(prompt, /Wait for the user's answer before implementation or task changes/);
 });
 
 test('text handoff carries a snapshot and discloses that it cannot sync', () => {
@@ -33,4 +34,6 @@ test('text handoff carries a snapshot and discloses that it cannot sync', () => 
   assert.match(prompt, /自動反映はできません/);
   assert.match(prompt, /ファイルの実体を渡せません/);
   assert.doesNotMatch(prompt, /task_id/);
+  assert.match(prompt, /Then ask one focused question/);
+  assert.match(prompt, /Wait for the user's answer before implementation or task changes/);
 });
