@@ -7,7 +7,7 @@ import { boardGroups, filterDue, handoffMessage, pickerRows, taskPath, type DueF
 
 export type Page = { items: Item[]; today_date: string; next_offset?: number };
 type Attachment = { id: string; title: string; kind: string; text?: string; url?: string };
-export type Detail = { id: string; text: string; note?: string; done: boolean; due_date?: string; due_time?: string; estimate_minutes?: number; completion_criteria?: string; attachments?: Attachment[]; subtasks?: Detail[] };
+export type Detail = { id: string; text: string; note?: string; done: boolean; locked?: boolean; due_date?: string; due_time?: string; estimate_minutes?: number; completion_criteria?: string; attachments?: Attachment[]; subtasks?: Detail[] };
 export interface PickerClient {
   connect(): Promise<void>;
   page(offset: number): Promise<Page>;
@@ -47,11 +47,11 @@ function TaskLine({ row, selected, today, onSelect, onFocusLabel, focused }: {
   const { item, depth } = row;
   const label = item.type === 'section';
   const color = item.color ? LABEL_COLORS[item.color] : undefined;
-  return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
+  return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${item.locked ? ' row--locked' : ''}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
     style={{ '--depth': depth, '--label-color': color } as CSSProperties}>
     <div className="row-main">
       <div className="row-mark">
-        {label ? <span className="row-section-mark" /> : <span role="img" aria-label={item.done ? '完了' : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
+        {label ? <span className="row-section-mark" /> : item.locked ? null : <span role="img" aria-label={item.done ? '完了' : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
           <span className="check-fill" />{item.done ? <Check className="picker-check" size={14} /> : null}
         </span>}
       </div>

@@ -580,7 +580,7 @@ const handler = createMcpHandler(
       {
         title: 'Check off a task',
         description:
-          'Mark a task as done, together with its subtasks. Do this when the user says it is done, or when you have finished and verified explicitly requested work that clearly matches this task. Review completion_criteria first; never check off partial or ambiguous work. Pass done: false to put it back.',
+          'Mark a task as done, together with its subtasks. A locked task or a task containing a locked descendant cannot be completed; only the user can unlock it in the detail panel. Complete unlocked children of a locked container individually. Do this when the user says it is done, or when you have finished and verified explicitly requested work that clearly matches this task. Review completion_criteria first; never check off partial or ambiguous work. Pass done: false to put it back.',
         inputSchema: z.object({
           task_id: z.string(),
           done: z.boolean().optional().describe('false puts the task back to unfinished'),

@@ -22,7 +22,7 @@ export function workOnTaskInstructions(taskId?: string, latestIncluded = false):
     ? `Call the bizencore work_on_task tool with task_id "${taskId}" to read the latest task. Do not rely on a copied snapshot.`
     : TASK_SELECTION_INSTRUCTIONS;
 
-  return `${selection} ${TASK_START_INSTRUCTIONS} After agreed work or substantive consultation, when the outcome is verified against the completion criteria, call complete_task. If that work remains incomplete or a substantive clarification is pending, call record_task_progress to check only verified finished subtasks, add concrete remaining work without duplication, and record a short progress or blocker note. Keep the parent task incomplete until its completion criteria are met. Tell me what you did and what remains.`;
+  return `${selection} ${TASK_START_INSTRUCTIONS} Locked tasks are persistent containers: do not complete them or try to unlock them. Work on their unlocked subtasks and record progress instead. After agreed work or substantive consultation, when the outcome is verified against the completion criteria, call complete_task only if the task and its descendants are not locked. If that work remains incomplete, the selected task is locked, or a substantive clarification is pending, call record_task_progress to check only verified finished subtasks, add concrete remaining work without duplication, and record a short progress or blocker note. Keep the parent task incomplete until its completion criteria are met. Tell me what you did and what remains.`;
 }
 
 export function buildMcpHandoffPrompt(taskId: string, title: string): string {

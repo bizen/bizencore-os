@@ -22,6 +22,7 @@ export function buildTaskPrompt(item: Item, items: ItemMap): string {
   }
   if (label) lines.push(`ラベル: ${label}`);
   if (parents.length > 0) lines.push(`親タスク: ${parents.join(' › ')}`);
+  if (item.locked) lines.push('ロック: 完了不可（常設の見出し。子タスクの作業・進捗を記録する）');
 
   if (item.note?.trim()) lines.push('', 'メモ:', item.note.trim());
   if (item.dueDate) lines.push(`期限: ${item.dueDate}${item.dueTime ? ` ${item.dueTime}` : ''}`);

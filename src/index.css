@@ -1075,6 +1075,48 @@ body {
   gap: 0.05rem;
 }
 
+.row--locked .row-title { font-weight: 500; }
+.check:disabled { cursor: not-allowed; opacity: 0.45; }
+
+.task-lock-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2rem;
+  padding: 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.task-lock-track {
+  display: flex;
+  align-items: center;
+  width: 2rem;
+  height: 1.15rem;
+  padding: 0.15rem;
+  border-radius: 1rem;
+  background: var(--hairline);
+}
+
+.task-lock-track > span {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform 0.15s ease;
+}
+
+.task-lock-toggle[aria-checked='true'] { color: var(--accent-color); }
+.task-lock-toggle[aria-checked='true'] .task-lock-track { background: var(--accent-color); }
+.task-lock-toggle[aria-checked='true'] .task-lock-track > span {
+  transform: translateX(0.85rem);
+  background: var(--bg-color);
+}
+.task-lock-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+.task-lock-toggle:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; }
+
 /* 完了済みの棚で、親から離れて置かれたサブタスクの親の名前 */
 .row-context {
   font-size: 0.72rem;

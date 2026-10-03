@@ -18,6 +18,7 @@ import {
   flattenToday,
   isLive,
   rowsForLabel,
+  completionBlockedIds,
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 
@@ -355,7 +356,7 @@ export function TasksPage() {
   const todayNumbers = useMemo(() => {
     const numbers = new Map<string, number>();
     todayRows
-      .filter((row) => row.depth === 0)
+      .filter((row) => row.depth === 0 && !row.item.locked)
       .forEach((row, index) => numbers.set(row.item.id, index + 1));
     return numbers;
   }, [todayRows]);
@@ -363,7 +364,7 @@ export function TasksPage() {
   const todayCleared = useMemo(
     () =>
       todayRows.length > 0 &&
-      todayRows.every((row) => row.item.type !== 'task' || row.item.done),
+      todayRows.every((row) => row.item.type !== 'task' || row.item.locked || row.item.done),
     [todayRows]
   );
 
@@ -382,12 +383,14 @@ export function TasksPage() {
     // 残りと合計時間は、いま見ている表示の分だけ数える（today なら today の合計）
     for (const row of view === 'today' ? todayRows : focusedLabelId ? focusRows : allRows) {
       const { item } = row;
-      if (item.type !== 'task' || item.done) continue;
+      if (item.type !== 'task' || item.done || item.locked) continue;
       remaining += 1;
       remainingMinutes += item.estimate ?? 0;
     }
     return { remaining, remainingMinutes, completed, fileable };
   }, [allRows, todayRows, focusRows, focusedLabelId, view]);
+
+  const completionBlocked = useMemo(() => completionBlockedIds(items), [items]);
 
   const applyFocus = useCallback((pending: PendingFocus): boolean => {
     const map = pending.target === 'note' ? noteRefs.current : titleRefs.current;
@@ -583,7 +586,7 @@ export function TasksPage() {
     const items = taskStore.getState().items;
     // ラベルは done を持たないので、演出も出さない
     const becomesDone = items[id]?.type === 'task' && items[id]?.done === false;
-    taskStore.toggleDone(id);
+    if (!taskStore.toggleDone(id)) return;
     if (!becomesDone) return;
 
     const visual = flattenAll(items);
@@ -925,6 +928,7 @@ export function TasksPage() {
       deadlineOpen={deadlineOpenId === row.item.id}
       colorOpen={colorOpenId === row.item.id}
       isFocusedLabel={focusedLabelIds.includes(row.item.id)}
+      completionBlocked={completionBlocked.has(row.item.id)}
       registerTitle={registerTitle}
       registerNote={registerNote}
       onKeyDown={handleTitleKeyDown}
@@ -1079,7 +1083,7 @@ export function TasksPage() {
                   <p className="board-col-title">ラベルなし</p>
                 )}
                 <span className="board-col-count" title="残っているタスク">
-                  {column.rows.filter((row) => row.item.type === 'task' && !row.item.done).length}
+                  {column.rows.filter((row) => row.item.type === 'task' && !row.item.done && !row.item.locked).length}
                 </span>
               </div>
               <ul className="row-list board-col-list">{column.rows.map(renderRow)}</ul>
@@ -1282,6 +1286,7 @@ export function TasksPage() {
           onCompletionCriteriaChange={taskStore.setCompletionCriteria}
           onSetDeadline={taskStore.setDeadline}
           onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
+          onSetLocked={taskStore.setLocked}
           onSetEstimate={taskStore.setEstimate}
           onSetKind={taskStore.setKind}
           onRemove={(id) => {

@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, FileText, Link2, Paperclip, Trash2, X } from 'lucide-react';
+import { Check, Copy, ExternalLink, FileText, Link2, LockKeyhole, Paperclip, Trash2, X } from 'lucide-react';
 import { SignedIn, SignedOut } from '@clerk/clerk-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AI_TARGETS, buildTaskHandoff } from '../../lib/aiHandoff';
@@ -21,6 +21,7 @@ export interface TaskInspectorProps {
   onCompletionCriteriaChange: (id: string, value: string) => void;
   onSetDeadline: (id: string, dueDate: string | undefined, dueTime: string | undefined) => void;
   onToggleToday: (id: string) => void;
+  onSetLocked: (id: string, locked: boolean) => void;
   onSetEstimate: (id: string, estimate: number | undefined) => void;
   onSetKind: (id: string, kind: TaskKind | undefined) => void;
   onRemove: (id: string) => void;
@@ -177,6 +178,7 @@ export function TaskInspector(props: TaskInspectorProps) {
     onCompletionCriteriaChange,
     onSetDeadline,
     onToggleToday,
+    onSetLocked,
     onSetEstimate,
     onSetKind,
     onRemove,
@@ -293,6 +295,23 @@ export function TaskInspector(props: TaskInspectorProps) {
             </div>
           ) : null}
         </dl>
+      </div>
+
+      <div className="inspector-prop">
+        <span className="inspector-label">タスクロック</span>
+        <button
+          type="button"
+          role="switch"
+          className="task-lock-toggle"
+          aria-label="タスクロック"
+          aria-checked={!!item.locked}
+          disabled={item.done && !item.locked}
+          title={item.done && !item.locked ? '未完了に戻してからロックできます' : item.locked ? 'ロックを解除する' : 'タスクをロックする'}
+          onClick={() => onSetLocked(item.id, !item.locked)}
+        >
+          <LockKeyhole size={14} aria-hidden />
+          <span className="task-lock-track" aria-hidden><span /></span>
+        </button>
       </div>
 
       <section className="inspector-section">

@@ -28,6 +28,7 @@ export const FIELD_GROUPS = {
   note: ['note'],
   completionCriteria: ['completionCriteria'],
   done: ['done', 'filed', 'completedBy', 'completedByClient'],
+  lock: ['locked'],
   kind: ['kind'],
   color: ['color'],
   estimate: ['estimate'],
@@ -52,7 +53,14 @@ function field(item: Stamped, key: string): unknown {
 }
 
 function stampOf(item: Stamped, group: FieldGroup): number {
+  // Older clients do not know this field; omitting it must not unlock a task.
+  if (group === 'lock') return item.stamps?.lock ?? (field(item, 'locked') === true ? item.updatedAt : 0);
   return item.stamps?.[group] ?? item.updatedAt;
+}
+
+function enforceLock<T extends Stamped>(item: T): T {
+  if (field(item, 'type') !== 'task' || field(item, 'locked') !== true) return item;
+  return { ...item, done: false, filed: undefined, completedBy: undefined, completedByClient: undefined };
 }
 
 /** 添付のような配列は中身で比べる */
@@ -92,6 +100,7 @@ export function coerceStamps(raw: unknown): Stamps | undefined {
  * prev が無ければ（新しく作ったもの）全部の欄に now。
  */
 export function restamp<T extends Stamped>(prev: T | undefined, next: T, now: number): T {
+  next = enforceLock(next);
   const stamps: Stamps = {};
   for (const group of GROUPS) {
     stamps[group] = prev && sameGroup(prev, next, group) ? stampOf(prev, group) : now;
@@ -125,7 +134,8 @@ export function mergeItems<T extends Stamped>(a: T, b: T): T {
 
   merged.stamps = stamps;
   merged.updatedAt = Math.max(a.updatedAt, b.updatedAt);
-  return merged as unknown as T;
+  if (merged.type === 'task' && merged.locked === true) stamps.done = Math.max(stamps.done ?? 0, stamps.lock ?? 0);
+  return enforceLock(merged as unknown as T);
 }
 
 /** どの欄も同じ中身・同じ時刻か。送り直しが要らないかの判定に使う */

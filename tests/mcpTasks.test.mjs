@@ -11,6 +11,30 @@ const compiled = await build({
 });
 const { add, addMany, complete, get, list, taskView, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
+test('MCP exposes lock state and rejects direct or ancestor completion before any writes', async () => {
+  const { ctx, rows } = memoryContext();
+  const ancestor = await add._handler(ctx, { userId: 'user-1', text: 'Projects' });
+  const container = await add._handler(ctx, { userId: 'user-1', parentId: ancestor.id, text: 'Reading list' });
+  const child = await add._handler(ctx, { userId: 'user-1', parentId: container.id, text: 'Read chapter' });
+  const row = rows.syncItems.find((row) => row.itemId === container.id);
+  row.payload = JSON.stringify({ ...JSON.parse(row.payload), locked: true });
+  const before = JSON.stringify(rows.syncItems);
+  await assert.rejects(complete._handler(ctx, { userId: 'user-1', taskId: container.id }), /locked/);
+  await assert.rejects(complete._handler(ctx, { userId: 'user-1', taskId: ancestor.id }), /locked/);
+  await assert.rejects(recordProgress._handler(ctx, { userId: 'user-1', taskId: ancestor.id, completedSubtaskIds: [child.id, container.id], remainingSubtasks: [] }), /locked/);
+  assert.equal(JSON.stringify(rows.syncItems), before);
+  assert.equal((await get._handler(ctx, { userId: 'user-1', taskId: container.id })).task.locked, true);
+  assert.equal((await list._handler(ctx, { userId: 'user-1', flat: true })).tasks.find((task) => task.id === container.id).locked, true);
+  assert.equal((await list._handler(ctx, { userId: 'user-1' })).tasks[0].subtasks[0].locked, true);
+  assert.equal((await taskView._handler(ctx, { userId: 'user-1' })).items.find((item) => item.id === container.id).locked, true);
+  await recordProgress._handler(ctx, { userId: 'user-1', taskId: container.id, completedSubtaskIds: [child.id], remainingSubtasks: [] });
+  assert.equal(JSON.parse(rows.syncItems.find((row) => row.itemId === child.id).payload).done, true);
+  assert.equal(JSON.parse(row.payload).done, false);
+  row.payload = JSON.stringify({ ...JSON.parse(row.payload), locked: false });
+  await complete._handler(ctx, { userId: 'user-1', taskId: ancestor.id });
+  assert.equal(JSON.parse(row.payload).done, true);
+});
+
 function memoryContext() {
   const rows = { syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
   let nextId = 0;

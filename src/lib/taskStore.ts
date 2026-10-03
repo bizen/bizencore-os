@@ -57,6 +57,7 @@ function coerceItem(raw: unknown): Item | null {
   const r = raw as Record<string, unknown>;
   if (typeof r.id !== 'string') return null;
   const type = r.type === 'section' ? 'section' : 'task';
+  const locked = type === 'task' && r.locked === true;
   const now = Date.now();
   return {
     id: r.id,
@@ -66,12 +67,13 @@ function coerceItem(raw: unknown): Item | null {
     text: typeof r.text === 'string' ? r.text : '',
     note: typeof r.note === 'string' && r.note ? r.note : undefined,
     completionCriteria: typeof r.completionCriteria === 'string' && r.completionCriteria ? r.completionCriteria : undefined,
-    done: r.done === true,
+    done: !locked && r.done === true,
+    locked: locked ? true : undefined,
     createdBy: r.createdBy === 'user' || r.createdBy === 'ai' ? r.createdBy : undefined,
     createdByClient: r.createdBy === 'ai' && typeof r.createdByClient === 'string' ? r.createdByClient : undefined,
-    completedBy: r.done === true && (r.completedBy === 'user' || r.completedBy === 'ai') ? r.completedBy : undefined,
-    completedByClient: r.done === true && r.completedBy === 'ai' && typeof r.completedByClient === 'string' ? r.completedByClient : undefined,
-    filed: r.filed === true ? true : undefined,
+    completedBy: !locked && r.done === true && (r.completedBy === 'user' || r.completedBy === 'ai') ? r.completedBy : undefined,
+    completedByClient: !locked && r.done === true && r.completedBy === 'ai' && typeof r.completedByClient === 'string' ? r.completedByClient : undefined,
+    filed: !locked && r.filed === true ? true : undefined,
     kind: r.kind === 'main' || r.kind === 'tanomi' ? r.kind : undefined,
     color: isLabelColor(r.color) ? r.color : undefined,
     estimate:
@@ -215,6 +217,7 @@ function sameContent(a: Item, b: Item): boolean {
     a.note === b.note &&
     a.completionCriteria === b.completionCriteria &&
     a.done === b.done &&
+    a.locked === b.locked &&
     a.createdBy === b.createdBy &&
     a.createdByClient === b.createdByClient &&
     a.completedBy === b.completedBy &&
@@ -426,19 +429,26 @@ export const taskStore = {
     commit(withPatches([{ ...current, dueDate, dueTime: time }]));
   },
 
-  toggleDone(id: string): void {
+  setLocked(id: string, locked: boolean): void {
     const current = state.items[id];
-    if (!isLive(current) || current.type !== 'task') return;
+    if (!isLive(current) || current.type !== 'task' || (locked && current.done) || !!current.locked === locked) return;
+    commit(withPatches([{ ...current, locked: locked ? true : undefined }]));
+  },
+
+  toggleDone(id: string): boolean {
+    const current = state.items[id];
+    if (!isLive(current) || current.type !== 'task' || current.locked) return false;
     const done = !current.done;
-    const patches = subtreeIds(state.items, id)
-      .map((childId) => state.items[childId])
-      .filter(isLive)
+    const subtree = subtreeIds(state.items, id).map((childId) => state.items[childId]).filter(isLive);
+    if (done && subtree.some((item) => item.type === 'task' && item.locked)) return false;
+    const patches = subtree
       .filter((item) => item.type === 'task' && (item.done !== done || (!done && item.filed)))
       // 完了を取り消したら棚から出す
       .map((item) => ({ ...item, done, filed: done ? item.filed : undefined,
         completedBy: done ? 'user' as const : undefined, completedByClient: undefined }));
-    if (patches.length === 0) return;
+    if (patches.length === 0) return false;
     commit(withPatches(patches));
+    return true;
   },
 
   /**

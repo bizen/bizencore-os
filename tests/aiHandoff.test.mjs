@@ -37,3 +37,9 @@ test('text handoff carries a snapshot and discloses that it cannot sync', () => 
   assert.match(prompt, /Then ask one focused question/);
   assert.match(prompt, /Wait for the user's answer before implementation or task changes/);
 });
+
+test('text handoff discloses a locked persistent container rather than inviting its completion', () => {
+  const locked = { ...task, locked: true };
+  const prompt = buildTaskHandoff(locked, { [locked.id]: locked }, 'text');
+  assert.match(prompt, /ロック: 完了不可/);
+});

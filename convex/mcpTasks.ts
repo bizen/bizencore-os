@@ -40,6 +40,7 @@ interface StoredItem {
     note?: string;
     completionCriteria?: string;
     done: boolean;
+    locked?: boolean;
     createdBy?: "user" | "ai";
     createdByClient?: string;
     completedBy?: "user" | "ai";
@@ -68,6 +69,7 @@ function parsePayload(row: SyncRow): StoredItem | null {
     try {
         const raw = JSON.parse(row.payload) as Partial<StoredItem>;
         if (typeof raw.text !== "string") return null;
+        const locked = raw.type !== "section" && raw.locked === true;
         return {
             ...raw,
             id: row.itemId,
@@ -78,11 +80,13 @@ function parsePayload(row: SyncRow): StoredItem | null {
             completionCriteria: typeof raw.completionCriteria === "string" ? raw.completionCriteria : undefined,
             dueDate: typeof raw.dueDate === "string" && isDateString(raw.dueDate) ? raw.dueDate : undefined,
             dueTime: typeof raw.dueDate === "string" && isDateString(raw.dueDate) && typeof raw.dueTime === "string" && isTimeString(raw.dueTime) ? raw.dueTime : undefined,
-            done: raw.done === true,
+            done: !locked && raw.done === true,
+            locked: locked ? true : undefined,
+            filed: !locked && raw.filed === true ? true : undefined,
             createdBy: raw.createdBy === "user" || raw.createdBy === "ai" ? raw.createdBy : undefined,
             createdByClient: raw.createdBy === "ai" && typeof raw.createdByClient === "string" ? raw.createdByClient : undefined,
-            completedBy: raw.done === true && (raw.completedBy === "user" || raw.completedBy === "ai") ? raw.completedBy : undefined,
-            completedByClient: raw.done === true && raw.completedBy === "ai" && typeof raw.completedByClient === "string" ? raw.completedByClient : undefined,
+            completedBy: !locked && raw.done === true && (raw.completedBy === "user" || raw.completedBy === "ai") ? raw.completedBy : undefined,
+            completedByClient: !locked && raw.done === true && raw.completedBy === "ai" && typeof raw.completedByClient === "string" ? raw.completedByClient : undefined,
             createdAt: typeof raw.createdAt === "number" ? raw.createdAt : row.updatedAt,
             updatedAt: row.updatedAt,
             deletedAt: row.deletedAt,
@@ -224,6 +228,7 @@ interface TaskView {
     text: string;
     note?: string;
     done: boolean;
+    locked?: boolean;
     created_by?: "user" | "agent";
     created_by_client?: string;
     completed_by?: "user" | "agent";
@@ -235,7 +240,7 @@ interface TaskView {
     due_date?: string;
     due_time?: string;
     completion_criteria?: string;
-    subtasks?: { id: string; text: string; done: boolean; created_by?: "user" | "agent"; created_by_client?: string; completed_by?: "user" | "agent"; completed_by_client?: string; due_date?: string; due_time?: string; completion_criteria?: string }[];
+    subtasks?: { id: string; text: string; done: boolean; locked?: boolean; created_by?: "user" | "agent"; created_by_client?: string; completed_by?: "user" | "agent"; completed_by_client?: string; due_date?: string; due_time?: string; completion_criteria?: string }[];
     attachments?: AttachmentView[];
 }
 
@@ -252,6 +257,7 @@ interface AttachmentView {
 
 async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: string | undefined, subtasks: StoredItem[]): Promise<TaskView> {
     const view: TaskView = { id: item.id, text: item.text, done: item.done };
+    if (item.locked) view.locked = true;
     Object.assign(view, attributionView(item));
     if (item.note?.trim()) view.note = item.note;
     if (label) view.label = label;
@@ -262,6 +268,7 @@ async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: st
     if (item.completionCriteria?.trim()) view.completion_criteria = item.completionCriteria;
     if (subtasks.length > 0) {
         view.subtasks = subtasks.map((s) => ({ id: s.id, text: s.text, done: s.done,
+            ...(s.locked ? { locked: true } : {}),
             ...attributionView(s),
             ...(s.dueDate ? { due_date: s.dueDate } : {}),
             ...(s.dueTime ? { due_time: s.dueTime } : {}),
@@ -319,7 +326,7 @@ function remainingMinutes(items: StoredItem[], roots: StoredItem[]): number {
         for (const item of subtreeOf(items, root.id)) {
             if (counted.has(item.id)) continue;
             counted.add(item.id);
-            if (item.type === "task" && !item.done) total += item.estimate ?? 0;
+            if (item.type === "task" && !item.done && !item.locked) total += item.estimate ?? 0;
         }
     }
     return total;
@@ -421,6 +428,7 @@ export const taskView = internalQuery({
         const items: Item[] = stored.map((item) => ({
             id: item.id, type: item.type, parentId: item.parentId, order: item.order,
             text: item.text, done: item.done, createdAt: item.createdAt, updatedAt: item.updatedAt,
+            ...(item.locked ? { locked: true } : {}),
             ...(typeof item.note === "string" && item.note ? { note: item.note } : {}),
             ...(item.completionCriteria ? { completionCriteria: item.completionCriteria } : {}),
             ...(isLabelColor(item.color) ? { color: item.color } : {}),
@@ -505,6 +513,7 @@ export const recordProgress = internalMutation({
             if (!item || item.type !== "task" || id === target.id || !isInside(byId, id, target.id)) {
                 throw new ConvexError("completed subtask must belong to the selected task");
             }
+            if (item.locked) throw new ConvexError("task is locked; unlock it in the detail panel before completing it");
             if (subtreeOf(items, id).some((child) => child.id !== id && child.type === "task" && !child.done && !selected.has(child.id))) {
                 throw new ConvexError("complete unfinished descendants first");
             }
@@ -670,6 +679,9 @@ export const complete = internalMutation({
 
         // 子タスクも一緒に。クライアントの toggleDone と揃える
         const subtree = subtreeOf(items, target.id);
+        if (next && subtree.some((item) => item.type === "task" && item.locked)) {
+            throw new ConvexError("task or descendant is locked; unlock it in the detail panel before completing it");
+        }
         for (const item of subtree) {
             if (item.type !== "task" || item.done === next) continue;
             await writeItem(ctx, userId, {

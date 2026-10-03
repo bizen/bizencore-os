@@ -50,6 +50,8 @@ export interface Item {
   /** このタスクが終わったと判断する条件 */
   completionCriteria?: string;
   done: boolean;
+  /** 常設の見出しとして使い、このタスク自体の完了を禁止する */
+  locked?: boolean;
   /** 古いタスクは出所を推測せず未設定のままにする */
   createdBy?: 'user' | 'ai';
   createdByClient?: string;
@@ -95,6 +97,22 @@ export function newId(): string {
 
 export function isLive(item: Item | undefined): item is Item {
   return !!item && !item.deletedAt;
+}
+
+/** A bulk completion must not hide a locked container below the selected task. */
+export function completionBlockedIds(items: ItemMap): Set<string> {
+  const blocked = new Set<string>();
+  for (const item of Object.values(items)) {
+    if (!isLive(item) || item.type !== 'task' || !item.locked) continue;
+    const visited = new Set<string>();
+    let current: Item | undefined = item;
+    while (isLive(current) && !visited.has(current.id)) {
+      visited.add(current.id);
+      blocked.add(current.id);
+      current = current.parentId ? items[current.parentId] : undefined;
+    }
+  }
+  return blocked;
 }
 
 export function compareItems(a: Item, b: Item): number {

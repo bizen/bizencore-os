@@ -32,12 +32,14 @@ function CheckBox({
   bursting,
   todayNumber,
   onToggle,
+  blocked,
 }: {
   done: boolean;
   completedByAi: boolean;
   bursting: boolean;
   todayNumber?: number;
   onToggle: () => void;
+  blocked: boolean;
 }) {
   return (
     <button
@@ -46,8 +48,9 @@ function CheckBox({
       onClick={onToggle}
       tabIndex={-1}
       aria-pressed={done}
+      disabled={!done && blocked}
       aria-label={done ? (completedByAi ? 'AIが完了・未完了に戻す' : '未完了に戻す') : '完了にする'}
-      title="⌘Enter"
+      title={!done && blocked ? 'ロック中の子タスクがあるため完了できません' : '⌘Enter'}
     >
       <span className="check-fill" aria-hidden />
       <svg className="check-mark" viewBox="0 0 16 16" aria-hidden>
@@ -73,6 +76,7 @@ export interface TaskRowProps {
   deadlineOpen: boolean;
   colorOpen: boolean;
   isFocusedLabel: boolean;
+  completionBlocked?: boolean;
   registerTitle: (id: string, el: HTMLTextAreaElement | null) => void;
   registerNote: (id: string, el: HTMLTextAreaElement | null) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>, item: Item) => void;
@@ -108,6 +112,7 @@ export function TaskRow(props: TaskRowProps) {
     deadlineOpen,
     colorOpen,
     isFocusedLabel,
+    completionBlocked = false,
     registerTitle,
     registerNote,
     onKeyDown,
@@ -151,6 +156,7 @@ export function TaskRow(props: TaskRowProps) {
       className={[
         'row',
         isSection ? 'row--section' : 'row--task',
+        item.locked ? 'row--locked' : '',
         depth === 0 ? 'row--root' : '',
         item.done ? 'is-done' : '',
         isActive ? 'is-active' : '',
@@ -171,13 +177,14 @@ export function TaskRow(props: TaskRowProps) {
         <div className="row-mark">
           {isSection ? (
             <span className="row-section-mark" aria-hidden />
-          ) : (
+          ) : item.locked ? null : (
             <CheckBox
               done={item.done}
               completedByAi={item.done && item.completedBy === 'ai'}
               bursting={burstIndex !== undefined}
               todayNumber={todayNumber}
               onToggle={() => onToggleDone(item.id)}
+              blocked={completionBlocked}
             />
           )}
         </div>
