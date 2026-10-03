@@ -1146,6 +1146,19 @@ body {
   color: var(--text-secondary);
 }
 
+/* Keep the full value editable; only the unfocused task-list preview is capped. */
+.row--task textarea.row-note:not(:focus) {
+  max-height: calc(4.65em + 0.16rem);
+}
+
+.row--task p.row-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- ラベル ---------- */
 
 .row--section > .row-main {

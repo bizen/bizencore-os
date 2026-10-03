@@ -7,13 +7,17 @@ import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
 import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
 
+function fitTextarea(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 function useAutoGrow(value: string) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
+    fitTextarea(el);
   }, [value]);
   return ref;
 }
@@ -207,7 +211,11 @@ export function TaskRow(props: TaskRowProps) {
               placeholder="メモ"
               spellCheck={false}
               onChange={(e) => onNoteChange(item.id, e.target.value)}
-              onFocus={() => onFocusRow(item.id)}
+              onFocus={(e) => {
+                fitTextarea(e.currentTarget);
+                onFocusRow(item.id);
+              }}
+              onBlur={(e) => { e.currentTarget.scrollTop = 0; }}
               onKeyDown={(e) => onNoteKeyDown(e, item)}
               aria-label="メモ"
             />
