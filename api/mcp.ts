@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { clerkPublishableKey, clerkSecretKey, convexSiteUrl, mcpSecret } from './_lib/env.js';
-import { workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
+import { TASK_PICKER_PENDING, TASK_SELECTION_INSTRUCTIONS, workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
 
 /*
  * bizencore の MCP サーバ。
@@ -21,7 +21,7 @@ import { workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
  * ここは中継だけ。並びや親子の面倒は Convex 側の mcpTasks が持つ。
  */
 
-const INSTRUCTIONS = `bizencore is the user's own task list. For work_on_task, let the user choose a label and then a task. In an MCP Apps-capable host, open_task_picker offers a visual picker; otherwise use elicitation or conversational selection. Read the selected task's latest details, clarify missing essentials with concrete options and a recommendation, continue the work in the same conversation, and record verified completion or partial progress. Never mark an unfinished parent complete.
+const INSTRUCTIONS = `bizencore is the user's own task list. ${TASK_SELECTION_INSTRUCTIONS} Read the selected task's latest details, clarify missing essentials with concrete options and a recommendation, continue the work in the same conversation, and record verified completion or partial progress. Never mark an unfinished parent complete.
 
 Use add_task when the user asks you to remember something, or when your conversation produces a follow-up they will have to do themselves. One line, in the user's language (usually Japanese), phrased as the user would write it — not as a report to them.
 
@@ -245,7 +245,10 @@ export async function workOnTask(
           state.requestedLabel !== label || state.today !== today) {
         throw new Error('ラベル選択が無効になりました。もう一度選んでください。');
       }
-      if (labelResponse.kind === 'elicit' && labelResponse.action !== 'accept') return json({ cancelled: true });
+      if (labelResponse.kind === 'elicit' && labelResponse.action !== 'accept') return json({
+        cancelled: true,
+        next_action: 'Selection was cancelled. Stop and wait for the user. Cancellation alone does not prove that MCP Apps or native forms are unsupported. Do not open a competing selector unless the host explicitly reports unsupported UI or the user requests another method.',
+      });
       const chosen = acceptedContent(ctx.mcpReq.inputResponses, 'work_label', z.object({ label: z.string() }))?.label;
       const selected = state.options.find((option) => option.label === chosen);
       if (!selected) throw new Error('選択されたラベルが見つかりません。もう一度選んでください。');
@@ -259,7 +262,10 @@ export async function workOnTask(
           state.requestedLabel !== label || state.today !== today) {
         throw new Error('タスク選択が無効になりました。もう一度選んでください。');
       }
-      if (response.kind === 'elicit' && response.action !== 'accept') return json({ cancelled: true });
+      if (response.kind === 'elicit' && response.action !== 'accept') return json({
+        cancelled: true,
+        next_action: 'Selection was cancelled. Stop and wait for the user. Cancellation alone does not prove that MCP Apps or native forms are unsupported. Do not open a competing selector unless the host explicitly reports unsupported UI or the user requests another method.',
+      });
       const answer = acceptedContent(ctx.mcpReq.inputResponses, 'task', z.object({
         task: z.string().optional(), search: z.string().optional(),
       }));
@@ -379,12 +385,12 @@ const handler = createMcpHandler(
       'open_task_picker',
       {
         title: 'Choose a bizencore task visually',
-        description: 'Offer an interactive label, Today, deadline and search picker in MCP Apps-capable clients. If no picker is visibly rendered, use work_on_task or list_tasks for conversational selection instead. A rendered app sends the exact task ID back to the conversation.',
+        description: 'First-choice task selection in MCP Apps-capable hosts. Open the interactive picker and wait for the user to send the exact task ID through AI handoff. A successful call means selection pending; lack of model-visible UI or a task ID is not failure. Only explicit app unavailability or the user requesting another method permits fallback to work_on_task native forms, then numbered list_tasks choices if forms are also unusable. Never show competing selectors.',
         inputSchema: z.object({}),
         annotations: { readOnlyHint: true },
         _meta: { ui: { resourceUri: TASK_PICKER_URI } },
       },
-      async () => json({ message: 'MCP Apps 対応クライアントではタスク選択画面が表示されます。画面が見えない場合は work_on_task か list_tasks で会話による選択に切り替えてください。画面が表示された場合のみ、選択されたタスクIDを待ってください。' })
+      async () => json(TASK_PICKER_PENDING)
     );
 
     registerAppResource(
@@ -420,7 +426,7 @@ const handler = createMcpHandler(
       'work_on_task',
       {
         title: 'Work on a bizencore task',
-        description: 'Choose a label, then an unfinished task. Clarify what is missing, do the work, and record the outcome.',
+        description: 'Choose through MCP Apps first, native forms second, and numbered text lists only if neither UI is usable. Read the latest task, clarify missing information, do the work, and record the outcome.',
         argsSchema: z.object({ task_id: z.string().optional().describe('Optional task ID to skip the picker') }),
       },
       ({ task_id }, ctx) => workOnTaskPrompt(ctx, task_id)
@@ -462,7 +468,7 @@ const handler = createMcpHandler(
       'work_on_task',
       {
         title: 'Choose a label and task, then start work',
-        description: 'Choose a label and then an unfinished task, returning its fresh details and instructions to clarify, work, and record the outcome. Optional task_id skips both forms for clients without elicitation; label skips the first form. Search and pagination are available in the task form; today: true limits tasks to today.',
+        description: 'With task_id, read the selected task afresh and return work/progress instructions, bypassing all selection UI. Without task_id, open native label/task elicitation forms only as the fallback when MCP Apps is unavailable. Use open_task_picker first in MCP Apps-capable hosts and wait for selection; do not call the no-ID form while that picker is pending. If native forms are also unsupported, use list_tasks to offer plain numbered labels and then numbered tasks, wait for the number, and call this tool with the exact task_id. Native forms support search/pagination; label skips the label form and today: true limits tasks to today.',
         inputSchema: z.object({
           task_id: z.string().optional(),
           query: z.string().max(200).optional(),

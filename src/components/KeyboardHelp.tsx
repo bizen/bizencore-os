@@ -68,7 +68,7 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           <p className="help-mcp-intro">接続時にbizencoreアカウントで認証します。</p>
-          <p className="help-mcp-intro">AIとの会話では「bizencoreのwork_on_taskで進めて」と伝えてください。対応クライアントではラベル、タスクの順に選べます。フォームが出なければ、AIと会話しながら選べます。タスクの詳細パネルから始める場合は「MCPで進める」を選んでください。情報が足りなければAIと相談してから作業し、完了または途中経過を記録します。</p>
+          <p className="help-mcp-intro">AIとの会話では「bizencoreのwork_on_taskで進めて」と伝えてください。MCP Apps対応クライアントではピッカーで選べます。MCP Appsが使えなければ選択フォーム、フォームも使えなければ番号リストを使います。どちらも、まずラベルを選び、次にそのラベルのタスクを選びます。タスクの詳細パネルから始める場合は「MCPで進める」を選んでください。情報が足りなければAIと相談してから作業し、完了または途中経過を記録します。</p>
 
           <details className="help-mcp-guide">
             <summary>ChatGPT <ChevronRight size={15} aria-hidden /></summary>

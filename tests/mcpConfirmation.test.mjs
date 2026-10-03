@@ -162,11 +162,30 @@ test('work_on_task prompt includes fresh task data for an exact ID', async () =>
     assert.deepEqual(mock.calls.map((call) => call.path), ['get']);
 
     const withoutId = await workOnTaskPrompt(context());
-    assert.match(withoutId.messages[0].content.text, /choose a label and then an unfinished task/);
+    assert.match(withoutId.messages[0].content.text, /Choose a label and then an unfinished task/);
     assert.equal(mock.calls.length, 1);
   } finally {
     mock.restore();
   }
+});
+
+test('cancelled native selections wait without implying that MCP Apps is unavailable', async () => {
+  const mock = mockConvex({ list: { labels: ['Build'], tasks: [{ id: 'task-1', text: 'Task' }], total_matching: 1 } });
+  try {
+    const labels = await workOnTask(context());
+    const labelCancel = await workOnTask(context({ work_label: { action: 'cancel' } }, stateOf(labels)));
+    const cancelledLabel = JSON.parse(labelCancel.content[0].text);
+    assert.equal(cancelledLabel.cancelled, true);
+    assert.match(cancelledLabel.next_action, /Stop and wait/);
+    assert.match(cancelledLabel.next_action, /Cancellation alone does not prove/);
+    assert.equal(mock.calls.length, 1);
+    const tasks = await workOnTask(context(), undefined, undefined, 'Build');
+    const taskCancel = await workOnTask(context({ task: { action: 'decline' } }, stateOf(tasks)), undefined, undefined, 'Build');
+    const cancelledTask = JSON.parse(taskCancel.content[0].text);
+    assert.equal(cancelledTask.cancelled, true);
+    assert.match(cancelledTask.next_action, /Do not open a competing selector/);
+    assert.equal(mock.calls.length, 2);
+  } finally { mock.restore(); }
 });
 
 test('work_on_task can page through all tasks and search within the form', async () => {

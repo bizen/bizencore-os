@@ -141,10 +141,13 @@ MCPプロンプト `work_on_task` も公開する。Claude Code CLIでは
 このリポジトリで `mkdir -p ~/.agents/skills && cp -R skills/bizencore-work-on-task ~/.agents/skills/` を実行する。
 Codex DesktopやClaude Code DesktopのCodeタブでは、チャットで
 `work_on_task` の使用を依頼できる。
-選択フォームが表示されない場合は `list_tasks` でラベル、次にタスクを選び、
+選択は MCP Apps ピッカー → クライアントの選択フォーム（elicitation）→ 普通の番号リストの順。
+ピッカーを開いた後は選択を待ち、並行して別のフォームやリストを出さない。
+MCP Apps が使えない場合だけフォームへ、フォームも使えない場合だけ
+`list_tasks` でラベル（全件も可）、次にタスクを番号リストから選び、
 選んだIDを `work_on_task` に渡す。AIは最新情報を確認し、不足があれば選択肢と
 推奨案を示して相談する。判断できたら同じ会話で作業を続け、検証済みの完了か
-途中経過・質問待ちの理由を記録する。MCP Apps専用のHTMLピッカーは未実装。
+途中経過・質問待ちの理由を記録する。MCP Apps のピッカーは本体と共通のCSS・ロゴ・タスクツリーを使う。
 
 `add_task` は既存のラベルにしか入れない。無いラベルを指定したときは
 MCP のエリシテーションで既存ラベルを選んでもらい、確認できなければ書き込まない。
