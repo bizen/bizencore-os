@@ -50,3 +50,27 @@ test('new label colors survive remote loading, local persistence and sync merge'
     for (const color of LABEL_COLOR_KEYS) assert.equal(JSON.parse(stored).find(item => item.id === `color-${color}`).color, color);
   } finally { flushPersist(); globalThis.localStorage = original; }
 });
+
+test('older clients omitting unfamiliar colors cannot erase them at the same stamp', async () => {
+  const { mergeItems, restamp } = await load('src/lib/itemMerge.ts');
+  const { taskStore, flushPersist } = await load('src/lib/taskStore.ts');
+  const { mergeRows } = await load('convex/sync.ts');
+  for (const color of LABEL_COLOR_KEYS.slice(5)) {
+    const known = restamp(undefined, { id: `old-client-${color}`, type: 'section', text: 'Label', color, updatedAt: 100 }, 100);
+    const omitted = { ...known, color: undefined };
+    for (const [a, b] of [[known, omitted], [omitted, known]]) {
+      assert.equal(mergeItems(a, b).color, color);
+      assert.equal(JSON.parse(mergeRows({ updatedAt: a.updatedAt, payload: JSON.stringify(a) }, { updatedAt: b.updatedAt, payload: JSON.stringify(b) }).payload).color, color);
+    }
+    const unrelatedEdit = restamp(omitted, { ...omitted, text: 'Edited in old client' }, 200);
+    assert.equal(mergeItems(known, unrelatedEdit).color, color);
+    assert.equal(mergeItems(known, unrelatedEdit).text, 'Edited in old client');
+    const reset = restamp(known, { ...known, color: undefined }, 300);
+    assert.equal(mergeItems(known, reset).color, undefined);
+    assert.equal(mergeItems(reset, known).color, undefined);
+    taskStore.mergeRemote([{ itemId: known.id, updatedAt: omitted.updatedAt, payload: JSON.stringify(omitted) }]);
+    taskStore.mergeRemote([{ itemId: known.id, updatedAt: known.updatedAt, payload: JSON.stringify(known) }]);
+    assert.equal(taskStore.getState().items[known.id].color, color);
+  }
+  flushPersist();
+});

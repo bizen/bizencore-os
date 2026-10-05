@@ -123,7 +123,13 @@ export function mergeItems<T extends Stamped>(a: T, b: T): T {
       else delete merged.attachments;
       continue;
     }
-    const takeB = sb > sa || (sb === sa && groupKey(b, group) > groupKey(a, group));
+    // Older palettes strip unknown colors without changing the color stamp.
+    // An explicit reset has a newer stamp, so it still wins normally.
+    const colorOmission = group === 'color' && sa === sb &&
+      (field(a, 'color') === undefined) !== (field(b, 'color') === undefined);
+    const takeB = colorOmission
+      ? field(a, 'color') === undefined
+      : sb > sa || (sb === sa && groupKey(b, group) > groupKey(a, group));
     if (!takeB) continue;
     for (const key of FIELD_GROUPS[group]) {
       const value = field(b, key);
