@@ -33,7 +33,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: '⌥T', label: 'today に入れる / 外す', footer: { label: 'today' } },
   { keys: '⌥E', label: '右パネルの作業想定時間へ移動（30 / 45m / 1.5h / 1h30）', footer: { label: '想定時間' } },
   { keys: '⌥M', label: 'クエスト種別（なし→橙→青）/ ラベルの色', footer: { label: '種別 / 色' } },
-  { keys: '⌥S', label: 'ラベルを追加' },
+  { keys: '⌥S', label: 'ラベルを追加（today 以外）' },
   { keys: '⌥C', label: '完了を整理（完了済みへ移す）' },
   { keys: '⌥⇧C', label: '完了を削除' },
   { keys: '⌘⌫ / 空行で ⌫', label: '行を削除', footer: { keys: '⌘⌫', label: '削除' } },

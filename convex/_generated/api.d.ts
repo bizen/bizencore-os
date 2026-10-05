@@ -11,6 +11,7 @@
 import type * as countStocks from "../countStocks.js";
 import type * as fileCleanup from "../fileCleanup.js";
 import type * as http from "../http.js";
+import type * as lifeWorldFields from "../lifeWorldFields.js";
 import type * as mcpTasks from "../mcpTasks.js";
 import type * as migrations from "../migrations.js";
 import type * as sync from "../sync.js";
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   countStocks: typeof countStocks;
   fileCleanup: typeof fileCleanup;
   http: typeof http;
+  lifeWorldFields: typeof lifeWorldFields;
   mcpTasks: typeof mcpTasks;
   migrations: typeof migrations;
   sync: typeof sync;

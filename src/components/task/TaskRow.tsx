@@ -1,5 +1,5 @@
 import { LockKeyhole, Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { fitTextarea, useAutoGrow } from '../../lib/useAutoGrow';
 import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
 import { liveAttachments } from '../../lib/attachments';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
@@ -7,38 +7,6 @@ import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
 import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
 import { TaskTreeGuides } from './TaskTreeGuides';
-
-function fitTextarea(el: HTMLTextAreaElement) {
-  el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight}px`;
-}
-
-function useAutoGrow(value: string) {
-  const ref = useRef<HTMLTextAreaElement | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    fitTextarea(el);
-    let width = el.clientWidth;
-    let active = true;
-    // Text can wrap differently without its value changing (panel, viewport, fonts).
-    const observer = new ResizeObserver(() => {
-      if (el.clientWidth === width) return;
-      width = el.clientWidth;
-      fitTextarea(el);
-    });
-    observer.observe(el);
-    const fitAfterFonts = () => { if (active) fitTextarea(el); };
-    void document.fonts.ready.then(fitAfterFonts);
-    document.fonts.addEventListener('loadingdone', fitAfterFonts);
-    return () => {
-      active = false;
-      observer.disconnect();
-      document.fonts.removeEventListener('loadingdone', fitAfterFonts);
-    };
-  }, [value]);
-  return ref;
-}
 
 /**
  * チェックマークは線を描き込みたいので、アイコンフォントではなく path を直接持つ。

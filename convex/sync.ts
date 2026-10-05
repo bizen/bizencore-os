@@ -4,7 +4,73 @@ import type { Id } from "./_generated/dataModel";
 import { mergeItems } from "../src/lib/itemMerge";
 import { coerceAttachments } from "../src/lib/attachments";
 import { cleanupFiles } from "./fileCleanup";
-import { isTimeZone } from "../src/lib/taskDates";
+import { isDateString, isTimeZone } from "../src/lib/taskDates";
+import { coerceLifeData, lifeCheckKey, mergeLifeEntry } from '../src/lib/lifeWorldModel';
+import { lifeEntryFields, lifeCheckFields } from './lifeWorldFields';
+
+export const lifeWorldPull = query({
+    args: { accountId: v.string() },
+    handler: async (ctx, { accountId }) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity || identity.subject !== accountId) return null;
+        const entries = await ctx.db.query('lifeEntries')
+            .withIndex('by_user', q => q.eq('userId', identity.subject)).collect();
+        const checks = await ctx.db.query('lifeChecks')
+            .withIndex('by_user', q => q.eq('userId', identity.subject)).collect();
+        return coerceLifeData({ version: 1,
+            entries: Object.fromEntries(entries.map(entry => [entry.id, entry])),
+            checks: Object.fromEntries(checks.map(check => [lifeCheckKey(check.entryId, check.date), check])),
+        });
+    },
+});
+
+export const lifeWorldPush = mutation({
+    args: { accountId: v.string(), entries: v.array(v.object(lifeEntryFields)), checks: v.array(v.object(lifeCheckFields)) },
+    handler: async (ctx, { accountId, entries, checks }) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity || identity.subject !== accountId) throw new Error('Unauthorized');
+        if (entries.length > 100 || checks.length > 100) throw new Error('Life world batch exceeds limit');
+        const validStamp = (stamp: number) => Number.isFinite(stamp) && stamp >= 0;
+        const ids = new Set<string>();
+        for (const entry of entries) {
+            if (!entry.id || entry.id.length > 256 || ids.has(entry.id) || !isDateString(entry.startDate) ||
+                !Number.isFinite(entry.order) || !validStamp(entry.updatedAt) ||
+                (entry.deletedAt !== undefined && (!validStamp(entry.deletedAt) || entry.deletedAt > entry.updatedAt)) ||
+                entry.text.length > 10000 || entry.note.length > 40000 ||
+                Object.values(entry.stamps ?? {}).some(stamp => stamp !== undefined && (!validStamp(stamp) || stamp > entry.updatedAt))) {
+                throw new Error('Invalid life entry');
+            }
+            ids.add(entry.id);
+        }
+        const checkIds = new Set<string>();
+        for (const check of checks) {
+            const key = lifeCheckKey(check.entryId, check.date);
+            if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key)) throw new Error('Invalid life check');
+            checkIds.add(key);
+            if (!ids.has(check.entryId)) {
+                const entry = await ctx.db.query('lifeEntries')
+                    .withIndex('by_user_entry', q => q.eq('userId', identity.subject).eq('id', check.entryId)).unique();
+                if (!entry) throw new Error('Life entry not found');
+            }
+        }
+        for (const entry of entries) {
+            const existing = await ctx.db.query('lifeEntries')
+                .withIndex('by_user_entry', q => q.eq('userId', identity.subject).eq('id', entry.id)).unique();
+            if (!existing) await ctx.db.insert('lifeEntries', { userId: identity.subject, ...entry });
+            else await ctx.db.patch(existing._id, mergeLifeEntry(entry, existing));
+        }
+        for (const check of checks) {
+            const existing = await ctx.db.query('lifeChecks')
+                .withIndex('by_user_entry_date', q => q.eq('userId', identity.subject).eq('entryId', check.entryId).eq('date', check.date)).unique();
+            if (!existing) await ctx.db.insert('lifeChecks', { userId: identity.subject, ...check });
+            else if (check.updatedAt > existing.updatedAt ||
+                (check.updatedAt === existing.updatedAt && check.done && !existing.done)) {
+                await ctx.db.patch(existing._id, check);
+            }
+        }
+        return { ok: true };
+    },
+});
 
 export const getTimeZone = query({
     args: {},

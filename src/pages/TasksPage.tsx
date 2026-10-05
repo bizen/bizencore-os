@@ -3,6 +3,8 @@ import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
 import { TaskRow } from '../components/task/TaskRow';
+import { LifeWorld } from '../components/task/LifeWorld';
+import { TodayRecommendations } from '../components/task/TodayRecommendations';
 import { focusFirstMeta } from '../lib/metaCursor';
 import { FOCUS_SHORTCUT_CODES, FOOTER_SHORTCUTS, focusShortcut } from '../lib/shortcuts';
 import { formatEstimate } from '../lib/taskEstimate';
@@ -537,18 +539,16 @@ export function TasksPage() {
     taskStore.setLabelColor(id, color);
   }, []);
 
-  /**
-   * ラベルを足す。today 表示はタスクしか描かないので、作ったものが
-   * 見えるように all へ戻してから足す。
-   */
+  /** Today ではラベルを追加しない。 */
   const addLabel = useCallback(
     (anchorId: string | null) => {
+      if (view === 'today') return;
       setView('all');
       setDeadlineOpenId(null);
       setColorOpenId(null);
       requestFocus(taskStore.insertAfter(anchorId, { type: 'section' }));
     },
-    [requestFocus]
+    [requestFocus, view]
   );
 
   const setViewMode = useCallback((next: ViewMode) => {
@@ -1116,7 +1116,10 @@ export function TasksPage() {
         <p className="today-cleared">today は全部完了</p>
       ) : null}
 
+      {view === 'today' ? <LifeWorld todayDate={todayDate} /> : null}
+
       <div className="tasks-footer">
+        {view === 'today' ? <TodayRecommendations items={items} todayDate={todayDate} todayTime={todayTime} /> : null}
         <div className="tasks-footer-top">
           <span className="muted tasks-count">
             <b>{stats.remaining}</b> 残り
@@ -1130,13 +1133,15 @@ export function TasksPage() {
             ) : null}
           </span>
           <div className="tasks-footer-actions">
-            <button
-              type="button"
-              className="ghost-btn"
-              onClick={() => addLabel(activeRows[activeRows.length - 1]?.item.id ?? null)}
-            >
-              + ラベル（⌥S）
-            </button>
+            {view !== 'today' ? (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => addLabel(activeRows[activeRows.length - 1]?.item.id ?? null)}
+              >
+                + ラベル（⌥S）
+              </button>
+            ) : null}
             {/* 位置が変わらないよう常に出しておく。整理は何度押しても害がないので、いつでも押せる */}
             <button
               type="button"
