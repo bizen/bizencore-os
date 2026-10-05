@@ -1010,7 +1010,9 @@ body {
 }
 
 .row {
-  --indent: calc(var(--depth, 0) * 1.4rem);
+  --tree-step: 1.4rem;
+  --tree-mark-width: 22px;
+  --indent: calc(var(--depth, 0) * var(--tree-step));
   position: relative;
 }
 
@@ -1021,7 +1023,7 @@ body {
 .row-main {
   position: relative;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: var(--tree-mark-width) minmax(0, 1fr) auto;
   column-gap: 0.7rem;
   align-items: start;
   padding: 0.3rem 0.35rem 0.3rem calc(0.35rem + var(--indent));
@@ -1029,18 +1031,27 @@ body {
   transition: background-color 0.12s, opacity 0.28s ease 0.06s;
 }
 
-/* 入れ子の目印。親のチェックの真下に落ちる。depth 0 では消える */
-.row-main::before {
-  content: '';
+/* Rails follow the ancestor checkbox centers instead of disappearing on deeper rows. */
+.row-tree-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.row-tree-guide {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(var(--indent) - 0.35rem);
+  left: calc(0.35rem + var(--tree-mark-width) / 2 + var(--tree-level) * var(--tree-step));
   width: 1px;
-  background: rgba(var(--muted-rgb), 0.16);
-  opacity: min(var(--depth, 0), 1);
-  pointer-events: none;
+  transform: translateX(-50%);
+  background: rgba(var(--muted-rgb), 0.14);
 }
+
+.row-tree-guide.is-parent,
+.row-tree-stem { background: rgba(var(--muted-rgb), 0.23); }
+
+.row-tree-stem { top: calc(0.3rem + 2px + max(20px, 1.3rem)); }
 
 .row:hover > .row-main {
   background: rgba(var(--surface-rgb), 0.022);

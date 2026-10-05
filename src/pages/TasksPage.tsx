@@ -913,11 +913,12 @@ export function TasksPage() {
     else noteRefs.current.delete(id);
   }, []);
 
-  const renderRow = (row: Row) => (
+  const renderRow = (row: Row, index = 0, rows: Row[] = []) => (
     <TaskRow
       key={row.item.id}
       item={row.item}
       depth={row.depth}
+      hasChildren={(rows[index + 1]?.depth ?? 0) > row.depth}
       context={row.context}
       todayDate={todayDate}
       todayTime={todayTime}

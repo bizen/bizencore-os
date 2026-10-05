@@ -6,6 +6,7 @@ import { handleMetaKeyDown } from '../../lib/metaCursor';
 import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
 import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
+import { TaskTreeGuides } from './TaskTreeGuides';
 
 function fitTextarea(el: HTMLTextAreaElement) {
   el.style.height = 'auto';
@@ -81,6 +82,7 @@ function CheckBox({
 export interface TaskRowProps {
   item: Item;
   depth: number;
+  hasChildren?: boolean;
   /** 親から離れて棚に置かれたサブタスクに添える親の名前 */
   context?: string;
   todayDate: string;
@@ -119,6 +121,7 @@ export function TaskRow(props: TaskRowProps) {
   const {
     item,
     depth,
+    hasChildren = false,
     context,
     todayDate,
     todayTime,
@@ -191,6 +194,7 @@ export function TaskRow(props: TaskRowProps) {
       }
     >
       <div className="row-main">
+        <TaskTreeGuides depth={depth} hasChildren={hasChildren && !isSection} />
         <div className="row-mark">
           {isSection ? (
             <span className="row-section-mark" aria-hidden />

@@ -64,8 +64,8 @@ body { margin: 0; }
 @media (max-width: 640px) {
   .picker-shell .app-header, .picker-footer { padding-inline: 0.85rem; }
   .picker-page { padding-inline: 0.75rem; }
-  .picker-shell .row-main { grid-template-columns: 20px minmax(0, 1fr) 28px; column-gap: 0.45rem; }
-  .picker-shell .row { --indent: calc(min(var(--depth, 0), 3) * 0.75rem); }
+  .picker-shell .row-main { grid-template-columns: var(--tree-mark-width) minmax(0, 1fr) 28px; column-gap: 0.45rem; }
+  .picker-shell .row { --tree-step: 0.75rem; --tree-mark-width: 20px; }
   .picker-shell .row--task .row-text { grid-column: 2; grid-row: 1; }
   .picker-shell .picker-row-action { grid-column: 3; grid-row: 1; }
 }
