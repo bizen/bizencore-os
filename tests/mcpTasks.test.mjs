@@ -172,6 +172,16 @@ test('embedded view pages all rows and does not truncate a large account', async
   await assert.rejects(taskView._handler(ctx, { userId: 'user-1', offset: -1 }), /offset must be/);
 });
 
+test('MCP Apps task view retains all twelve label color presets', async () => {
+  const { ctx, rows } = memoryContext();
+  const colors = ['blue', 'violet', 'pink', 'amber', 'green', 'cyan', 'teal', 'red', 'orange', 'rose', 'indigo', 'gray'];
+  for (const [order, color] of colors.entries()) {
+    rows.syncItems.push({ userId: 'user-1', itemId: color, updatedAt: 1, payload: JSON.stringify({ type: 'section', text: color, color, order }) });
+  }
+  const result = await taskView._handler(ctx, { userId: 'user-1' });
+  assert.deepEqual(result.items.map(item => item.color), colors);
+});
+
 test('add_task returns the original task on retries, even if the caller changes its key', async () => {
   const { ctx, rows } = memoryContext();
   const input = { userId: 'user-1', text: 'Send report', dueDate: '2026-10-13', completionCriteria: 'Approved by owner' };

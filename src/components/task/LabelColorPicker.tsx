@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { LABEL_COLORS, LABEL_COLOR_KEYS, type LabelColor } from '../../lib/taskModel';
+import { LABEL_COLORS, LABEL_COLOR_KEYS, LABEL_COLOR_NAMES, type LabelColor } from '../../lib/taskModel';
 
 const POPOVER_WIDTH = 176;
 const VIEWPORT_MARGIN = 8;
 const ANCHOR_GAP = 6;
+const GRID_COLUMNS = 4;
 
 /**
  * ラベルの色。ふだんは丸ひとつだけ置いて、押したときに選ぶ場所を出す。
- * 行の右端をいつも6個の丸で埋めると、ラベルの行だけ騒がしくなるため。
+ * 色の選択肢はポップオーバーに収める。
  */
 export function LabelColorPicker({
   color,
@@ -52,6 +53,7 @@ export function LabelColorPicker({
           onSelect={(next) => {
             onSelect(next);
             onOpenChange(false);
+            anchorRef.current?.querySelector('button')?.focus();
           }}
           onClose={() => onOpenChange(false)}
         />
@@ -97,8 +99,8 @@ function ColorPopover({
     popover.style.visibility = 'visible';
 
     const current =
-      popover.querySelector<HTMLElement>('.swatch.is-on') ??
-      popover.querySelector<HTMLElement>('.swatch');
+      popover.querySelector<HTMLElement>('.color-option.is-on') ??
+      popover.querySelector<HTMLElement>('.color-option');
     current?.focus();
   }, [anchorRef]);
 
@@ -113,11 +115,17 @@ function ColorPopover({
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [anchorRef, onClose]);
 
-  const step = (from: HTMLElement, direction: -1 | 1) => {
+  const step = (from: HTMLElement, direction: number) => {
     const all = Array.from(
-      popoverRef.current?.querySelectorAll<HTMLElement>('.swatch') ?? []
+      popoverRef.current?.querySelectorAll<HTMLElement>('.color-option') ?? []
     );
-    const next = all[all.indexOf(from) + direction];
+    const index = all.indexOf(from);
+    const nextIndex = direction === GRID_COLUMNS && index >= LABEL_COLOR_KEYS.length - GRID_COLUMNS
+      ? LABEL_COLOR_KEYS.length
+      : direction === -GRID_COLUMNS && index === LABEL_COLOR_KEYS.length
+        ? LABEL_COLOR_KEYS.length - GRID_COLUMNS
+        : index + direction;
+    const next = all[nextIndex];
     next?.focus();
   };
 
@@ -132,35 +140,38 @@ function ColorPopover({
           e.preventDefault();
           e.stopPropagation();
           onClose();
+          anchorRef.current?.querySelector('button')?.focus();
           return;
         }
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        const direction = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: GRID_COLUMNS, ArrowUp: -GRID_COLUMNS }[e.key];
+        if (direction !== undefined) {
           e.preventDefault();
           e.stopPropagation();
-          step(e.target as HTMLElement, e.key === 'ArrowRight' ? 1 : -1);
+          step(e.target as HTMLElement, direction);
         }
       }}
     >
+      <div className="color-swatches">
+        {LABEL_COLOR_KEYS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={`color-option${color === key ? ' is-on' : ''}`}
+            style={{ '--swatch': LABEL_COLORS[key] } as React.CSSProperties}
+            onClick={() => onSelect(key)}
+            aria-pressed={color === key}
+            aria-label={LABEL_COLOR_NAMES[key]}
+            title={LABEL_COLOR_NAMES[key]}
+          ><span className="swatch" aria-hidden="true" /></button>
+        ))}
+      </div>
       <button
         type="button"
-        className={`swatch swatch--none${color ? '' : ' is-on'}`}
+        className={`color-option color-reset${color ? '' : ' is-on'}`}
         onClick={() => onSelect(undefined)}
         aria-pressed={!color}
-        aria-label="色なし"
         title="色なし"
-      />
-      {LABEL_COLOR_KEYS.map((key) => (
-        <button
-          key={key}
-          type="button"
-          className={`swatch${color === key ? ' is-on' : ''}`}
-          style={{ '--swatch': LABEL_COLORS[key] } as React.CSSProperties}
-          onClick={() => onSelect(key)}
-          aria-pressed={color === key}
-          aria-label={key}
-          title={key}
-        />
-      ))}
+      ><span className="swatch swatch--none" aria-hidden="true" />色なし</button>
     </div>,
     document.body
   );

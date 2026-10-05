@@ -14,24 +14,38 @@ export type TaskKind = 'main' | 'tanomi';
 /** UI では「ラベル」と呼ぶ。保存済みデータとの互換のため値は 'section' のまま */
 export type ItemType = 'task' | 'section';
 
-export type LabelColor = 'blue' | 'violet' | 'pink' | 'amber' | 'green';
+export type LabelColor = 'blue' | 'violet' | 'pink' | 'amber' | 'green'
+  | 'cyan' | 'teal' | 'red' | 'orange' | 'rose' | 'indigo' | 'gray';
 
-/** ラベルの色。完了（氷）・期限（黄／赤）と紛れない範囲で選んでいる */
+/** 既存の色は保持し、ラベルの位置・形と合わせて状態表示と区別する。 */
 export const LABEL_COLORS: Record<LabelColor, string> = {
   blue: '#5b9dff',
   violet: '#a78bfa',
   pink: '#f472b6',
   amber: '#f0b429',
   green: '#4ade80',
+  cyan: '#38bdf8',
+  teal: '#2dd4bf',
+  red: '#f87171',
+  orange: '#fb923c',
+  rose: '#fb7185',
+  indigo: '#818cf8',
+  gray: '#9ca3af',
 };
 
 export const LABEL_COLOR_KEYS = Object.keys(LABEL_COLORS) as LabelColor[];
 
+export const LABEL_COLOR_NAMES: Record<LabelColor, string> = {
+  blue: '青', violet: '紫', pink: 'ピンク', amber: '黄', green: '緑',
+  cyan: '水色', teal: 'ティール', red: '赤', orange: 'オレンジ',
+  rose: 'ローズ', indigo: 'インディゴ', gray: 'グレー',
+};
+
 export function isLabelColor(value: unknown): value is LabelColor {
-  return typeof value === 'string' && value in LABEL_COLORS;
+  return typeof value === 'string' && Object.hasOwn(LABEL_COLORS, value);
 }
 
-/** 色なし → blue → … → green → 色なし */
+/** 色なし → パレット順 → 色なし */
 export function nextLabelColor(color: LabelColor | undefined): LabelColor | undefined {
   if (color === undefined) return LABEL_COLOR_KEYS[0];
   const index = LABEL_COLOR_KEYS.indexOf(color);

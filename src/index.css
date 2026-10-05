@@ -1255,7 +1255,7 @@ body {
 }
 
 :root[data-theme='white'] .row-title--section {
-  color: color-mix(in srgb, var(--label-color, var(--text-primary)) 65%, var(--text-primary));
+  color: color-mix(in srgb, var(--label-color, var(--text-primary)) 50%, var(--text-primary));
 }
 
 .swatch {
@@ -1542,15 +1542,41 @@ body {
 .color-popover {
   visibility: hidden;
   z-index: 1000;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.65rem;
+  width: 176px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--border-color);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--popover-bg);
   box-shadow: 0 14px 34px -14px rgba(0, 0, 0, 0.8);
 }
+
+.color-swatches {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.color-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.color-option .swatch { width: 18px; height: 18px; pointer-events: none; }
+.color-option:hover { background: rgba(var(--surface-rgb), 0.07); }
+.color-option.is-on { border-color: var(--text-secondary); background: rgba(var(--surface-rgb), 0.07); }
+.color-option:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 1px; }
+.color-reset { width: 100%; gap: 8px; border-top-color: var(--hairline); font: inherit; font-size: 0.75rem; }
 
 /* ---------- チェックと、完了の手応え ---------- */
 
