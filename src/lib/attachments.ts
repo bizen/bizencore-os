@@ -2,7 +2,7 @@
  * タスクに添えるコンテキスト（リンク、文章、ファイル参照）。
  *
  * 人は詳細パネルから、AI は MCP の attach_context からリンク・文章を足す。
- * MCP の list_tasks と AI ハンドオフにも載る。
+ * MCP の list_tasks と エージェントハンドオフにも載る。
  *
  * 人と AI が同時に足しても片方が消えないよう、同期では1件ずつ ID で合わせて
  * 足し合わせる（src/lib/itemMerge.ts）。外すときは消さずに deletedAt を打つ。

@@ -24,6 +24,8 @@ test('selection instructions prioritize Apps, native forms, then numbered text l
 test('picker response is explicitly pending rather than inviting competing selectors', () => {
   assert.equal(TASK_PICKER_PENDING.selection_status, 'awaiting_user');
   assert.equal(TASK_PICKER_PENDING.next_action, 'wait_for_user_selection');
+  assert.match(TASK_PICKER_PENDING.message, /エージェントハンドオフ/);
+  assert.doesNotMatch(TASK_PICKER_PENDING.message, /AIハンドオフ/);
   assert.match(TASK_PICKER_PENDING.message, /選択待ちは表示失敗ではありません/);
   assert.match(TASK_PICKER_PENDING.message, /別の一覧を出したりしない/);
   assert.match(TASK_PICKER_PENDING.message, /フォームも使えない場合に限り/);
@@ -52,7 +54,7 @@ test('every work entry point summarizes the task and waits for intent even with 
 });
 
 test('consultation does not imply execution and refreshing the task preserves the answered intent', () => {
-  assert.match(TASK_START_INSTRUCTIONS, /explicitly chose consultation or execution in their AI handoff/);
+  assert.match(TASK_START_INSTRUCTIONS, /explicitly chose consultation or execution in their agent handoff/);
   assert.match(TASK_START_INSTRUCTIONS, /already confirmed intent/);
   assert.match(TASK_START_INSTRUCTIONS, /retain that intent across re-reads and do not ask the same opening question again/);
   assert.match(TASK_START_INSTRUCTIONS, /If they want execution, do the actual work within the agreed scope/);

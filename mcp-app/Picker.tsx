@@ -267,7 +267,7 @@ export function Picker({ client }: { client: PickerClient }) {
       {detailChildren.length ? <section className="inspector-section"><h3 className="inspector-label">サブタスク</h3>{detailChildren.map((item) => <button key={item.id} className="picker-subtask" onClick={() => select(item.id)}><span>{item.text}</span><ChevronRight size={14} /></button>)}</section> : null}
       {detailError ? <div className="picker-error" role="alert"><p>{detailError}</p>{!detail ? <button className="ghost-btn" onClick={() => { setDetailError(''); setDetailVersion((version) => version + 1); }}>再読み込み</button> : null}</div> : null}
       <section className="inspector-section picker-handoff-section">
-        <h3 className="inspector-label">AI ハンドオフ</h3>
+        <h3 className="inspector-label">エージェントハンドオフ</h3>
         <HandoffIntentControl intent={intent} onChange={setIntent} disabled={sending} />
         <button className="primary-btn picker-handoff" disabled={!detail || detail.done || sending} onClick={() => void send()}>{sending || (!detail && !detailError) ? <LoaderCircle size={16} className="picker-spin" /> : <ArrowUpRight size={16} />}{intent === 'consult' ? '検討を始める' : '実行を始める'}</button>
       </section>

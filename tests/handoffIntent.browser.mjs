@@ -88,7 +88,7 @@ try {
     assert.ok(command.startsWith(target === 'Codex' ? 'codex ' : 'claude '));
     verifyPrompt(command, intent, mcp);
   };
-  const settings = () => page.getByRole('button', { name: 'AIハンドオフの接続設定', exact: true });
+  const settings = () => page.getByRole('button', { name: 'エージェントハンドオフの接続設定', exact: true });
   const openSettings = async () => {
     if (await settings().getAttribute('aria-expanded') === 'false') await settings().click();
   };
@@ -102,6 +102,9 @@ try {
     await closeSettings();
   };
   const checkFits = async () => {
+    const heading = page.getByRole('heading', { name: 'エージェントハンドオフ', exact: true });
+    assert.equal(await heading.isVisible(), true);
+    assert.equal(await heading.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
     const fits = await page.locator('.inspector-handoff-mode').evaluateAll(elements => elements.every(el => {
       const rect = el.getBoundingClientRect();
       return rect.x >= 0 && rect.right <= innerWidth + 1 && [...el.querySelectorAll('button')].every(button => button.scrollWidth <= button.clientWidth + 1);

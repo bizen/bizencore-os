@@ -126,13 +126,13 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
       }
     }}>
       <div className="handoff-heading">
-        <h3 className="inspector-label">AI ハンドオフ</h3>
-        <button ref={settingsButtonRef} type="button" className="icon-btn handoff-settings-toggle" aria-label="AIハンドオフの接続設定" title="接続設定" aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)}>
+        <h3 className="inspector-label">エージェントハンドオフ</h3>
+        <button ref={settingsButtonRef} type="button" className="icon-btn handoff-settings-toggle" aria-label="エージェントハンドオフの接続設定" title="接続設定" aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)}>
           <Settings size={15} aria-hidden />
         </button>
       </div>
       {settingsOpen ? (
-        <div className="handoff-settings" id={settingsId} role="region" aria-label="AIハンドオフの接続設定">
+        <div className="handoff-settings" id={settingsId} role="region" aria-label="エージェントハンドオフの接続設定">
           <div className="handoff-option">
             <span className="handoff-option-label">渡し方</span>
             <div className="inspector-handoff-mode" role="group" aria-label="AIへの渡し方">
