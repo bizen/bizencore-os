@@ -3082,6 +3082,74 @@ a.context-title:hover {
   letter-spacing: 0.06em;
 }
 
+.context-document-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.context-document-preview:hover .context-title { text-decoration: underline; }
+.context-document-preview:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 4px; }
+.context-document-preview .context-text { -webkit-line-clamp: 3; margin: 0; overflow-wrap: anywhere; }
+
+.context-document-viewer {
+  position: fixed;
+  inset: 0;
+  width: min(860px, calc(100vw - 40px));
+  height: min(820px, calc(100dvh - 48px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  margin: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--popover-bg);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.context-document-viewer::backdrop { background: rgb(0 0 0 / 55%); }
+.context-document-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.context-document-header { display: flex; align-items: flex-start; gap: 16px; padding: 20px 24px 12px; }
+.context-document-header > .icon-btn { flex: 0 0 32px; }
+.context-document-heading { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
+.context-document-heading > svg { flex: 0 0 18px; margin-top: 4px; color: var(--text-secondary); }
+.context-document-heading h2 { font-size: 1.05rem; font-weight: 500; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+.context-document-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 24px 12px; border-bottom: 1px solid var(--border-color); }
+.context-download { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 8px; border: 1px solid var(--border-color); border-radius: 4px; background: none; color: var(--text-secondary); cursor: pointer; font-size: 0.8rem; }
+.context-download:hover { color: var(--text-primary); }
+.context-document-status { font-size: 0.76rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+.context-document-content { flex: 1; min-height: 0; padding: 24px 32px 40px; overflow: auto; overscroll-behavior: contain; font-size: 0.94rem; line-height: 1.8; overflow-wrap: anywhere; }
+.context-document-content > :first-child { margin-top: 0; }
+.context-document-loading { white-space: pre-wrap; }
+.context-document-content h1 { font-size: 1.65rem; line-height: 1.4; }
+.context-document-content h2 { font-size: 1.25rem; line-height: 1.5; }
+.context-document-content h3, .context-document-content h4 { font-size: 1rem; line-height: 1.5; }
+.context-document-content ul, .context-document-content ol { padding-left: 1.5rem; }
+.context-document-content a { color: var(--accent-color); text-decoration: underline; }
+.context-document-content pre { max-width: 100%; overflow: auto; padding: 16px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.8rem; line-height: 1.6; }
+.context-document-content code { font-size: 0.85em; }
+.context-document-content blockquote { margin-left: 0; padding-left: 16px; border-left: 2px solid var(--border-color); color: var(--text-secondary); }
+.context-document-content table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; font-size: 0.85rem; }
+.context-document-content th, .context-document-content td { border: 1px solid var(--border-color); padding: 8px 12px; text-align: left; }
+.context-document-content input { pointer-events: none; }
+.context-document-image { color: var(--text-secondary); }
+
+@media (max-width: 640px) {
+  .context-document-viewer { width: calc(100vw - 16px); height: calc(100dvh - 24px); }
+  .context-document-header { padding: 16px 16px 10px; }
+  .context-document-toolbar { padding: 0 16px 10px; }
+  .context-document-content { padding: 20px 18px 32px; }
+}
+
 .context-remove {
   opacity: 0.55;
 }

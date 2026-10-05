@@ -3,6 +3,7 @@ import { ArrowUpRight, Check, ChevronRight, Filter, LoaderCircle, LockKeyhole, M
 import { Brand } from '../src/components/Brand';
 import { HandoffIntentControl } from '../src/components/task/HandoffIntentControl';
 import { TaskTreeGuides } from '../src/components/task/TaskTreeGuides';
+import { ContextDocument } from '../src/components/task/ContextDocument';
 import type { HandoffIntent } from '../src/lib/taskWorkPrompt';
 import { LABEL_COLORS, childrenOf, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
 import { applyTheme, readTheme, saveTheme, type Theme } from '../src/lib/theme';
@@ -261,7 +262,7 @@ export function Picker({ client }: { client: PickerClient }) {
       </div>
       {criteria ? <section className="inspector-section"><h3 className="inspector-label">完了条件</h3><p className="picker-detail-text">{criteria}</p></section> : null}
       {detail?.attachments?.length ? <section className="inspector-section"><h3 className="inspector-label">コンテキスト</h3>{detail.attachments.map((attachment) => <div className="picker-context" key={attachment.id}>
-        <span>{attachment.title}</span>{attachment.text ? <p className="picker-detail-text">{attachment.text}</p> : null}
+        {attachment.kind === 'text' && attachment.text ? <ContextDocument document={{ id: attachment.id, title: attachment.title, text: attachment.text }} /> : <span>{attachment.title}</span>}
         {attachment.url && /^https?:\/\//i.test(attachment.url) ? <a href={attachment.url} onClick={(e) => { e.preventDefault(); openLink(attachment.url!); }}>{attachment.kind === 'file' ? 'ファイルを開く' : 'リンクを開く'} <ArrowUpRight size={12} /></a> : null}
       </div>)}</section> : null}
       {detailChildren.length ? <section className="inspector-section"><h3 className="inspector-label">サブタスク</h3>{detailChildren.map((item) => <button key={item.id} className="picker-subtask" onClick={() => select(item.id)}><span>{item.text}</span><ChevronRight size={14} /></button>)}</section> : null}

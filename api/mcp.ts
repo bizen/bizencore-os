@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { clerkPublishableKey, clerkSecretKey, convexSiteUrl, mcpSecret } from './_lib/env.js';
 import { TASK_PICKER_PENDING, TASK_SELECTION_INSTRUCTIONS, TASK_START_INSTRUCTIONS, workOnTaskInstructions } from '../src/lib/taskWorkPrompt.js';
+import { MAX_ATTACHMENT_TEXT, MAX_ATTACHMENT_TITLE } from '../src/lib/attachments.js';
 
 /*
  * bizencore の MCP サーバ。
@@ -27,7 +28,7 @@ Use add_task when the user asks you to remember something, or when your conversa
 
 Call list_tasks first when you need to know what is already there, or to get the exact label names and task ids. Use query for a title or note search, and next_offset for another page. Labels are the user's own groupings; add_task only files a task under a label that already exists. If a label is unknown, ask the user to choose one rather than guessing.
 
-Tasks can carry context: links, text, and files attached by the user. list_tasks returns them under attachments, including download URLs for files; read them before working on a task. Use attach_context when your conversation turns up something the user will need for that task (a doc, a PR, a spec, a decision) — one link or one piece of text per call, attached to the task it belongs to.
+Tasks can carry context: links, text documents, and files attached by the user. get_task and list_tasks return attachments, including document IDs, revisions and file download URLs. Long documents in list_tasks are marked text_truncated; get_task returns the full text. Read existing documents in full before updating them. Use update_context to replace or append to a relevant document by ID and its latest revision; use attach_context only for a genuinely new topic or link. Do not accumulate duplicate documents or journals. A revision conflict requires re-reading the document and reconciling changes, not blindly appending again.
 
 This is the user's list, not a scratchpad. Do not add duplicates or things they did not ask for. When carrying out work the user requested, search for a clearly matching existing task. The user has opted in to checking it off once the work is genuinely finished and verified, even without a separate "mark done" message. Review completion criteria first; partial work, an ambiguous match, or an unverified result must not be checked off. For work_on_task, summarize and confirm the user's intent only if they have not already explicitly chosen consultation or execution in their agent handoff; follow that intent in this conversation. If agreed work cannot be completed, use record_task_progress to check only verified subtasks, add specific remaining subtasks, and note the blocker while keeping the parent unfinished. Deletion requires the user's confirmation in the MCP client. Reuse the same idempotency_key when retrying add_task. today: true uses the account's saved time zone.`;
 
@@ -489,7 +490,7 @@ const handler = createMcpHandler(
           task_id: z.string(),
           completed_subtask_ids: z.array(z.string()).default([]),
           remaining_subtasks: z.array(z.object({ text: z.string(), note: z.string().optional() })).default([]),
-          progress_note: z.string().max(4000).optional(),
+          progress_note: z.string().max(4000).optional().describe('Concise current status; updates the same status document rather than creating a journal entry'),
         }),
       },
       ({ task_id, completed_subtask_ids, remaining_subtasks, progress_note }, ctx) => call(ctx, 'record-progress', {
@@ -594,15 +595,35 @@ const handler = createMcpHandler(
       {
         title: 'Attach context to a task',
         description:
-          'Attach one link or one piece of text to a task, so the user (and any agent that later works on it) has what it needs in one place. Give exactly one of url or text. Shown in the task\'s detail panel and returned by list_tasks.',
+          'Create one new context document or link. Read existing attachments first and use update_context for a related document instead of creating another one. Give exactly one of url or text. Documents are readable in the web app. Identical retries reuse the existing attachment; a duplicate document title requires updating its ID.',
         inputSchema: z.object({
           task_id: z.string(),
           url: z.string().optional().describe('A link starting with http:// or https://'),
-          text: z.string().optional().describe('A note, excerpt or decision, up to 4000 characters'),
-          title: z.string().optional().describe('A short name shown in the list'),
+          text: z.string().max(MAX_ATTACHMENT_TEXT).optional().describe('Markdown or plain text, up to 100000 characters; excess is rejected, never truncated'),
+          title: z.string().max(MAX_ATTACHMENT_TITLE).optional().describe('A short document name shown in the list'),
         }),
       },
       ({ task_id, url, text, title }, ctx) => call(ctx, 'attach', { taskId: task_id, url, text, title })
+    );
+
+    server.registerTool(
+      'update_context',
+      {
+        title: 'Update an existing context document',
+        description: 'Read get_task first, then update one existing text document by its attachment ID and revision. replace writes a consolidated current document; append adds a supplement to the same document. No new attachment or journal is created. A stale revision, including a repeated append, is rejected without writing; re-read and reconcile before retrying. Links and uploaded files are not editable.',
+        inputSchema: z.object({
+          task_id: z.string(),
+          attachment_id: z.string(),
+          expected_revision: z.number().int().nonnegative().describe('The revision returned by get_task; older documents have revision 0'),
+          mode: z.enum(['replace', 'append']).default('replace'),
+          text: z.string().min(1).max(MAX_ATTACHMENT_TEXT),
+          title: z.string().min(1).max(MAX_ATTACHMENT_TITLE).optional(),
+        }),
+        annotations: { readOnlyHint: false, idempotentHint: false },
+      },
+      ({ task_id, attachment_id, expected_revision, mode, text, title }, ctx) => call(ctx, 'update-context', {
+        taskId: task_id, attachmentId: attachment_id, expectedRevision: expected_revision, mode, text, title,
+      })
     );
 
     server.registerTool(

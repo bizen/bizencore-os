@@ -31,7 +31,7 @@ import {
   sameStampedState,
   withGroups,
 } from './itemMerge';
-import { MAX_ATTACHMENTS, attachmentFrom, coerceAttachments, liveAttachments } from './attachments';
+import { MAX_ATTACHMENTS, attachmentFrom, coerceAttachments, contextStorageError, liveAttachments } from './attachments';
 import { isDateString, isTimeString } from './taskDates';
 
 const STORAGE_KEY = 'chrct.tasks.v2';
@@ -116,8 +116,10 @@ let pendingPersist: ItemMap | null = null;
 function writeNow(items: ItemMap) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.values(items)));
+    return true;
   } catch {
     // 容量超過などは無視（メモリ上の状態は生きている）
+    return false;
   }
 }
 
@@ -484,7 +486,12 @@ export const taskStore = {
     if (input.id && current.attachments?.some((att) => att.id === input.id)) return true;
     const attachment = attachmentFrom(input, 'human', input.id ?? newId(), Date.now());
     if (!attachment) return false;
-    commit(withPatches([{ ...current, attachments: [...(current.attachments ?? []), attachment] }]));
+    const attachments = [...(current.attachments ?? []), attachment];
+    if (contextStorageError(attachments)) return false;
+    const next = withPatches([{ ...current, attachments }]);
+    // Keep the pasted source in the input if this device cannot persist it.
+    if (!writeNow(next)) return false;
+    commit(next);
     return true;
   },
 

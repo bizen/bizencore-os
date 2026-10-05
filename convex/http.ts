@@ -286,6 +286,22 @@ http.route({
 });
 
 http.route({
+    path: "/mcp/update-context",
+    method: "POST",
+    handler: route((ctx, body) =>
+        ctx.runMutation(internal.mcpTasks.updateContext, {
+            userId: body.userId as string,
+            taskId: String(body.taskId ?? ""),
+            attachmentId: String(body.attachmentId ?? ""),
+            text: String(body.text ?? ""),
+            title: typeof body.title === "string" ? body.title : undefined,
+            mode: body.mode === undefined ? "replace" : body.mode as "replace" | "append",
+            expectedRevision: typeof body.expectedRevision === "number" ? body.expectedRevision : -1,
+        })
+    ),
+});
+
+http.route({
     path: "/mcp/add-many",
     method: "POST",
     handler: route((ctx, body) =>

@@ -9,10 +9,13 @@ import { coerceStamps, restamp, type Stamps } from "../src/lib/itemMerge";
 import { compareItems, isLabelColor, type Item } from "../src/lib/taskModel";
 import {
     MAX_ATTACHMENTS,
+    MAX_ATTACHMENT_TEXT,
     attachmentFrom,
     attachmentLabel,
     coerceAttachments,
+    contextStorageError,
     liveAttachments,
+    updateDocument,
     type Attachment,
 } from "../src/lib/attachments";
 
@@ -250,12 +253,15 @@ interface AttachmentView {
     title: string;
     url?: string;
     text?: string;
+    revision?: number;
+    text_truncated?: boolean;
+    text_length?: number;
     mime_type?: string;
     size?: number;
     added_by: "human" | "ai";
 }
 
-async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: string | undefined, subtasks: StoredItem[]): Promise<TaskView> {
+async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: string | undefined, subtasks: StoredItem[], preview = false): Promise<TaskView> {
     const view: TaskView = { id: item.id, text: item.text, done: item.done };
     if (item.locked) view.locked = true;
     Object.assign(view, attributionView(item));
@@ -298,7 +304,9 @@ async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: st
             kind: att.kind,
             title: attachmentLabel(att),
             ...(att.url ? { url: att.url } : {}),
-            ...(att.text ? { text: att.text } : {}),
+            ...(att.text ? { text: preview ? att.text.slice(0, 4000) : att.text } : {}),
+            ...(preview && att.text && att.text.length > 4000 ? { text_truncated: true, text_length: att.text.length } : {}),
+            ...(att.kind === "text" ? { revision: att.revision ?? 0 } : {}),
             ...(fileUrl ? { url: fileUrl } : {}),
             ...(att.mimeType ? { mime_type: att.mimeType } : {}),
             ...(att.size ? { size: att.size } : {}),
@@ -395,7 +403,8 @@ export const list = internalQuery({
                 userId,
                 item,
                 labelOf(item)?.text.trim(),
-                includeDone ? subtasks : subtasks.filter((s) => !s.done)
+                includeDone ? subtasks : subtasks.filter((s) => !s.done),
+                true
             );
             if (flat && item.parentId && byId.get(item.parentId)?.type === "task") {
                 view.parent_task = byId.get(item.parentId)?.text;
@@ -538,11 +547,23 @@ export const recordProgress = internalMutation({
             else newSubtasks.push({ text, note: subtask.note?.trim() || undefined });
         }
         if (progressNote && progressNote.trim().length > 4000) throw new ConvexError("progress_note is too long");
-        const duplicateNote = progressNote?.trim() && liveAttachments(target.attachments).some((att) =>
-            att.kind === "text" && att.text === progressNote.trim() && att.by === "ai");
-        if (progressNote?.trim() && !duplicateNote && liveAttachments(target.attachments).length >= MAX_ATTACHMENTS) {
+        const progressDocument = liveAttachments(target.attachments).find((att) =>
+            att.kind === "text" && att.by === "ai" && (att.title === "作業状況" || att.title === "作業の途中経過"));
+        const duplicateNote = progressNote?.trim() && progressDocument?.text === progressNote.trim();
+        if (progressNote?.trim() && !duplicateNote && !progressDocument && liveAttachments(target.attachments).length >= MAX_ATTACHMENTS) {
             throw new ConvexError(`a task holds at most ${MAX_ATTACHMENTS} attachments`);
         }
+
+        const progressAttachment = progressNote?.trim() && !duplicateNote
+            ? progressDocument
+                ? updateDocument(progressDocument, { text: progressNote.trim(), title: "作業状況", mode: "replace", expectedRevision: progressDocument.revision ?? 0 }, stampAfter(items))
+                : attachmentFrom({ text: progressNote.trim(), title: "作業状況" }, "ai", crypto.randomUUID(), stampAfter(items))
+            : undefined;
+        const nextAttachments = progressAttachment
+            ? [...(target.attachments ?? []).filter((att) => att.id !== progressAttachment.id), progressAttachment]
+            : target.attachments;
+        const storageError = nextAttachments && contextStorageError(nextAttachments);
+        if (storageError) throw new ConvexError(storageError);
 
         let stamp = stampAfter(items);
         for (const id of completedSubtaskIds) {
@@ -563,11 +584,9 @@ export const recordProgress = internalMutation({
             await writeItem(ctx, userId, item);
             added.push({ id: item.id, text: item.text });
         }
-        if (progressNote?.trim() && !duplicateNote) {
-            const attachment = attachmentFrom({ text: progressNote.trim(), title: "作業の途中経過" }, "ai", crypto.randomUUID(), stamp++);
-            if (!attachment) throw new ConvexError("invalid progress_note");
+        if (progressAttachment) {
             await writeItem(ctx, userId, {
-                ...target, attachments: [...(target.attachments ?? []), attachment], updatedAt: stamp,
+                ...target, attachments: nextAttachments, updatedAt: stamp,
             });
         }
         return { task_id: taskId, done: false, completed_subtask_ids: completedSubtaskIds, added_subtasks: added, existing_subtasks: reused };
@@ -763,6 +782,13 @@ export const attach = internalMutation({
         if ((url?.trim() ? 1 : 0) + (text?.trim() ? 1 : 0) !== 1) {
             throw new ConvexError("give exactly one of url or text");
         }
+        if (text && text.trim().length > MAX_ATTACHMENT_TEXT) throw new ConvexError(`document exceeds ${MAX_ATTACHMENT_TEXT} characters; nothing was saved`);
+        const existing = liveAttachments(target.attachments);
+        const duplicate = existing.find((att) => title?.trim() === att.title &&
+            (url?.trim() ? att.kind === "link" && att.url === url.trim() : att.kind === "text" && att.text === text?.trim()));
+        if (duplicate) return { id: duplicate.id, task_id: target.id, kind: duplicate.kind, title: attachmentLabel(duplicate), revision: duplicate.revision ?? 0 };
+        const sameTitle = text?.trim() && title?.trim() && existing.find((att) => att.kind === "text" && attachmentLabel(att) === title.trim());
+        if (sameTitle) throw new ConvexError(`document already exists: ${sameTitle.id}; use update_context with its latest revision`);
         if (liveAttachments(target.attachments).length >= MAX_ATTACHMENTS) {
             throw new ConvexError(`a task holds at most ${MAX_ATTACHMENTS} attachments`);
         }
@@ -775,8 +801,31 @@ export const attach = internalMutation({
             attachments: [...(target.attachments ?? []), attachment],
             updatedAt: now,
         };
+        const storageError = contextStorageError(next.attachments!);
+        if (storageError) throw new ConvexError(storageError);
         await writeItem(ctx, userId, next);
-        return { id: attachment.id, task_id: target.id, kind: attachment.kind, title: attachmentLabel(attachment) };
+        return { id: attachment.id, task_id: target.id, kind: attachment.kind, title: attachmentLabel(attachment), ...(attachment.kind === "text" ? { revision: 0 } : {}) };
+    },
+});
+
+export const updateContext = internalMutation({
+    args: {
+        userId: v.string(), taskId: v.string(), attachmentId: v.string(), text: v.string(),
+        title: v.optional(v.string()), mode: v.union(v.literal("replace"), v.literal("append")), expectedRevision: v.number(),
+    },
+    handler: async (ctx, { userId, taskId, attachmentId, ...input }) => {
+        const items = await loadItems(ctx, userId);
+        const target = items.find((item) => item.id === taskId && item.type === "task");
+        if (!target) throw new ConvexError("task not found");
+        const document = liveAttachments(target.attachments).find((att) => att.id === attachmentId);
+        if (!document) throw new ConvexError("document not found");
+        const stamp = stampAfter(items);
+        const next = updateDocument(document, input, stamp);
+        const attachments = target.attachments!.map((att) => att.id === attachmentId ? next : att);
+        const storageError = contextStorageError(attachments);
+        if (storageError) throw new ConvexError(storageError);
+        await writeItem(ctx, userId, { ...target, attachments, updatedAt: stamp });
+        return { task_id: taskId, id: next.id, title: attachmentLabel(next), revision: next.revision };
     },
 });
 
@@ -803,9 +852,12 @@ export const attachFile = internalMutation({
             { storageId, title, mimeType, size }, "human", attachmentId, now
         );
         if (!attachment) throw new ConvexError("invalid file");
+        const attachments = [...(target.attachments ?? []), attachment];
+        const storageError = contextStorageError(attachments);
+        if (storageError) throw new ConvexError(storageError);
         await writeItem(ctx, userId, {
             ...target,
-            attachments: [...(target.attachments ?? []), attachment],
+            attachments,
             updatedAt: now,
         });
         await ctx.db.insert("fileOwners", { userId, itemId: taskId, attachmentId, storageId });

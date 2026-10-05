@@ -27,11 +27,14 @@ export interface Attachment {
   /** 誰が添えたか */
   by: 'human' | 'ai';
   createdAt: number;
+  revision?: number;
+  updatedAt?: number;
   /** 外した時刻。同期で「外した」ことを伝えるために残す */
   deletedAt?: number;
 }
 
-export const MAX_ATTACHMENT_TEXT = 4000;
+export const MAX_ATTACHMENT_TEXT = 100000;
+export const MAX_CONTEXT_BYTES = 512 * 1024;
 export const MAX_ATTACHMENT_TITLE = 200;
 /** 1つのタスクに添えられる数（外したものは数えない） */
 export const MAX_ATTACHMENTS = 50;
@@ -60,7 +63,9 @@ export function coerceAttachments(raw: unknown): Attachment[] | undefined {
       createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0,
     };
     if (typeof r.url === 'string') att.url = r.url;
-    if (typeof r.text === 'string') att.text = clip(r.text, MAX_ATTACHMENT_TEXT);
+    if (typeof r.text === 'string') att.text = r.text;
+    if (Number.isSafeInteger(r.revision) && (r.revision as number) >= 0) att.revision = r.revision as number;
+    if (typeof r.updatedAt === 'number' && Number.isFinite(r.updatedAt)) att.updatedAt = r.updatedAt;
     if (typeof r.storageId === 'string') att.storageId = r.storageId;
     if (typeof r.mimeType === 'string') att.mimeType = r.mimeType;
     if (typeof r.size === 'number' && Number.isFinite(r.size)) att.size = r.size;
@@ -87,7 +92,8 @@ export function mergeAttachments(a: unknown, b: unknown): Attachment[] | undefin
     if (seen.deletedAt !== undefined || att.deletedAt !== undefined) {
       const deletedAt = Math.min(seen.deletedAt ?? Infinity, att.deletedAt ?? Infinity);
       byId.set(att.id, { ...(JSON.stringify(att) > JSON.stringify(seen) ? att : seen), deletedAt });
-    } else if (JSON.stringify(att) > JSON.stringify(seen)) {
+    } else if ((att.revision ?? 0) > (seen.revision ?? 0) ||
+      ((att.revision ?? 0) === (seen.revision ?? 0) && JSON.stringify(att) > JSON.stringify(seen))) {
       byId.set(att.id, att);
     }
   }
@@ -135,7 +141,33 @@ export function attachmentFrom(
     return { id, kind: 'link', url, title, by, createdAt: now };
   }
   const text = input.text?.trim();
-  if (!text) return null;
+  if (!text || text.length > MAX_ATTACHMENT_TEXT) return null;
   if (isUrl(text)) return { id, kind: 'link', url: text, title, by, createdAt: now };
-  return { id, kind: 'text', text: clip(text, MAX_ATTACHMENT_TEXT), title, by, createdAt: now };
+  return { id, kind: 'text', text, title, by, createdAt: now, revision: 0 };
+}
+
+export function contextStorageError(attachments: Attachment[]): string | undefined {
+  if (new TextEncoder().encode(JSON.stringify(attachments)).length > MAX_CONTEXT_BYTES) {
+    return 'このタスクの資料は合計 512 KB 以下にしてください';
+  }
+}
+
+/** Revision checking makes retries and concurrent append operations safe. */
+export function updateDocument(
+  attachment: Attachment,
+  input: { text: string; title?: string; mode: 'replace' | 'append'; expectedRevision: number },
+  now: number,
+): Attachment {
+  if (attachment.kind !== 'text' || attachment.deletedAt !== undefined) throw new Error('document not found');
+  if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 || input.expectedRevision !== (attachment.revision ?? 0)) {
+    throw new Error('document revision conflict; read get_task again before updating');
+  }
+  if (input.mode !== 'replace' && input.mode !== 'append') throw new Error('invalid document update mode');
+  if (!input.text.trim()) throw new Error('document text is required');
+  if (input.title !== undefined && (!input.title.trim() || input.title.trim().length > MAX_ATTACHMENT_TITLE)) {
+    throw new Error(`document title must be 1-${MAX_ATTACHMENT_TITLE} characters`);
+  }
+  const text = input.mode === 'append' ? `${attachment.text ?? ''}\n\n${input.text}` : input.text;
+  if (text.length > MAX_ATTACHMENT_TEXT) throw new Error(`document exceeds ${MAX_ATTACHMENT_TEXT} characters; nothing was saved`);
+  return { ...attachment, text, title: input.title?.trim() ?? attachment.title, revision: (attachment.revision ?? 0) + 1, updatedAt: now };
 }

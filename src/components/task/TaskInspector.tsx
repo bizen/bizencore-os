@@ -3,7 +3,7 @@ import { SignedIn, SignedOut } from '@clerk/clerk-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { AI_TARGETS, aiConversationLink, buildTaskHandoff, readHandoffPreferences, saveHandoffPreferences, type HandoffPreferences } from '../../lib/aiHandoff';
 import type { HandoffIntent } from '../../lib/taskWorkPrompt';
-import { MAX_ATTACHMENTS, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_TEXT, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
 import { isCloudConfigured } from '../../lib/cloudConfig';
 import { showDatePicker } from '../../lib/nativeDatePicker';
 import { QUEST_IMG, QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
@@ -11,6 +11,7 @@ import { estimateInputValue, parseEstimate } from '../../lib/taskEstimate';
 import type { Item, ItemMap, TaskKind } from '../../lib/taskModel';
 import { TaskFileInput, TaskFileLink } from './TaskFileContext';
 import { HandoffIntentControl } from './HandoffIntentControl';
+import { ContextDocument } from './ContextDocument';
 
 export interface TaskInspectorProps {
   item: Item;
@@ -241,6 +242,7 @@ export function TaskInspector(props: TaskInspectorProps) {
   const estimateRef = useRef<HTMLInputElement | null>(null);
   const [estimateDraft, setEstimateDraft] = useState<string | null>(null);
   const [contextDraft, setContextDraft] = useState('');
+  const [contextError, setContextError] = useState('');
   const contextRef = useAutoGrow();
   const attachments = liveAttachments(item.attachments);
   const isToday = item.assignedDate === todayDate;
@@ -272,7 +274,9 @@ export function TaskInspector(props: TaskInspectorProps) {
   /** 入力欄の中身を添える。添えられたら欄を空にする */
   const addContext = (value: string) => {
     if (!value.trim()) return;
-    if (onAddAttachment(item.id, { text: value })) setContextDraft('');
+    if (value.trim().length > MAX_ATTACHMENT_TEXT) { setContextError('文章は 100,000 文字以下にしてください。内容は保存されていません。'); return; }
+    if (onAddAttachment(item.id, { text: value })) { setContextDraft(''); setContextError(''); }
+    else setContextError('追加できませんでした。資料の数・合計容量、または端末の保存容量を確認してください。');
   };
 
   const movePanelFocus = (current: EventTarget | null, direction: -1 | 1) => {
@@ -404,7 +408,9 @@ export function TaskInspector(props: TaskInspectorProps) {
                   {att.kind === 'link' ? <Link2 size={14} /> : att.kind === 'file' ? <Paperclip size={14} /> : <FileText size={14} />}
                 </span>
                 <div className="context-body">
-                  {att.kind === 'link' ? (
+                  {att.kind === 'text' && att.text ? (
+                    <ContextDocument document={{ id: att.id, title: attachmentLabel(att), text: att.text, revision: att.revision }} />
+                  ) : att.kind === 'link' ? (
                     <a className="context-title" href={att.url} target="_blank" rel="noopener noreferrer">
                       {attachmentLabel(att)}
                     </a>
@@ -413,9 +419,6 @@ export function TaskInspector(props: TaskInspectorProps) {
                   ) : (
                     <span className="context-title">{attachmentLabel(att)}</span>
                   )}
-                  {att.kind === 'text' && att.text && att.text.trim() !== attachmentLabel(att) ? (
-                    <p className="context-text">{att.text}</p>
-                  ) : null}
                   {att.kind === 'link' && att.title ? <span className="context-sub">{att.url}</span> : null}
                 </div>
                 {att.by === 'ai' ? (
@@ -461,6 +464,7 @@ export function TaskInspector(props: TaskInspectorProps) {
           }}
           aria-label="コンテキストを添える"
         />
+        {contextError ? <p className="context-error" role="alert">{contextError}</p> : null}
         {isCloudConfigured ? (
           <TaskFileInput
             taskId={item.id}

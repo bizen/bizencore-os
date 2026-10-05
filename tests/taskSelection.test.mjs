@@ -56,6 +56,8 @@ test('every work entry point summarizes the task and waits for intent even with 
 test('consultation does not imply execution and refreshing the task preserves the answered intent', () => {
   assert.match(TASK_START_INSTRUCTIONS, /explicitly chose consultation or execution in their agent handoff/);
   assert.match(TASK_START_INSTRUCTIONS, /already confirmed intent/);
+  assert.match(TASK_START_INSTRUCTIONS, /use update_context with the attachment ID and latest revision/);
+  assert.match(TASK_START_INSTRUCTIONS, /Do not create duplicate documents or journals/);
   assert.match(TASK_START_INSTRUCTIONS, /retain that intent across re-reads and do not ask the same opening question again/);
   assert.match(TASK_START_INSTRUCTIONS, /If they want execution, do the actual work within the agreed scope/);
   assert.match(TASK_START_INSTRUCTIONS, /without implementing; begin implementation only after they ask or agree to start execution/);

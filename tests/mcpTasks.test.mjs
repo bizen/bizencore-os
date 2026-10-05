@@ -9,7 +9,66 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { add, addMany, complete, get, list, taskView, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { add, addMany, attach, updateContext, complete, get, list, taskView, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+
+test('MCP documents are readable and replace/append without accumulating attachments', async () => {
+  const { ctx, rows } = memoryContext();
+  const task = await add._handler(ctx, { userId: 'user-1', text: 'Plan' });
+  const input = { userId: 'user-1', taskId: task.id, title: 'Design', text: '# Design\n' + '文章'.repeat(5000) };
+  const first = await attach._handler(ctx, input);
+  assert.equal((await attach._handler(ctx, input)).id, first.id);
+  await assert.rejects(attach._handler(ctx, { ...input, text: 'Different content' }), /use update_context/);
+  assert.equal((await get._handler(ctx, { userId: 'user-1', taskId: task.id })).task.attachments[0].text, input.text);
+  assert.equal((await list._handler(ctx, { userId: 'user-1' })).tasks[0].attachments[0].revision, 0);
+  const preview = (await list._handler(ctx, { userId: 'user-1' })).tasks[0].attachments[0];
+  assert.equal(preview.text.length, 4000);
+  assert.equal(preview.text_truncated, true);
+  assert.equal(preview.text_length, input.text.length);
+  const update = { userId: 'user-1', taskId: task.id, attachmentId: first.id, text: 'Current design', mode: 'replace', expectedRevision: 0 };
+  assert.equal((await updateContext._handler(ctx, update)).revision, 1);
+  const append = { ...update, text: 'Supplement', mode: 'append', expectedRevision: 1 };
+  assert.equal((await updateContext._handler(ctx, append)).revision, 2);
+  const before = JSON.stringify(rows.syncItems);
+  await assert.rejects(updateContext._handler(ctx, append), /revision conflict/);
+  await assert.rejects(updateContext._handler(ctx, { ...append, userId: 'other' }), /task not found/);
+  await assert.rejects(updateContext._handler(ctx, { ...append, expectedRevision: 2, text: 'x'.repeat(100001) }), /exceeds/);
+  assert.equal(JSON.stringify(rows.syncItems), before);
+  const view = await get._handler(ctx, { userId: 'user-1', taskId: task.id });
+  assert.equal(view.task.attachments.length, 1);
+  assert.equal(view.task.attachments[0].id, first.id);
+  assert.equal(view.task.attachments[0].text, 'Current design\n\nSupplement');
+});
+
+test('MCP refuses missing, removed and non-document attachment updates', async () => {
+  const { ctx, rows } = memoryContext();
+  const task = await add._handler(ctx, { userId: 'user-1', text: 'Task' });
+  const link = await attach._handler(ctx, { userId: 'user-1', taskId: task.id, url: 'https://example.com', title: 'Link' });
+  const input = { userId: 'user-1', taskId: task.id, attachmentId: link.id, text: 'New', mode: 'replace', expectedRevision: 0 };
+  await assert.rejects(updateContext._handler(ctx, input), /document not found/);
+  const row = rows.syncItems[0];
+  const payload = JSON.parse(row.payload);
+  payload.attachments[0] = { ...payload.attachments[0], kind: 'text', text: 'Old', deletedAt: 5 };
+  row.payload = JSON.stringify(payload);
+  await assert.rejects(updateContext._handler(ctx, input), /document not found/);
+  await assert.rejects(attach._handler(ctx, { userId: 'user-1', taskId: task.id, text: 'x'.repeat(100001) }), /exceeds/);
+});
+
+test('progress updates reuse one status document instead of creating a journal', async () => {
+  const { ctx } = memoryContext();
+  const task = await add._handler(ctx, { userId: 'user-1', text: 'Work' });
+  const input = { userId: 'user-1', taskId: task.id, completedSubtaskIds: [], remainingSubtasks: [], progressNote: 'First step' };
+  await recordProgress._handler(ctx, input);
+  const first = (await get._handler(ctx, { userId: 'user-1', taskId: task.id })).task.attachments[0];
+  await recordProgress._handler(ctx, { ...input, progressNote: 'Second step' });
+  await recordProgress._handler(ctx, { ...input, progressNote: 'Second step' });
+  const taskView = (await get._handler(ctx, { userId: 'user-1', taskId: task.id })).task;
+  assert.equal(taskView.attachments.length, 1);
+  assert.equal(taskView.attachments[0].id, first.id);
+  assert.equal(taskView.attachments[0].title, '作業状況');
+  assert.equal(taskView.attachments[0].text, 'Second step');
+  assert.equal(taskView.attachments[0].revision, 1);
+  assert.equal(taskView.done, false);
+});
 
 test('MCP exposes lock state and rejects direct or ancestor completion before any writes', async () => {
   const { ctx, rows } = memoryContext();
