@@ -2777,6 +2777,42 @@ body {
   color: var(--text-secondary);
 }
 
+.handoff-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+}
+
+.handoff-settings-toggle {
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+
+.handoff-settings-toggle[aria-expanded='true'] { color: var(--text-primary); }
+
+.handoff-settings {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.handoff-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.handoff-summary span:last-child { display: inline-flex; align-items: center; gap: 0.3rem; }
+
 .handoff-option {
   display: grid;
   grid-template-columns: 3rem minmax(0, 1fr);

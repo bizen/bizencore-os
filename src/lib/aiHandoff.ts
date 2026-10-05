@@ -65,14 +65,50 @@ function shellQuote(text: string): string {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
+export type HandoffDestination = 'web' | 'desktop';
+
+export type HandoffPreferences = { mode: 'mcp' | 'text'; destination: HandoffDestination };
+const HANDOFF_STORAGE_KEY = 'bizencore.aiHandoff';
+
+export function readHandoffPreferences(): HandoffPreferences {
+  const defaults: HandoffPreferences = { mode: 'mcp', destination: 'web' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(HANDOFF_STORAGE_KEY) ?? 'null');
+    return {
+      mode: saved?.mode === 'text' ? 'text' : defaults.mode,
+      destination: saved?.destination === 'desktop' ? 'desktop' : defaults.destination,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+export function saveHandoffPreferences(preferences: HandoffPreferences): void {
+  try {
+    localStorage.setItem(HANDOFF_STORAGE_KEY, JSON.stringify(preferences));
+  } catch {
+    // Storage can be unavailable; the current panel's selection still works.
+  }
+}
+
 export type AiTarget =
-  | { id: string; name: string; kind: 'open'; url: (prompt: string) => string }
+  | { id: string; name: string; kind: 'open'; url: (prompt: string) => string; desktopUrl: (prompt: string) => string; desktopPromptLimit?: number }
   | { id: string; name: string; kind: 'copy'; command: (prompt: string) => string };
 
-/** Web の AI は新しい会話を開き、CLI の AI は起動コマンドをコピーする */
+export function aiConversationLink(target: Extract<AiTarget, { kind: 'open' }>, prompt: string, destination: HandoffDestination, mode: 'mcp' | 'text') {
+  if (destination === 'web') {
+    return { url: target.url(mode === 'mcp' ? prompt : ''), copyPrompt: mode === 'text' };
+  }
+  const url = target.desktopUrl(prompt);
+  // Large snapshots should stay intact in the clipboard, not be truncated by an app or OS URL handler.
+  const copyPrompt = prompt.length > (target.desktopPromptLimit ?? Infinity) || url.length > 32_000;
+  return { url: copyPrompt ? target.desktopUrl('') : url, copyPrompt };
+}
+
+/** Web / アプリは新しい会話を開き、CLI は起動コマンドをコピーする */
 export const AI_TARGETS: AiTarget[] = [
-  { id: 'claude', name: 'Claude', kind: 'open', url: (p) => `https://claude.ai/new?q=${encodeURIComponent(p)}` },
-  { id: 'chatgpt', name: 'ChatGPT', kind: 'open', url: (p) => `https://chatgpt.com/?q=${encodeURIComponent(p)}` },
+  { id: 'claude', name: 'Claude', kind: 'open', url: (p) => `https://claude.ai/new?q=${encodeURIComponent(p)}`, desktopUrl: (p) => `claude://claude.ai/new?q=${encodeURIComponent(p)}`, desktopPromptLimit: 14_000 },
+  { id: 'chatgpt', name: 'ChatGPT', kind: 'open', url: (p) => `https://chatgpt.com/?q=${encodeURIComponent(p)}`, desktopUrl: (p) => `codex://new?prompt=${encodeURIComponent(p)}` },
   { id: 'claude-code', name: 'Claude Code', kind: 'copy', command: (p) => `claude ${shellQuote(p)}` },
   { id: 'codex', name: 'Codex', kind: 'copy', command: (p) => `codex ${shellQuote(p)}` },
 ];

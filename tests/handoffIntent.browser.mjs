@@ -14,7 +14,8 @@ const { outputFiles } = await build({
     const label = { ...seed, id: 'label', type: 'section', parentId: null, text: 'OSビルド' };
     const task = { ...seed, id: 'task-a', type: 'task', parentId: 'label', text: 'ハンドオフ機能の改善', note: 'Private snapshot note' };
     const child = { ...seed, id: 'task-b', type: 'task', parentId: 'task-a', text: '子タスクの確認' };
-    const items = { label, 'task-a': task, 'task-b': child };
+    const longTask = { ...task, id: 'task-long', text: '長いメモ', note: 'Private snapshot note ' + '日本語'.repeat(5000) };
+    const items = { label, 'task-a': task, 'task-b': child, 'task-long': longTask };
     const detail = id => ({ ...items[id], completion_criteria: '選んだ意図をAIに渡せる', subtasks: id === 'task-a' ? [child] : [] });
     const client = {
       connect: async () => {},
@@ -29,7 +30,7 @@ const { outputFiles } = await build({
       const [id, setId] = useState('task-a');
       globalThis.fixtureSelectTask = setId;
       return <TaskInspector item={items[id]} items={items} initialFocus="title" todayDate="2026-10-05"
-        onClose={noop} onTextChange={noop} onNoteChange={noop} onCompletionCriteriaChange={noop}
+        onClose={() => { globalThis.fixtureCloseCount = (globalThis.fixtureCloseCount || 0) + 1; }} onTextChange={noop} onNoteChange={noop} onCompletionCriteriaChange={noop}
         onSetDeadline={noop} onToggleToday={noop} onSetLocked={noop} onSetEstimate={noop} onSetKind={noop}
         onRemove={noop} onAddAttachment={() => true} onRemoveAttachment={noop} />;
     }
@@ -57,9 +58,17 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
     localStorage.setItem('bizencore.theme', new URLSearchParams(location.search).get('theme') || 'black');
+    if (new URLSearchParams(location.search).has('resetPreferences')) localStorage.removeItem('bizencore.aiHandoff');
     globalThis.fixtureCopies = [];
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: async value => { globalThis.fixtureCopies.push(value); } } });
     window.open = url => { globalThis.fixtureLinks.push(url); return null; };
+    document.addEventListener('click', event => {
+      const link = event.target.closest('a[href]');
+      if (link && /^(claude|codex):/.test(link.href)) {
+        event.preventDefault();
+        globalThis.fixtureLinks.push(link.href);
+      }
+    });
   });
   await page.route('**/*', route => route.request().url().startsWith('https://bizencore.test/')
     ? route.fulfill({ contentType: 'text/html', body: `<style>${css}\n${pickerCss}</style><div id="root"></div><script>${outputFiles[0].text.replaceAll('</script', '<\\/script')}</script>` })
@@ -79,21 +88,40 @@ try {
     assert.ok(command.startsWith(target === 'Codex' ? 'codex ' : 'claude '));
     verifyPrompt(command, intent, mcp);
   };
+  const settings = () => page.getByRole('button', { name: 'AIハンドオフの接続設定', exact: true });
+  const openSettings = async () => {
+    if (await settings().getAttribute('aria-expanded') === 'false') await settings().click();
+  };
+  const closeSettings = async () => {
+    if (await settings().getAttribute('aria-expanded') === 'true') await settings().click();
+  };
+  const chooseConnection = async (name) => {
+    await openSettings();
+    await page.getByRole('button', { name, exact: true }).click();
+    await checkFits();
+    await closeSettings();
+  };
   const checkFits = async () => {
-    const fits = await page.getByRole('group', { name: 'AIの進め方' }).evaluate(el => {
+    const fits = await page.locator('.inspector-handoff-mode').evaluateAll(elements => elements.every(el => {
       const rect = el.getBoundingClientRect();
       return rect.x >= 0 && rect.right <= innerWidth + 1 && [...el.querySelectorAll('button')].every(button => button.scrollWidth <= button.clientWidth + 1);
-    });
+    }));
     assert.equal(fits, true);
   };
   for (const theme of ['black', 'white', 'original']) {
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 });
-      await page.goto('https://bizencore.test/web');
+      await page.goto('https://bizencore.test/web?resetPreferences');
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
       assert.equal(await page.getByRole('button', { name: '検討する', exact: true }).getAttribute('aria-pressed'), 'true');
+      assert.equal(await settings().getAttribute('aria-expanded'), 'false');
+      assert.equal(await page.getByRole('group', { name: 'AIへの渡し方' }).count(), 0);
+      assert.equal(await page.getByRole('group', { name: 'Claude・ChatGPTの開く先' }).count(), 0);
+      assert.equal(await page.locator('.inspector-handoff .inspector-hint').count(), 0);
+      assert.equal(await page.locator('.inspector-handoff .inspector-ai-btn').count(), 4);
+      assert.match(await page.getByLabel('現在のハンドオフ設定').innerText(), /MCPで引き継ぎ.*Web/s);
       for (const mcp of [true, false]) {
-        await page.getByRole('button', { name: mcp ? 'MCPで進める' : '内容だけ渡す', exact: true }).click();
+        await chooseConnection(mcp ? 'MCPで進める' : '内容だけ渡す');
         for (const intent of ['consult', 'execute']) {
           await page.getByRole('button', { name: intent === 'consult' ? '検討する' : '実行する', exact: true }).click();
           await checkFits();
@@ -111,15 +139,44 @@ try {
             verifyPrompt(await page.evaluate(() => globalThis.fixtureCopies.at(-1)), intent, false);
             assert.match(await page.evaluate(() => globalThis.fixtureLinks.at(-1)), /chatgpt\.com/);
           }
+          await chooseConnection('アプリ');
+          await checkFits();
+          for (const target of ['Claude', 'ChatGPT']) {
+            const link = page.getByRole('link', { name: target, exact: true });
+            const url = new URL(await link.getAttribute('href'));
+            assert.equal(url.protocol, target === 'Claude' ? 'claude:' : 'codex:');
+            verifyPrompt(url.searchParams.get(target === 'Claude' ? 'q' : 'prompt'), intent, mcp);
+            assert.equal(await link.getAttribute('target'), null);
+            const count = await page.evaluate(() => globalThis.fixtureLinks.length);
+            await link.click();
+            await page.waitForFunction(count => globalThis.fixtureLinks.length === count + 1, count);
+            const opened = new URL(await page.evaluate(() => globalThis.fixtureLinks.at(-1)));
+            assert.equal(opened.protocol, url.protocol);
+            assert.equal(opened.searchParams.get(target === 'Claude' ? 'q' : 'prompt'), url.searchParams.get(target === 'Claude' ? 'q' : 'prompt'));
+          }
+          await copyCommand('Codex', intent, mcp);
+          await copyCommand('Claude Code', intent, mcp);
+          await chooseConnection('Web');
         }
       }
       if (theme === 'black' && width === 390) {
-        await page.getByRole('button', { name: 'MCPで進める', exact: true }).click();
+        await chooseConnection('MCPで進める');
+        await chooseConnection('アプリ');
         await page.screenshot({ path: '/private/tmp/bizencore-handoff-web-mobile.png', fullPage: true, animations: 'disabled' });
+        await page.locator('.inspector-handoff').screenshot({ path: '/private/tmp/bizencore-handoff-compact.png', animations: 'disabled' });
+        await openSettings();
+        await page.locator('.inspector-handoff').screenshot({ path: '/private/tmp/bizencore-handoff-settings.png', animations: 'disabled' });
+        await closeSettings();
       }
+      const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('bizencore.aiHandoff')));
       await page.evaluate(() => globalThis.fixtureSelectTask('task-b'));
       await page.waitForFunction(() => document.querySelector('.inspector-title').value === '子タスクの確認');
       assert.equal(await page.getByRole('button', { name: '検討する', exact: true }).getAttribute('aria-pressed'), 'true');
+      assert.equal(await settings().getAttribute('aria-expanded'), 'false');
+      await openSettings();
+      assert.equal(await page.getByRole('button', { name: saved.destination === 'desktop' ? 'アプリ' : 'Web', exact: true }).getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.getByRole('button', { name: saved.mode === 'mcp' ? 'MCPで進める' : '内容だけ渡す', exact: true }).getAttribute('aria-pressed'), 'true');
+      await closeSettings();
 
       await page.goto('https://bizencore.test/app?theme=' + theme);
       await page.getByRole('button', { name: 'ハンドオフ機能の改善', exact: true }).waitFor();
@@ -138,8 +195,45 @@ try {
     }
   }
   await page.goto('https://bizencore.test/web?signedOut');
+  await openSettings();
   assert.equal(await page.getByRole('button', { name: 'MCPで進める', exact: true }).isDisabled(), true);
+  assert.match(await page.getByRole('status').innerText(), /サインインが必要/);
+  await closeSettings();
   await copyCommand('Codex', 'consult', false);
+  await page.evaluate(() => globalThis.fixtureSelectTask('task-long'));
+  await chooseConnection('アプリ');
+  for (const target of ['Claude', 'ChatGPT']) {
+    const link = page.getByRole('link', { name: target, exact: true });
+    assert.equal(new URL(await link.getAttribute('href')).searchParams.get(target === 'Claude' ? 'q' : 'prompt'), '');
+    const count = await page.evaluate(() => globalThis.fixtureCopies.length);
+    await link.click();
+    await page.waitForFunction(count => globalThis.fixtureCopies.length === count + 1, count);
+    const prompt = await page.evaluate(() => globalThis.fixtureCopies.at(-1));
+    assert.ok(prompt.includes('日本語'.repeat(5000)));
+    assert.match(prompt, /explicitly selected "検討する"/);
+  }
+
+  await page.goto('https://bizencore.test/web');
+  assert.equal(await settings().getAttribute('aria-expanded'), 'false');
+  await openSettings();
+  assert.equal(await page.getByRole('button', { name: 'アプリ', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.getByRole('button', { name: '内容だけ渡す', exact: true }).click();
+  await page.getByRole('button', { name: 'アプリ', exact: true }).press('Escape');
+  assert.equal(await settings().getAttribute('aria-expanded'), 'false');
+  assert.equal(await settings().evaluate(button => document.activeElement === button), true);
+  assert.equal(await page.evaluate(() => globalThis.fixtureCloseCount || 0), 0);
+  await page.getByRole('button', { name: '実行する', exact: true }).click();
+  await page.reload();
+  assert.equal(await page.getByRole('button', { name: '検討する', exact: true }).getAttribute('aria-pressed'), 'true');
+  await openSettings();
+  assert.equal(await page.getByRole('button', { name: '内容だけ渡す', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.getByRole('button', { name: 'アプリ', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.getByRole('button', { name: 'MCPで進める', exact: true }).click();
+  await page.goto('https://bizencore.test/web?signedOut');
+  assert.match(await page.getByLabel('現在のハンドオフ設定').innerText(), /内容のみ/);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('bizencore.aiHandoff')).mode), 'mcp');
+  await page.goto('https://bizencore.test/web');
+  assert.match(await page.getByLabel('現在のハンドオフ設定').innerText(), /MCPで引き継ぎ/);
 
   await page.goto('https://bizencore.test/app');
   await page.evaluate(() => { globalThis.failDetail = true; });
@@ -159,7 +253,7 @@ try {
   await page.waitForFunction(() => globalThis.fixtureSent.length === 1);
   verifyPrompt(await page.evaluate(() => globalThis.fixtureSent[0]), 'execute', true);
   assert.deepEqual(errors, []);
-  console.log('Passed: real inspector and MCP Apps picker, 3 themes at 1280/390/320, all 4 Web combinations, commands/links/copy, Apps messages, task reset, signed-out mode, failed reads/sends and retry.');
+  console.log('Passed: compact inspector and MCP Apps picker, 3 themes at 1280/390/320, all handoff combinations, settings disclosure/Escape/focus, preferences across tasks/reload/sign-in, commands/links/copy, long-prompt fallback, Apps messages, failed reads/sends and retry.');
 } finally {
   await browser.close();
 }

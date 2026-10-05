@@ -9,9 +9,86 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { buildTaskHandoff } = await import(
+const { AI_TARGETS, aiConversationLink, buildTaskHandoff, readHandoffPreferences, saveHandoffPreferences } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`
 );
+
+function mockStorage(t, storage) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, 'localStorage', previous);
+    else delete globalThis.localStorage;
+  });
+}
+
+test('handoff connection preferences persist without saving task intent or task data', t => {
+  const store = new Map();
+  mockStorage(t, { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) });
+  assert.deepEqual(readHandoffPreferences(), { mode: 'mcp', destination: 'web' });
+  saveHandoffPreferences({ mode: 'text', destination: 'desktop' });
+  assert.deepEqual(readHandoffPreferences(), { mode: 'text', destination: 'desktop' });
+  assert.deepEqual([...store.keys()], ['bizencore.aiHandoff']);
+  assert.deepEqual(JSON.parse(store.get('bizencore.aiHandoff')), { mode: 'text', destination: 'desktop' });
+});
+
+test('corrupted or obsolete preferences safely return valid defaults', t => {
+  let saved;
+  mockStorage(t, { getItem: () => saved });
+  for (saved of ['{', 'null', '42', '[]', '"text"', '{"mode":"invalid","destination":"invalid"}']) {
+    assert.deepEqual(readHandoffPreferences(), { mode: 'mcp', destination: 'web' });
+  }
+  saved = '{"mode":"text","destination":"invalid"}';
+  assert.deepEqual(readHandoffPreferences(), { mode: 'text', destination: 'web' });
+});
+
+test('unavailable preference storage does not break handoff', t => {
+  mockStorage(t, { getItem: () => { throw new Error('storage blocked'); }, setItem: () => { throw new Error('storage blocked'); } });
+  assert.deepEqual(readHandoffPreferences(), { mode: 'mcp', destination: 'web' });
+  assert.doesNotThrow(() => saveHandoffPreferences({ mode: 'text', destination: 'desktop' }));
+});
+
+for (const target of AI_TARGETS.filter(target => target.kind === 'open')) {
+  test(`${target.name} desktop link prefills the complete encoded prompt without sending`, () => {
+    const prompt = '日本語の相談\n"quotes" & ? # / + %';
+    for (const mode of ['mcp', 'text']) {
+      const link = aiConversationLink(target, prompt, 'desktop', mode);
+      const url = new URL(link.url);
+      assert.equal(url.protocol, target.id === 'claude' ? 'claude:' : 'codex:');
+      assert.equal(url.searchParams.get(target.id === 'claude' ? 'q' : 'prompt'), prompt);
+      assert.equal(url.searchParams.has('send'), false);
+      assert.equal(link.copyPrompt, false);
+    }
+  });
+
+  test(`${target.name} Web behavior stays unchanged`, () => {
+    const prompt = 'full prompt';
+    const mcp = aiConversationLink(target, prompt, 'web', 'mcp');
+    assert.equal(mcp.url, target.url(prompt));
+    assert.equal(mcp.copyPrompt, false);
+    const snapshot = aiConversationLink(target, prompt, 'web', 'text');
+    assert.equal(snapshot.url, target.url(''));
+    assert.equal(snapshot.copyPrompt, true);
+  });
+
+  test(`${target.name} oversized desktop links fall back to a full prompt copy and an empty chat`, () => {
+    const link = aiConversationLink(target, '日本語'.repeat(5000), 'desktop', 'text');
+    assert.equal(link.copyPrompt, true);
+    assert.equal(link.url, target.desktopUrl(''));
+  });
+}
+
+test('Claude prompt limit never silently truncates a snapshot', () => {
+  const target = AI_TARGETS.find(target => target.id === 'claude');
+  assert.equal(aiConversationLink(target, 'x'.repeat(14_000), 'desktop', 'text').copyPrompt, false);
+  assert.equal(aiConversationLink(target, 'x'.repeat(14_001), 'desktop', 'text').copyPrompt, true);
+});
+
+test('CLI command copies retain shell quoting', () => {
+  for (const target of AI_TARGETS.filter(target => target.kind === 'copy')) {
+    assert.equal(target.command("a'b"), `${target.id === 'codex' ? 'codex' : 'claude'} 'a'\\''b'`);
+  }
+});
 
 const task = {
   id: 'task-1', type: 'task', parentId: null, order: 0, text: 'Build the feature',

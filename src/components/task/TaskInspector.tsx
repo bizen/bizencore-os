@@ -1,7 +1,7 @@
-import { Check, Copy, ExternalLink, FileText, Link2, LockKeyhole, Paperclip, Trash2, X } from 'lucide-react';
+import { AppWindow, Check, Copy, ExternalLink, FileText, Globe, Link2, LockKeyhole, Paperclip, Settings, Trash2, X } from 'lucide-react';
 import { SignedIn, SignedOut } from '@clerk/clerk-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AI_TARGETS, buildTaskHandoff } from '../../lib/aiHandoff';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { AI_TARGETS, aiConversationLink, buildTaskHandoff, readHandoffPreferences, saveHandoffPreferences, type HandoffPreferences } from '../../lib/aiHandoff';
 import type { HandoffIntent } from '../../lib/taskWorkPrompt';
 import { MAX_ATTACHMENTS, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
 import { isCloudConfigured } from '../../lib/cloudConfig';
@@ -89,10 +89,22 @@ function focusableInInspector(panel: HTMLElement): HTMLElement[] {
 }
 
 function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap; canUseMcp: boolean }) {
-  const [mode, setMode] = useState<'mcp' | 'text'>(canUseMcp ? 'mcp' : 'text');
+  const [preferences, setPreferences] = useState(readHandoffPreferences);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsId = useId();
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mode = canUseMcp ? preferences.mode : 'text';
+  const destination = preferences.destination;
   const [intent, setIntent] = useState<HandoffIntent>('consult');
   const [copied, setCopied] = useState<string | null>(null);
   const prompt = buildTaskHandoff(item, items, mode, intent);
+
+  const changePreferences = (changes: Partial<HandoffPreferences>) => {
+    const next = { ...preferences, ...changes };
+    setPreferences(next);
+    saveHandoffPreferences(next);
+    setCopied(null);
+  };
 
   const copy = async (id: string, value: string) => {
     try {
@@ -105,52 +117,77 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
   };
 
   return (
-    <section className="inspector-section">
-      <h3 className="inspector-label">AI ハンドオフ</h3>
-      <div className="handoff-option">
-        <span className="handoff-option-label">渡し方</span>
-        <div className="inspector-handoff-mode" role="group" aria-label="AIへの渡し方">
-          <button type="button" className={mode === 'mcp' ? 'is-on' : ''} aria-pressed={mode === 'mcp'} disabled={!canUseMcp} onClick={() => { setMode('mcp'); setCopied(null); }}>MCPで進める</button>
-          <button type="button" className={mode === 'text' ? 'is-on' : ''} aria-pressed={mode === 'text'} onClick={() => { setMode('text'); setCopied(null); }}>内容だけ渡す</button>
-        </div>
+    <section className="inspector-section inspector-handoff" onKeyDown={(event) => {
+      if (settingsOpen && event.key === 'Escape' && !event.nativeEvent.isComposing) {
+        event.preventDefault();
+        event.stopPropagation();
+        setSettingsOpen(false);
+        settingsButtonRef.current?.focus();
+      }
+    }}>
+      <div className="handoff-heading">
+        <h3 className="inspector-label">AI ハンドオフ</h3>
+        <button ref={settingsButtonRef} type="button" className="icon-btn handoff-settings-toggle" aria-label="AIハンドオフの接続設定" title="接続設定" aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)}>
+          <Settings size={15} aria-hidden />
+        </button>
       </div>
+      {settingsOpen ? (
+        <div className="handoff-settings" id={settingsId} role="region" aria-label="AIハンドオフの接続設定">
+          <div className="handoff-option">
+            <span className="handoff-option-label">渡し方</span>
+            <div className="inspector-handoff-mode" role="group" aria-label="AIへの渡し方">
+              <button type="button" className={mode === 'mcp' ? 'is-on' : ''} aria-pressed={mode === 'mcp'} disabled={!canUseMcp} onClick={() => changePreferences({ mode: 'mcp' })} title={canUseMcp ? '選んだAIにも同じアカウントのbizencore MCP接続が必要です' : 'MCP連携にはサインインが必要です'}>MCPで進める</button>
+              <button type="button" className={mode === 'text' ? 'is-on' : ''} aria-pressed={mode === 'text'} onClick={() => changePreferences({ mode: 'text' })} title="現在の内容のコピーを渡す。進捗の自動反映と添付ファイルの転送はできません">内容だけ渡す</button>
+            </div>
+          </div>
+          <div className="handoff-option">
+            <span className="handoff-option-label">開く先</span>
+            <div className="inspector-handoff-mode" role="group" aria-label="Claude・ChatGPTの開く先">
+              <button type="button" className={destination === 'web' ? 'is-on' : ''} aria-pressed={destination === 'web'} onClick={() => changePreferences({ destination: 'web' })} title="Claude・ChatGPTをWebで開く"><Globe size={14} aria-hidden />Web</button>
+              <button type="button" className={destination === 'desktop' ? 'is-on' : ''} aria-pressed={destination === 'desktop'} onClick={() => changePreferences({ destination: 'desktop' })} title="Claude・ChatGPTをインストール済みのデスクトップアプリで開く"><AppWindow size={14} aria-hidden />アプリ</button>
+            </div>
+          </div>
+          {!canUseMcp ? <p className="inspector-hint" role="status">MCP連携にはサインインが必要です。</p> : null}
+        </div>
+      ) : null}
       <HandoffIntentControl intent={intent} onChange={(value) => { setIntent(value); setCopied(null); }} />
-      <p className="inspector-hint">
-        {mode === 'mcp'
-          ? '選んだAIにも同じアカウントのbizencore MCP接続が必要です。接続できれば最新情報を読み、進捗を反映できます。'
-          : canUseMcp
-            ? '指示文をコピーします。WebのAIでは開いた会話に貼り付けてください。進捗の自動反映と添付ファイルの転送はできません。'
-            : 'MCP連携にはサインインが必要です。指示文をコピーし、WebのAIでは開いた会話に貼り付けてください。進捗の自動反映と添付ファイルの転送はできません。'}
-      </p>
       <div className="inspector-ai">
-        {AI_TARGETS.map((target) =>
-          target.kind === 'open' && mode === 'mcp' ? (
-            <a
-              key={target.id}
-              className="inspector-ai-btn"
-              href={target.url(prompt)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {target.name}
-              <ExternalLink size={13} aria-hidden />
-            </a>
-          ) : target.kind === 'open' ? (
-            <button
-              key={target.id}
-              type="button"
-              className="inspector-ai-btn"
-              onClick={() => {
-                void copy(target.id, prompt);
-                window.open(target.url(''), '_blank', 'noopener,noreferrer');
-              }}
-              title="指示文をコピーして会話を開く"
-            >
-              {target.name}
-              {copied === target.id ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
-              {copied === target.id ? <span className="inspector-copied">会話に貼り付けてください</span> : null}
-            </button>
-          ) : (
+        {AI_TARGETS.map((target) => {
+          if (target.kind === 'open') {
+            const link = aiConversationLink(target, prompt, destination, mode);
+            if (destination === 'desktop' || !link.copyPrompt) return (
+              <a
+                key={target.id}
+                className="inspector-ai-btn"
+                href={link.url}
+                target={destination === 'web' ? '_blank' : undefined}
+                rel="noopener noreferrer"
+                onClick={link.copyPrompt ? () => { void copy(target.id, prompt); } : undefined}
+                title={link.copyPrompt ? '指示文を全文コピーしてアプリを開く。開いた会話に貼り付けてください' : destination === 'desktop' ? '指示文を入力した新しい会話をアプリで開く（送信はしません）' : 'Webで新しい会話を開く'}
+              >
+                {target.name}
+                {copied === target.id ? <Check size={13} aria-hidden /> : destination === 'desktop' ? <AppWindow size={13} aria-hidden /> : <ExternalLink size={13} aria-hidden />}
+                {copied === target.id ? <span className="inspector-copied">会話に貼り付けてください</span> : null}
+              </a>
+            );
+            return (
+              <button
+                key={target.id}
+                type="button"
+                className="inspector-ai-btn"
+                onClick={() => {
+                  void copy(target.id, prompt);
+                  window.open(link.url, '_blank', 'noopener,noreferrer');
+                }}
+                title="指示文をコピーして会話を開く"
+              >
+                {target.name}
+                {copied === target.id ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+                {copied === target.id ? <span className="inspector-copied">会話に貼り付けてください</span> : null}
+              </button>
+            );
+          }
+          return (
             <button
               key={target.id}
               type="button"
@@ -162,9 +199,14 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
               {copied === target.id ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
               {copied === target.id ? <span className="inspector-copied">コピーしました</span> : null}
             </button>
-          )
-        )}
+          );
+        })}
       </div>
+      <p className="handoff-summary" aria-label="現在のハンドオフ設定">
+        <span title={mode === 'mcp' ? '引き継ぎ先のAIでbizencore MCP接続が必要です' : '進捗の自動反映と添付ファイルの転送はできません'}>{mode === 'mcp' ? 'MCPで引き継ぎ' : '内容のみ'}</span>
+        <span aria-hidden>·</span>
+        <span title="Claude・ChatGPTの開く先。Claude Code・CodexはCLIコマンドをコピーします">{destination === 'desktop' ? <AppWindow size={12} aria-hidden /> : <Globe size={12} aria-hidden />}{destination === 'desktop' ? 'アプリ' : 'Web'}</span>
+      </p>
     </section>
   );
 }
