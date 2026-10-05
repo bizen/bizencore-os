@@ -43,3 +43,35 @@ test('text handoff discloses a locked persistent container rather than inviting 
   const prompt = buildTaskHandoff(locked, { [locked.id]: locked }, 'text');
   assert.match(prompt, /ロック: 完了不可/);
 });
+
+for (const mode of ['mcp', 'text']) {
+  test(`${mode} consultation handoff carries confirmed intent without authorizing implementation`, () => {
+    const prompt = buildTaskHandoff(task, { [task.id]: task }, mode, 'consult');
+    assert.match(prompt, /検討・相談/);
+    assert.match(prompt, /explicitly selected "検討する"/);
+    assert.match(prompt, /without implementing/);
+    assert.match(prompt, /only after the user later explicitly agrees/);
+    assert.match(prompt, /Do not ask whether they want consultation or execution again/);
+    assert.doesNotMatch(prompt, /Then ask one focused question|今回どう進めたいか確認/);
+    if (mode === 'mcp') {
+      assert.match(prompt, /task_id "task-1"/);
+      assert.match(prompt, /attach_context|record_task_progress/);
+      assert.doesNotMatch(prompt, /Private working note/);
+    } else {
+      assert.match(prompt, /Private working note/);
+      assert.match(prompt, /自動反映はできません/);
+      assert.doesNotMatch(prompt, /work_on_task tool with task_id/);
+    }
+  });
+
+  test(`${mode} execution handoff proceeds while retaining clarification, verification and locks`, () => {
+    const locked = { ...task, locked: true };
+    const prompt = buildTaskHandoff(locked, { [task.id]: locked }, mode, 'execute');
+    assert.match(prompt, /explicitly selected "実行する"/);
+    assert.match(prompt, /Do the actual work within the agreed scope/);
+    assert.match(prompt, /only when essential information is missing/);
+    assert.match(prompt, /Verify the outcome against the completion criteria/);
+    assert.doesNotMatch(prompt, /Then ask one focused question|今回どう進めたいか確認/);
+    assert.match(prompt, mode === 'mcp' ? /do not complete them or try to unlock them/ : /ロック: 完了不可/);
+  });
+}

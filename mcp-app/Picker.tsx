@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowUpRight, Check, ChevronRight, Filter, LoaderCircle, LockKeyhole, Minus, PanelRight, Plus, RefreshCw, Search, Settings2, X } from 'lucide-react';
 import { Brand } from '../src/components/Brand';
+import { HandoffIntentControl } from '../src/components/task/HandoffIntentControl';
+import type { HandoffIntent } from '../src/lib/taskWorkPrompt';
 import { LABEL_COLORS, childrenOf, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
 import { applyTheme, readTheme, saveTheme, type Theme } from '../src/lib/theme';
 import { boardGroups, filterDue, handoffMessage, pickerRows, taskPath, type DueFilter, type View } from './model';
@@ -91,6 +93,7 @@ export function Picker({ client }: { client: PickerClient }) {
   const [detailError, setDetailError] = useState('');
   const [busy, setBusy] = useState(true);
   const [sending, setSending] = useState(false);
+  const [intent, setIntent] = useState<HandoffIntent>('consult');
   const [status, setStatus] = useState('読み込み中…');
   const [error, setError] = useState('');
   const loadVersion = useRef(0);
@@ -154,7 +157,7 @@ export function Picker({ client }: { client: PickerClient }) {
   const estimate = detail ? detail.estimate_minutes : selectedItem?.estimate;
   const detailChildren = detail ? detail.subtasks ?? [] : selected ? childrenOf(items, selected) : [];
   const visibleLabels = labels.filter((label) => rows.active.some((row) => row.item.id === label.id));
-  const select = (id: string) => { setDetail(undefined); setDetailError(''); setSelected(id); setDetailVersion((version) => version + 1); setSearch(false); };
+  const select = (id: string) => { setIntent('consult'); setDetail(undefined); setDetailError(''); setSelected(id); setDetailVersion((version) => version + 1); setSearch(false); };
   const toggleFocus = (id: string) => {
     setFocus((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
     if (view === `label:${id}`) setView('all');
@@ -178,7 +181,7 @@ export function Picker({ client }: { client: PickerClient }) {
     if (!selected || !detail || detail.done || sending) return;
     setSending(true); setDetailError('');
     try {
-      await client.send(handoffMessage(selected));
+      await client.send(handoffMessage(selected, intent));
       setStatus('選んだタスクを会話に送りました。'); closeDetail();
     } catch (e) { setDetailError(`${e instanceof Error ? e.message : '会話へ送信できませんでした。'} タスクID: ${selected}`); }
     finally { setSending(false); }
@@ -261,7 +264,11 @@ export function Picker({ client }: { client: PickerClient }) {
       </div>)}</section> : null}
       {detailChildren.length ? <section className="inspector-section"><h3 className="inspector-label">サブタスク</h3>{detailChildren.map((item) => <button key={item.id} className="picker-subtask" onClick={() => select(item.id)}><span>{item.text}</span><ChevronRight size={14} /></button>)}</section> : null}
       {detailError ? <div className="picker-error" role="alert"><p>{detailError}</p>{!detail ? <button className="ghost-btn" onClick={() => { setDetailError(''); setDetailVersion((version) => version + 1); }}>再読み込み</button> : null}</div> : null}
-      <button className="primary-btn picker-handoff" disabled={!detail || detail.done || sending} onClick={() => void send()}>{sending || (!detail && !detailError) ? <LoaderCircle size={16} className="picker-spin" /> : <ArrowUpRight size={16} />}AIハンドオフ</button>
+      <section className="inspector-section picker-handoff-section">
+        <h3 className="inspector-label">AI ハンドオフ</h3>
+        <HandoffIntentControl intent={intent} onChange={setIntent} disabled={sending} />
+        <button className="primary-btn picker-handoff" disabled={!detail || detail.done || sending} onClick={() => void send()}>{sending || (!detail && !detailError) ? <LoaderCircle size={16} className="picker-spin" /> : <ArrowUpRight size={16} />}{intent === 'consult' ? '検討を始める' : '実行を始める'}</button>
+      </section>
     </Dialog> : null}
   </main>;
 }

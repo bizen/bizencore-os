@@ -40,6 +40,17 @@ test('handoff uses the exact ID and requires reading latest information before w
   assert.match(handoffMessage('task-id'), /Then ask one focused question/);
   assert.match(handoffMessage('task-id'), /Wait for the user's answer before implementation or task changes/);
 });
+test('picker handoff carries the selected consultation or execution intent', () => {
+  for (const intent of ['consult', 'execute']) {
+    const prompt = handoffMessage('task-id', intent);
+    assert.match(prompt, /task_id "task-id"/);
+    assert.match(prompt, /already confirmed intent/);
+    assert.match(prompt, /retain this intent across work_on_task results/);
+    assert.match(prompt, /record_task_progress/);
+    assert.doesNotMatch(prompt, /Then ask one focused question/);
+    assert.match(prompt, intent === 'consult' ? /without implementing/ : /Do the actual work within the agreed scope/);
+  }
+});
 test('deadline filtering preserves ancestors and uses the account day', () => {
   const tree = { ...items, child: { ...items.child, dueDate: '2026-10-02' }, standalone: { ...items.standalone, dueDate: '2026-10-05' } };
   const rows = pickerRows(tree, 'all', '').active;

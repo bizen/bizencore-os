@@ -2777,6 +2777,15 @@ body {
   color: var(--text-secondary);
 }
 
+.handoff-option {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.handoff-option-label { color: var(--text-secondary); font-size: 0.75rem; }
+
 .inspector-handoff-mode {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2787,6 +2796,10 @@ body {
 }
 
 .inspector-handoff-mode button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
   min-width: 0;
   padding: 0.45rem 0.3rem;
   border: 0;
@@ -2797,6 +2810,8 @@ body {
   font-size: 0.78rem;
   cursor: pointer;
 }
+
+.inspector-handoff-mode button svg { flex: none; }
 
 .inspector-handoff-mode button.is-on {
   background: rgba(var(--accent-rgb), 0.13);

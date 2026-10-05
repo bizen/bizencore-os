@@ -51,7 +51,8 @@ body { margin: 0; }
 .picker-subtask { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; text-align: left; padding: 0.6rem 0; border: 0; border-bottom: 1px solid var(--hairline); background: none; color: var(--text-primary); font: inherit; font-size: 0.85rem; cursor: pointer; }
 .picker-subtask span { min-width: 0; overflow-wrap: anywhere; }
 .picker-subtask svg { flex: none; }
-.picker-handoff { margin-top: auto; display: flex; justify-content: center; align-items: center; gap: 0.5rem; flex: none; color: var(--check-ink); }
+.picker-handoff-section { margin-top: auto; }
+.picker-handoff { display: flex; justify-content: center; align-items: center; gap: 0.5rem; flex: none; color: var(--check-ink); }
 .picker-shell button:focus-visible, .picker-shell a:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; }
 .picker-spin { animation: picker-spin 1s linear infinite; }
 @keyframes picker-spin { to { transform: rotate(360deg); } }

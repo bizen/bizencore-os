@@ -1,5 +1,5 @@
 import { flattenAll, flattenToday, rowsForLabel, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
-import { workOnTaskInstructions } from '../src/lib/taskWorkPrompt';
+import { handoffRequest, workOnTaskInstructions, type HandoffIntent } from '../src/lib/taskWorkPrompt';
 
 export type View = 'all' | 'board' | 'today' | `label:${string}`;
 export type DueFilter = 'all' | 'overdue' | 'week' | 'dated';
@@ -73,6 +73,6 @@ export function boardGroups(rows: Row[]): { label?: Item; rows: Row[] }[] {
   return groups.filter((group) => group.label || group.rows.length);
 }
 
-export function handoffMessage(id: string): string {
-  return `bizencore のタスクについて、まず最新情報を整理し、今回どう進めたいか確認してください。タスクID: ${id}\n\n${workOnTaskInstructions(id)}`;
+export function handoffMessage(id: string, intent?: HandoffIntent): string {
+  return `bizencore のタスク${handoffRequest(intent)}最新情報を読み取ってください。タスクID: ${id}\n\n${workOnTaskInstructions(id, false, intent)}`;
 }

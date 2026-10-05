@@ -2,6 +2,7 @@ import { Check, Copy, ExternalLink, FileText, Link2, LockKeyhole, Paperclip, Tra
 import { SignedIn, SignedOut } from '@clerk/clerk-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AI_TARGETS, buildTaskHandoff } from '../../lib/aiHandoff';
+import type { HandoffIntent } from '../../lib/taskWorkPrompt';
 import { MAX_ATTACHMENTS, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
 import { isCloudConfigured } from '../../lib/cloudConfig';
 import { showDatePicker } from '../../lib/nativeDatePicker';
@@ -9,6 +10,7 @@ import { QUEST_IMG, QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
 import { estimateInputValue, parseEstimate } from '../../lib/taskEstimate';
 import type { Item, ItemMap, TaskKind } from '../../lib/taskModel';
 import { TaskFileInput, TaskFileLink } from './TaskFileContext';
+import { HandoffIntentControl } from './HandoffIntentControl';
 
 export interface TaskInspectorProps {
   item: Item;
@@ -88,8 +90,9 @@ function focusableInInspector(panel: HTMLElement): HTMLElement[] {
 
 function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap; canUseMcp: boolean }) {
   const [mode, setMode] = useState<'mcp' | 'text'>(canUseMcp ? 'mcp' : 'text');
+  const [intent, setIntent] = useState<HandoffIntent>('consult');
   const [copied, setCopied] = useState<string | null>(null);
-  const prompt = buildTaskHandoff(item, items, mode);
+  const prompt = buildTaskHandoff(item, items, mode, intent);
 
   const copy = async (id: string, value: string) => {
     try {
@@ -104,10 +107,14 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
   return (
     <section className="inspector-section">
       <h3 className="inspector-label">AI ハンドオフ</h3>
-      <div className="inspector-handoff-mode" role="group" aria-label="AIへの渡し方">
-        <button type="button" className={mode === 'mcp' ? 'is-on' : ''} aria-pressed={mode === 'mcp'} disabled={!canUseMcp} onClick={() => setMode('mcp')}>MCPで進める</button>
-        <button type="button" className={mode === 'text' ? 'is-on' : ''} aria-pressed={mode === 'text'} onClick={() => setMode('text')}>内容だけ渡す</button>
+      <div className="handoff-option">
+        <span className="handoff-option-label">渡し方</span>
+        <div className="inspector-handoff-mode" role="group" aria-label="AIへの渡し方">
+          <button type="button" className={mode === 'mcp' ? 'is-on' : ''} aria-pressed={mode === 'mcp'} disabled={!canUseMcp} onClick={() => { setMode('mcp'); setCopied(null); }}>MCPで進める</button>
+          <button type="button" className={mode === 'text' ? 'is-on' : ''} aria-pressed={mode === 'text'} onClick={() => { setMode('text'); setCopied(null); }}>内容だけ渡す</button>
+        </div>
       </div>
+      <HandoffIntentControl intent={intent} onChange={(value) => { setIntent(value); setCopied(null); }} />
       <p className="inspector-hint">
         {mode === 'mcp'
           ? '選んだAIにも同じアカウントのbizencore MCP接続が必要です。接続できれば最新情報を読み、進捗を反映できます。'
@@ -509,10 +516,10 @@ export function TaskInspector(props: TaskInspectorProps) {
 
       {isCloudConfigured ? (
         <>
-          <SignedIn><TaskAiHandoff item={item} items={items} canUseMcp /></SignedIn>
-          <SignedOut><TaskAiHandoff item={item} items={items} canUseMcp={false} /></SignedOut>
+          <SignedIn><TaskAiHandoff key={item.id} item={item} items={items} canUseMcp /></SignedIn>
+          <SignedOut><TaskAiHandoff key={item.id} item={item} items={items} canUseMcp={false} /></SignedOut>
         </>
-      ) : <TaskAiHandoff item={item} items={items} canUseMcp={false} />}
+      ) : <TaskAiHandoff key={item.id} item={item} items={items} canUseMcp={false} />}
 
       <div className="inspector-foot">
         <button type="button" className="ghost-btn inspector-remove" onClick={() => onRemove(item.id)}>
