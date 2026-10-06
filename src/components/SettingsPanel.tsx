@@ -78,8 +78,8 @@ function TimeZoneSetting() {
 }
 
 const THEMES: { id: Theme; lines: string[] }[] = [
-  { id: 'original', lines: ['オリジナル'] },
   { id: 'black', lines: ['ミッドナイト', 'ブラック'] },
+  { id: 'original', lines: ['ディープ', 'ネイビー'] },
   { id: 'white', lines: ['フロスト', 'ホワイト'] },
 ];
 

@@ -46,6 +46,7 @@ try {
   });
   await page.goto('http://home-screen.test/');
   await page.locator('.splash-root').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'black', 'fresh sessions default to midnight black');
   assert.equal(await page.locator('link[rel="manifest"]').getAttribute('href'), '/manifest.webmanifest');
   assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('sizes'), '180x180');
   assert.equal(await page.locator('meta[name="apple-mobile-web-app-title"]').getAttribute('content'), 'bizencore');
@@ -95,10 +96,20 @@ try {
     assert.ok(Math.abs((icon.left + icon.right + 1) / 2 - icon.size / 2) <= 2, 'horizontally centered');
     assert.ok(Math.abs((icon.top + icon.bottom + 1) / 2 - icon.size / 2) <= 2, 'vertically centered');
   }
-  for (const [name, color] of [['フロストホワイト', '#f6f8fa'], ['オリジナル', '#121620'], ['ミッドナイトブラック', '#0a0b0c']]) {
+  for (const [name, color] of [['フロストホワイト', '#f6f8fa'], ['ディープネイビー', '#121620'], ['ミッドナイトブラック', '#0a0b0c']]) {
     await page.locator('.app-settings-btn').click();
+    assert.deepEqual(await page.getByRole('radio').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
+      ['ミッドナイトブラック', 'ディープネイビー', 'フロストホワイト']);
     await page.getByRole('radio', { name, exact: true }).click();
     assert.equal(await page.locator('meta[name="theme-color"]').getAttribute('content'), color);
+    if (name === 'ディープネイビー') {
+      for (const width of [390, 320, 1280]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert.ok(await page.locator('.theme-option-name').evaluateAll(names => names.every(el => el.scrollWidth <= el.clientWidth + 1)), 'theme names fit');
+        await page.screenshot({ path: `/private/tmp/bizencore-theme-settings-${width}.png` });
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+    }
     await page.getByRole('dialog', { name: '設定', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
   }
   await page.reload();

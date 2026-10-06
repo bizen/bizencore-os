@@ -240,7 +240,7 @@ export function Picker({ client }: { client: PickerClient }) {
     </Dialog> : null}
     {settings ? <Dialog name="設定" className="picker-settings" onClose={closeSettings}>
       <div className="inspector-head"><h2>設定</h2><button className="app-settings-btn" aria-label="設定を閉じる" onClick={closeSettings}><X size={18} /></button></div><h3 className="inspector-label">外観</h3>
-      <div className="theme-switch" role="group" aria-label="外観">{([{ id: 'original', name: 'オリジナル' }, { id: 'black', name: 'ミッドナイトブラック' }, { id: 'white', name: 'フロストホワイト' }] as const).map((option) =>
+      <div className="theme-switch" role="group" aria-label="外観">{([{ id: 'black', name: 'ミッドナイトブラック' }, { id: 'original', name: 'ディープネイビー' }, { id: 'white', name: 'フロストホワイト' }] as const).map((option) =>
         <button key={option.id} className={`theme-option${theme === option.id ? ' is-selected' : ''}`} aria-pressed={theme === option.id} onClick={() => { setTheme(option.id); saveTheme(option.id); }}><span className={`theme-swatch theme-swatch--${option.id}`} /><span className="theme-option-name">{option.name}</span></button>)}</div>
     </Dialog> : null}
     {search ? <Dialog name="タスクを検索" className="task-search-panel" onClose={closeSearch}>
