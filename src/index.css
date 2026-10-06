@@ -169,6 +169,10 @@ body {
   cursor: pointer;
 }
 
+.app-header-tools { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.app-update-btn { color: var(--accent-color); background: rgba(var(--accent-rgb), 0.12); }
+.app-update-btn:disabled { opacity: 0.5; cursor: wait; }
+
 .app-settings-btn:hover,
 .app-settings-btn:focus-visible,
 .app-settings-btn[aria-expanded="true"] {

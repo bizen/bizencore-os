@@ -11,6 +11,7 @@ import { CountPage } from './pages/CountPage';
 import { TasksPage } from './pages/TasksPage';
 import { applyTheme, readTheme, saveTheme, type Theme } from './lib/theme';
 import { Brand } from './components/Brand';
+import { AppUpdateButton } from './components/AppUpdateButton';
 
 const SPLASH_VISIBLE_MS = 1100;
 const SPLASH_FADE_MS = 450;
@@ -84,17 +85,20 @@ export default function App() {
                 count
               </NavLink>
             </nav>
-            <button
-              type="button"
-              className="app-settings-btn"
-              onClick={() => setSettingsOpen((open) => !open)}
-              aria-label="設定"
-              title="設定"
-              aria-expanded={settingsOpen}
-              aria-controls="app-settings-panel"
-            >
-              <Settings2 size={17} aria-hidden />
-            </button>
+            <div className="app-header-tools">
+              <AppUpdateButton />
+              <button
+                type="button"
+                className="app-settings-btn"
+                onClick={() => setSettingsOpen((open) => !open)}
+                aria-label="設定"
+                title="設定"
+                aria-expanded={settingsOpen}
+                aria-controls="app-settings-panel"
+              >
+                <Settings2 size={17} aria-hidden />
+              </button>
+            </div>
             {isCloudConfigured ? (
               <div className="app-header-auth">
                 <AppHeaderAuth />

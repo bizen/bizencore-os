@@ -67,6 +67,7 @@ export function TaskFileInput({ taskId, disabled, onUploaded }: FileInputProps) 
         className="ghost-btn context-upload-btn"
         onClick={() => inputRef.current?.click()}
         disabled={disabled || uploading || !isSignedIn}
+        aria-busy={uploading}
         title={!isSignedIn ? 'ファイル添付にはサインインが必要です' : 'ファイルを添付'}
       >
         {uploading ? <FileUp size={14} aria-hidden /> : <Paperclip size={14} aria-hidden />}

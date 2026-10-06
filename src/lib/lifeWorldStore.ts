@@ -68,6 +68,7 @@ export function createLifeWorldStore(storage?: Storage) {
   return {
     getSnapshot: () => state,
     getStorageKey: () => lifeStorageKey(accountId),
+    saveBeforeReload() { save(mergeLifeData(state.data, read())); return !state.saveFailed; },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     add(date: string, afterId?: string): string | undefined {
       if (!isDateString(date)) return;

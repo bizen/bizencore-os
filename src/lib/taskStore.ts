@@ -145,6 +145,19 @@ export function flushPersist() {
   if (snapshot) writeNow(snapshot);
 }
 
+/** Retry the full in-memory state even if a previous debounced write failed. */
+export function saveTasksBeforeReload(): boolean {
+  const snapshot = loadItems();
+  for (const item of Object.values(state.items)) {
+    snapshot[item.id] = snapshot[item.id] ? mergeItems(item, snapshot[item.id]) : item;
+  }
+  if (!writeNow(snapshot)) return false;
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = null;
+  pendingPersist = null;
+  return true;
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushPersist);
   window.addEventListener('beforeunload', flushPersist);

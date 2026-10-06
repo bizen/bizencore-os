@@ -15,6 +15,9 @@ export function readTheme(): Theme {
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = theme === 'white' ? 'light' : 'dark';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute(
+    'content', theme === 'white' ? '#f6f8fa' : theme === 'original' ? '#121620' : '#0a0b0c',
+  );
 }
 
 export function saveTheme(theme: Theme): void {

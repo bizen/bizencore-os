@@ -295,6 +295,7 @@ function CountPageLayout({
 
       <textarea
         className="count-textarea"
+        data-reload-storage-key={STORAGE_KEY}
         placeholder="ここに文字を入力..."
         value={text}
         onChange={onTextChange}
