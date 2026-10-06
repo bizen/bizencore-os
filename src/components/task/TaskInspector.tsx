@@ -416,9 +416,11 @@ export function TaskInspector(props: TaskInspectorProps) {
         {contextError ? <p className="context-error" role="alert">{contextError}</p> : null}
         {isCloudConfigured ? (
           <TaskFileInput
+            key={item.id}
             taskId={item.id}
             disabled={attachments.length >= MAX_ATTACHMENTS}
-            onUploaded={(input) => { onAddAttachment(item.id, input); }}
+            attachmentIds={attachments.map(attachment => attachment.id)}
+            onUploaded={(input) => onAddAttachment(item.id, input)}
           />
         ) : null}
       </section>

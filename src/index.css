@@ -3286,3 +3286,11 @@ a.context-title:hover {
   color: var(--danger-color);
   font-size: 0.75rem;
 }
+
+.context-upload-errors {
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  padding-left: 1rem;
+  overflow-wrap: anywhere;
+}

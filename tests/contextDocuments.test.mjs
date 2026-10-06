@@ -68,3 +68,21 @@ test('task store keeps unsaved documents out of state when local persistence fai
     assert.equal(taskStore.addAttachment(id, { text: 'x'.repeat(100001) }), false);
   } finally { flushPersist(); globalThis.localStorage = original; }
 });
+
+test('an uploaded attachment already received by sync is accepted even at the count limit', async () => {
+  const compiled = await build({ entryPoints: ['src/lib/taskStore.ts'], bundle: true, platform: 'node', format: 'esm', write: false });
+  const { taskStore, flushPersist } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+  const original = globalThis.localStorage;
+  try {
+    globalThis.localStorage = { setItem: () => {} };
+    const id = taskStore.insertAfter(null);
+    for (let index = 0; index < 50; index++) {
+      assert.equal(taskStore.addAttachment(id, { id: `existing-${index}`, text: `Document ${index}` }), true);
+    }
+    const before = taskStore.getState();
+    assert.equal(taskStore.addAttachment(id, { id: 'existing-49', text: 'Document 49' }), true);
+    assert.equal(taskStore.getState(), before);
+    assert.equal(taskStore.addAttachment(id, { id: 'new', text: 'No more space' }), false);
+    assert.equal(taskStore.getState(), before);
+  } finally { flushPersist(); globalThis.localStorage = original; }
+});

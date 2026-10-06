@@ -495,8 +495,8 @@ export const taskStore = {
   addAttachment(id: string, input: { id?: string; url?: string; text?: string; title?: string; storageId?: string; mimeType?: string; size?: number }): boolean {
     const current = state.items[id];
     if (!isLive(current) || current.type !== 'task') return false;
-    if (liveAttachments(current.attachments).length >= MAX_ATTACHMENTS) return false;
     if (input.id && current.attachments?.some((att) => att.id === input.id)) return true;
+    if (liveAttachments(current.attachments).length >= MAX_ATTACHMENTS) return false;
     const attachment = attachmentFrom(input, 'human', input.id ?? newId(), Date.now());
     if (!attachment) return false;
     const attachments = [...(current.attachments ?? []), attachment];
