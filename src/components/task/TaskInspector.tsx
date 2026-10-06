@@ -12,6 +12,7 @@ import type { Item, ItemMap, TaskKind } from '../../lib/taskModel';
 import { TaskFileInput, TaskFileLink } from './TaskFileContext';
 import { HandoffIntentControl } from './HandoffIntentControl';
 import { ContextDocument } from './ContextDocument';
+import { InspectorDialog } from './InspectorDialog';
 
 export interface TaskInspectorProps {
   item: Item;
@@ -80,13 +81,6 @@ function actorLabel(actor: Item['createdBy'], client?: string): string {
   if (actor === 'user') return 'by user';
   if (actor === 'ai') return `by agent${client ? ` · ${client}` : ''}`;
   return '不明';
-}
-
-const INSPECTOR_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled])';
-
-function focusableInInspector(panel: HTMLElement): HTMLElement[] {
-  return [...panel.querySelectorAll<HTMLElement>(INSPECTOR_FOCUSABLE)]
-    .filter((element) => element.getClientRects().length > 0);
 }
 
 function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap; canUseMcp: boolean }) {
@@ -238,7 +232,6 @@ export function TaskInspector(props: TaskInspectorProps) {
   const titleRef = useAutoGrow();
   const noteRef = useAutoGrow();
   const criteriaRef = useAutoGrow();
-  const panelRef = useRef<HTMLElement | null>(null);
   const estimateRef = useRef<HTMLInputElement | null>(null);
   const [estimateDraft, setEstimateDraft] = useState<string | null>(null);
   const [contextDraft, setContextDraft] = useState('');
@@ -279,52 +272,8 @@ export function TaskInspector(props: TaskInspectorProps) {
     else setContextError('追加できませんでした。資料の数・合計容量、または端末の保存容量を確認してください。');
   };
 
-  const movePanelFocus = (current: EventTarget | null, direction: -1 | 1) => {
-    const controls = panelRef.current ? focusableInInspector(panelRef.current) : [];
-    if (controls.length === 0) return;
-    const index = controls.indexOf(current as HTMLElement);
-    controls[index < 0 ? (direction === 1 ? 0 : controls.length - 1) : (index + direction + controls.length) % controls.length].focus();
-  };
-
   return (
-    <aside
-      ref={panelRef}
-      className="inspector"
-      role="dialog"
-      aria-label="タスクの詳細"
-      onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          onClose();
-          return;
-        }
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          movePanelFocus(e.target, e.shiftKey ? -1 : 1);
-          return;
-        }
-        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
-        const target = e.target;
-        if (!e.altKey && target instanceof HTMLTextAreaElement) {
-          if (target.selectionStart !== target.selectionEnd) return;
-          if (e.key === 'ArrowUp' && target.selectionStart !== 0) return;
-          if (e.key === 'ArrowDown' && target.selectionStart !== target.value.length) return;
-        } else if (!e.altKey && target instanceof HTMLInputElement && (target.type === 'date' || target.type === 'time')) {
-          return;
-        }
-        e.preventDefault();
-        movePanelFocus(target, e.key === 'ArrowUp' ? -1 : 1);
-      }}
-    >
-      <div className="inspector-head">
-        <span className="inspector-kicker">詳細</span>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="閉じる（Esc）" title="閉じる（Esc）">
-          <X size={16} />
-        </button>
-      </div>
-
+    <InspectorDialog label="タスクの詳細" onClose={onClose}>
       <div className="inspector-identity">
         <textarea
           ref={titleRef}
@@ -573,6 +522,6 @@ export function TaskInspector(props: TaskInspectorProps) {
           削除
         </button>
       </div>
-    </aside>
+    </InspectorDialog>
   );
 }

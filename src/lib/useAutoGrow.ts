@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef } from 'react';
 
 export function fitTextarea(el: HTMLTextAreaElement) {
   el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight}px`;
+  const border = el.offsetHeight - el.clientHeight;
+  el.style.height = `${el.scrollHeight + border}px`;
 }
 
 export function useAutoGrow(value: string) {

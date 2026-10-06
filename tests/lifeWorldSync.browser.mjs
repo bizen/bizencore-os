@@ -40,15 +40,22 @@ const cloud = `
 const { outputFiles } = await build({
   stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
     import { createRoot } from 'react-dom/client';
+    import { useState } from 'react';
     import { LifeWorldSyncBridge } from './src/components/LifeWorldSyncBridge';
     import { LifeWorld } from './src/components/task/LifeWorld';
+    import { LifeWorldInspector } from './src/components/task/LifeWorldInspector';
     import { identify, setOffline, remoteComplete } from 'fixture-cloud';
-    createRoot(document.getElementById('root')).render(<>
+    function Fixture() {
+      const [selection, setSelection] = useState(null);
+      const close = () => { setSelection(null); if (selection) requestAnimationFrame(selection.restoreFocus); };
+      return <>
       <div><button onClick={() => identify('fixture-a')}>Account A</button><button onClick={() => identify('fixture-b')}>Account B</button>
       <button onClick={() => identify(null)}>Sign out</button><button onClick={() => setOffline(true)}>Offline</button>
       <button onClick={() => setOffline(false)}>Online</button><button onClick={remoteComplete}>Remote check</button></div>
-      <LifeWorldSyncBridge /><LifeWorld todayDate="2026-10-05" />
-    </>);
+      <LifeWorldSyncBridge /><LifeWorld todayDate="2026-10-05" inspectedId={selection?.id ?? null} onInspect={setSelection} onDateChange={close} />
+      {selection ? <LifeWorldInspector selection={selection} todayDate="2026-10-05" onClose={close} /> : null}
+    </>; }
+    createRoot(document.getElementById('root')).render(<Fixture />);
   ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic',
   define: { 'process.env.NODE_ENV': '"production"' },
   plugins: [{ name: 'isolated-cloud', setup(b) {
@@ -75,8 +82,10 @@ try {
   await page.getByRole('textbox', { name: '生活タスクのメモ' }).fill('アカウントAのメモ');
   await page.getByRole('textbox', { name: '生活タスクのメモ' }).press('Escape');
   await synced();
+  await page.getByRole('button', { name: '生活タスクの詳細', exact: true }).click();
   await page.getByRole('button', { name: 'Account B', exact: true }).click();
   await synced(); assert.equal(await titles.count(), 0);
+  assert.equal(await page.getByRole('dialog', { name: '生活タスクの詳細', exact: true }).count(), 0, 'account switch closes prior-account details');
   await page.getByRole('button', { name: '生活世界に追加', exact: true }).click();
   await titles.first().fill('フォー'); await synced();
   await page.getByRole('button', { name: 'Account A', exact: true }).click();

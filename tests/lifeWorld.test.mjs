@@ -128,7 +128,7 @@ test('life world is Today-only and uses its own account sync rather than the ord
   const page = await readFile('src/pages/TasksPage.tsx', 'utf8');
   const bridge = await readFile('src/components/SyncBridge.tsx', 'utf8');
   const store = await readFile('src/lib/lifeWorldStore.ts', 'utf8');
-  assert.ok(page.includes("view === 'today' ? <LifeWorld todayDate={todayDate} /> : null"));
+  assert.match(page, /view === 'today' \? <LifeWorld todayDate=\{todayDate\}/);
   assert.doesNotMatch(bridge, /lifeWorldStore|LIFE_STORAGE_KEY/);
   assert.match(bridge, /LifeWorldSyncBridge/);
   assert.doesNotMatch(store, /useMutation|convex\/react|api\.sync|taskStore\./);

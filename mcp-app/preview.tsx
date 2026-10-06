@@ -10,7 +10,7 @@ const today = '2026-10-03';
 const seed = { done: false, createdAt: 1, updatedAt: 1 };
 const items: Item[] = [
   { ...seed, id: 'build', type: 'section', parentId: null, order: 0, text: 'bizencoreビルド', color: 'blue', note: '人間とAIが同じタスクリストで作業を進める。' },
-  { ...seed, id: 'os', type: 'task', parentId: 'build', order: 0, text: 'bizencore OS', note: '毎日の作業とプロジェクトをまとめる。' },
+  { ...seed, id: 'os', type: 'task', parentId: 'build', order: 0, text: 'bizencore terminal', note: '毎日の作業とプロジェクトをまとめる。' },
   { ...seed, id: 'picker', type: 'task', parentId: 'os', order: 0, text: 'work_on_task：タスクを選んでAIに実行させる', assignedDate: today, dueDate: '2026-10-05', completionCriteria: '選択から作業と途中経過の記録まで一貫して使える。' },
   { ...seed, id: 'design', type: 'task', parentId: 'picker', order: 0, text: 'MCP Apps のデザインを本体と揃える', note: 'ラベル、階層、メモをそのまま表示する。' },
   { ...seed, id: 'cli', type: 'task', parentId: 'picker', order: 1, text: 'CLI のタスク選択を検証する', done: true, completedBy: 'ai' },

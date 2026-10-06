@@ -231,7 +231,7 @@ export function Picker({ client }: { client: PickerClient }) {
         </div>
       </div> : null}
     </div></div>
-    <footer className="picker-footer"><span>{Object.values(items).filter((item) => item.type === 'task' && !item.done).length} tasks</span><a href="https://app.bizencore.com" onClick={(e) => { e.preventDefault(); openLink('https://app.bizencore.com'); }}>bizencore OS <ArrowUpRight size={12} /></a></footer>
+    <footer className="picker-footer"><span>{Object.values(items).filter((item) => item.type === 'task' && !item.done).length} tasks</span><a href="https://app.bizencore.com" onClick={(e) => { e.preventDefault(); openLink('https://app.bizencore.com'); }}>bizencore terminal <ArrowUpRight size={12} /></a></footer>
     {filters ? <Dialog name="締切で絞り込む" className="picker-settings" onClose={closeFilters}>
       <div className="inspector-head"><h2>締切</h2><button className="app-settings-btn" aria-label="絞り込みを閉じる" onClick={closeFilters}><X size={18} /></button></div>
       {([{ id: 'all', name: 'すべて' }, { id: 'overdue', name: '期限切れ' }, { id: 'week', name: '7日以内' }, { id: 'dated', name: '期限あり' }] as const).map((option) => <label key={option.id} className="picker-filter-option">

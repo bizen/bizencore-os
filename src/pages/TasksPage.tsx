@@ -4,6 +4,7 @@ import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
 import { TaskRow } from '../components/task/TaskRow';
 import { LifeWorld } from '../components/task/LifeWorld';
+import { LifeWorldInspector, type LifeInspection } from '../components/task/LifeWorldInspector';
 import { TodayRecommendations } from '../components/task/TodayRecommendations';
 import { focusFirstMeta } from '../lib/metaCursor';
 import { FOCUS_SHORTCUT_CODES, FOOTER_SHORTCUTS, focusShortcut } from '../lib/shortcuts';
@@ -221,6 +222,19 @@ export function TasksPage() {
   const [helpOpen, setHelpOpen] = useState(false);
   /** 詳細パネルで開いているタスク */
   const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate' } | null>(null);
+  const [lifeInspector, setLifeInspector] = useState<LifeInspection | null>(null);
+  const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate' }) => {
+    setLifeInspector(null);
+    setInspector(selection);
+  }, []);
+  const openLifeInspector = useCallback((selection: LifeInspection) => {
+    setInspector(null);
+    setLifeInspector(selection);
+  }, []);
+  const closeLifeInspector = useCallback(() => {
+    setLifeInspector(null);
+    if (lifeInspector) requestAnimationFrame(lifeInspector.restoreFocus);
+  }, [lifeInspector]);
   const [completedOpen, setCompletedOpen] = useState(loadShelfOpen);
   /** 完了した瞬間だけ演出を出す行。値は上から数えた順番（点灯のずらし用） */
   const [burstOrder, setBurstOrder] = useState<ReadonlyMap<string, number>>(EMPTY_BURST);
@@ -552,6 +566,7 @@ export function TasksPage() {
   );
 
   const setViewMode = useCallback((next: ViewMode) => {
+    setLifeInspector(null);
     setView(next);
     setDeadlineOpenId(null);
     setColorOpenId(null);
@@ -626,6 +641,14 @@ export function TasksPage() {
           event.preventDefault();
           searchRef.current?.focus();
           searchRef.current?.select();
+        }
+        return;
+      }
+
+      if (lifeInspector) {
+        if (event.key === 'Escape' && !event.isComposing) {
+          event.preventDefault();
+          closeLifeInspector();
         }
         return;
       }
@@ -746,6 +769,8 @@ export function TasksPage() {
     setViewMode,
     focusedLabels,
     inspector,
+    lifeInspector,
+    closeLifeInspector,
   ]);
 
   const handleTitleKeyDown = (
@@ -779,7 +804,7 @@ export function TasksPage() {
     // ---- 詳細パネル ----
     if (mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'i') {
       event.preventDefault();
-      if (item.type === 'task') setInspector({ id: item.id, focus: 'title' });
+      if (item.type === 'task') openInspector({ id: item.id, focus: 'title' });
       return;
     }
 
@@ -846,7 +871,7 @@ export function TasksPage() {
       }
       if (event.code === 'KeyE' && item.type === 'task') {
         event.preventDefault();
-        setInspector({ id: item.id, focus: 'estimate' });
+        openInspector({ id: item.id, focus: 'estimate' });
         return;
       }
       // タスクならクエスト種別、ラベルなら色を順に切り替える
@@ -947,7 +972,7 @@ export function TasksPage() {
       onTitleBlur={handleTitleBlur}
       onSetLabelColor={setLabelColor}
       onToggleLabelFocus={toggleLabelFocus}
-      onInspect={(id) => setInspector({ id, focus: 'title' })}
+      onInspect={(id) => openInspector({ id, focus: 'title' })}
     />
   );
 
@@ -1116,7 +1141,8 @@ export function TasksPage() {
         <p className="today-cleared">today は全部完了</p>
       ) : null}
 
-      {view === 'today' ? <LifeWorld todayDate={todayDate} /> : null}
+      {view === 'today' ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
+        onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} /> : null}
 
       <div className="tasks-footer">
         {view === 'today' ? <TodayRecommendations items={items} todayDate={todayDate} todayTime={todayTime} /> : null}
@@ -1302,6 +1328,9 @@ export function TasksPage() {
           onAddAttachment={taskStore.addAttachment}
           onRemoveAttachment={taskStore.removeAttachment}
         />
+      ) : null}
+      {view === 'today' && lifeInspector ? (
+        <LifeWorldInspector selection={lifeInspector} todayDate={todayDate} onClose={closeLifeInspector} />
       ) : null}
     </section>
   );

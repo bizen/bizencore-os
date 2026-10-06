@@ -1,4 +1,4 @@
-# bizencore
+# bizencore terminal
 
 タスクリストが中心のアプリ。切り替えると文字数カウントに行ける。
 

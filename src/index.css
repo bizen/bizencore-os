@@ -187,23 +187,21 @@ body {
   font-size: 0.85rem;
 }
 
-/* bizencore.com のヘッダーと同じ組み方。bizen は Geist、core は Instrument Serif のイタリック */
+/* Instrument Serif で揃え、core だけをイタリックにする。 */
 .brand {
-  font-family: 'Geist', var(--font-family);
-  font-weight: 500;
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-style: normal;
+  font-weight: 400;
   letter-spacing: 0;
-  font-size: 15px;
+  font-size: 17px;
   white-space: nowrap;
 }
 
 .brand i {
-  font-family: 'Instrument Serif', 'Times New Roman', serif;
   font-style: italic;
-  font-weight: 400;
-  font-size: 17px;
 }
 
-.brand-os {
+.brand-product {
   margin-left: 0.22em;
   font-family: 'Instrument Serif', 'Times New Roman', serif;
   font-style: normal;
@@ -1787,8 +1785,8 @@ body {
 .life-icon-btn:disabled { opacity: 0.3; cursor: default; }
 .life-world :focus-visible { outline: 1px solid var(--accent-color); outline-offset: 2px; }
 .life-row > .row-main { grid-template-columns: 22px minmax(0, 1fr) 30px; }
+.life-row .row-meta { grid-template-columns: 28px; gap: 0; }
 .life-row .check { position: relative; }
-.life-check-icon { position: absolute; color: var(--check-ink); z-index: 1; }
 .life-repeat-label { display: flex; align-items: center; gap: 4px; padding: 0 0.15rem; color: var(--text-secondary); font-size: 0.68rem; }
 .life-habit-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 3px 0 4px; }
 .life-streak { display: grid; grid-template-columns: repeat(7, 10px); gap: 6px; align-items: center; height: 16px; }
@@ -1799,12 +1797,13 @@ body {
 .life-sync-status, .life-sync-retry { display: inline-grid; place-items: center; flex: 0 0 18px; width: 18px; height: 24px; color: var(--text-secondary); }
 .life-sync-retry { border: 0; background: none; cursor: pointer; }
 .life-row .row-note { margin: 0; }
-.life-icon-btn svg.is-open { transform: rotate(180deg); }
-.life-details { margin: 0.15rem 0.35rem 0.65rem 2.35rem; padding-left: 0.7rem; border-left: 1px solid var(--border-color); }
-.life-entry-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 0.4rem; }
-.life-repeat-control { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
-.life-repeat-control select { min-height: 32px; border: 1px solid var(--border-color); border-radius: 4px; padding: 0 6px; background: var(--bg-color); color: var(--text-primary); font: inherit; font-size: 0.75rem; }
 .life-entry-actions { display: flex; gap: 2px; }
+.life-inspector-date { color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem; }
+.life-inspector-repeat { width: 100%; max-width: 10rem; min-height: 34px; background-color: var(--popover-bg); }
+.life-inspector-complete { display: inline-flex; align-items: center; justify-self: start; gap: 6px; border: 1px solid var(--border-color); border-radius: 4px; padding: 6px 10px; min-height: 34px; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+.life-inspector-complete.is-done { color: var(--done-color); border-color: var(--done-color); }
+.life-inspector-complete:disabled { opacity: 0.4; cursor: default; }
+.life-inspector-week .life-streak { height: 24px; }
 .life-add-empty { display: flex; align-items: center; gap: 8px; min-height: 38px; margin-left: 2.1rem; border: 0; padding: 0 0.3rem; background: transparent; color: var(--text-secondary); font: inherit; font-size: 0.85rem; cursor: pointer; }
 .life-add-empty:hover { color: var(--text-primary); }
 .life-return-today { border: 0; background: transparent; color: var(--text-secondary); padding: 0 4px; min-height: 32px; font: inherit; font-size: 0.72rem; cursor: pointer; }
@@ -2412,11 +2411,7 @@ body {
 }
 
 .splash-wordmark {
-  font-size: 1rem;
-  font-weight: 500;
-  letter-spacing: 0.32em;
   color: var(--text-secondary);
-  text-transform: lowercase;
   opacity: 0;
   animation: splash-fade-in 0.5s ease 0.3s forwards;
 }
@@ -2686,8 +2681,7 @@ body {
   }
 
   .splash-wordmark {
-    font-size: 0.9rem;
-    letter-spacing: 0.28em;
+    max-width: 100%;
   }
 }
 
