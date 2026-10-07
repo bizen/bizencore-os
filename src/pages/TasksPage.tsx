@@ -25,6 +25,8 @@ import {
   completionBlockedIds,
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
+import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
+import { LIFE_SECTION_ID, lifeEntriesForDate, lifeSectionIndex } from '../lib/lifeWorldModel';
 
 type ViewMode = 'all' | 'today' | 'board' | `label:${string}`;
 
@@ -204,6 +206,7 @@ function matchesQuery(item: Item, needle: string): boolean {
 
 export function TasksPage() {
   const { items } = useTaskState();
+  const { data: lifeData } = useLifeWorldState();
   const timeZone = useUserTimeZone();
   const { todayDate, todayTime } = useTodayClock(timeZone);
 
@@ -235,7 +238,9 @@ export function TasksPage() {
   }, []);
   const closeLifeInspector = useCallback(() => {
     setLifeInspector(null);
-    if (lifeInspector) requestAnimationFrame(lifeInspector.restoreFocus);
+    if (lifeInspector) requestAnimationFrame(() => {
+      if (!document.querySelector('.inspector')) lifeInspector.restoreFocus();
+    });
   }, [lifeInspector]);
   const [completedOpen, setCompletedOpen] = useState(loadShelfOpen);
   /** 完了した瞬間だけ演出を出す行。値は上から数えた順番（点灯のずらし用） */
@@ -250,6 +255,9 @@ export function TasksPage() {
   const pendingFocus = useRef<PendingFocus | null>(null);
 
   const allRows = useMemo(() => flattenAll(items), [items]);
+  const showLife = view === 'today' || (view === 'all' && lifeData.preferences?.showInAll === true);
+  if (!showLife && lifeInspector) setLifeInspector(null);
+  const allRootIds = useMemo(() => allRows.filter(row => row.depth === 0).map(row => row.item.id), [allRows]);
   const todayRows = useMemo(() => flattenToday(items, todayDate), [items, todayDate]);
   const focusedLabelId = view.startsWith('label:') ? view.slice(6) : null;
   const focusedLabels = useMemo(
@@ -279,12 +287,14 @@ export function TasksPage() {
     [view, activeRows]
   );
 
-  const indexLabels = useMemo(
-    () => view === 'all'
-      ? activeRows.filter((row) => row.depth === 0 && row.item.type === 'section')
-      : [],
-    [activeRows, view]
-  );
+  const lifeIndex = lifeSectionIndex(activeRows, lifeData.preferences?.beforeId);
+  const indexLabels = useMemo(() => {
+    if (view !== 'all') return [];
+    const withLife = [...activeRows];
+    if (showLife) withLife.splice(lifeIndex, 0, { depth: 0, item: { id: LIFE_SECTION_ID,
+      type: 'section', parentId: null, order: 0, text: '生活世界', done: false, createdAt: 0, updatedAt: 0 } });
+    return withLife.filter(row => row.depth === 0 && row.item.type === 'section');
+  }, [activeRows, view, showLife, lifeIndex]);
   const [currentLabelId, setCurrentLabelId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -357,6 +367,19 @@ export function TasksPage() {
     const needle = query.trim().toLowerCase();
     return needle ? rows.filter((row) => matchesQuery(row.item, needle)) : [];
   }, [query, rows]);
+  const lifeSearchResults = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return showLife && needle ? lifeEntriesForDate(lifeData, todayDate, view === 'all')
+      .filter(entry => `${entry.text}\n${entry.note}`.toLowerCase().includes(needle)) : [];
+  }, [query, showLife, lifeData, todayDate, view]);
+  const chooseLifeSearchResult = (id: string) => {
+    setSearchOpen(false);
+    setQuery('');
+    openLifeInspector({ id, date: todayDate, accountId: lifeWorldStore.getSnapshot().accountId,
+      initialFocus: 'title', includeAll: view === 'all', restoreFocus: () => {
+        document.querySelector<HTMLTextAreaElement>(`[data-life-id="${CSS.escape(id)}"] .row-title`)?.focus();
+      } });
+  };
 
   const closeSearch = () => {
     setSearchOpen(false);
@@ -1133,7 +1156,14 @@ export function TasksPage() {
           ))}
         </div>
       ) : (
-        <ul className="row-list">{activeRows.map(renderRow)}</ul>
+        <>
+          <ul className="row-list">{(view === 'all' && showLife ? activeRows.slice(0, lifeIndex) : activeRows).map(renderRow)}</ul>
+          {view === 'all' && showLife ? <>
+            <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null} allRootIds={allRootIds} query={query}
+              onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} />
+            <ul className="row-list">{activeRows.slice(lifeIndex).map(renderRow)}</ul>
+          </> : null}
+        </>
       )}
 
       {activeRows.length === 0 ? (
@@ -1267,7 +1297,9 @@ export function TasksPage() {
                   if (event.key === 'Enter' && searchResults[0]) {
                     event.preventDefault();
                     chooseSearchResult(searchResults[0]);
-                  } else if (event.key === 'ArrowDown' && searchResults.length > 0) {
+                  } else if (event.key === 'Enter' && lifeSearchResults[0]) {
+                    event.preventDefault(); chooseLifeSearchResult(lifeSearchResults[0].id);
+                  } else if (event.key === 'ArrowDown' && (searchResults.length > 0 || lifeSearchResults.length > 0)) {
                     event.preventDefault();
                     searchPanelRef.current?.querySelector<HTMLButtonElement>('.task-search-result')?.focus();
                   }
@@ -1280,9 +1312,9 @@ export function TasksPage() {
             </div>
             {query.trim() ? (
               <div className="task-search-matches">
-                {searchResults.length > 0 ? (
+                {searchResults.length > 0 || lifeSearchResults.length > 0 ? (
                   <>
-                    <p className="task-search-count">{searchResults.length} 件</p>
+                    <p className="task-search-count">{searchResults.length + lifeSearchResults.length} 件</p>
                     <ul className="task-search-results">
                       {searchResults.map((row) => (
                         <li key={row.item.id}>
@@ -1306,6 +1338,19 @@ export function TasksPage() {
                           </button>
                         </li>
                       ))}
+                      {lifeSearchResults.map(entry => <li key={`life:${entry.id}`}>
+                        <button type="button" className="task-search-result" onClick={() => chooseLifeSearchResult(entry.id)}
+                          onKeyDown={event => {
+                            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                            event.preventDefault();
+                            const buttons = Array.from(searchPanelRef.current?.querySelectorAll<HTMLButtonElement>('.task-search-result') ?? []);
+                            const next = buttons[buttons.indexOf(event.currentTarget) + (event.key === 'ArrowDown' ? 1 : -1)];
+                            (next ?? (event.key === 'ArrowUp' ? searchRef.current : event.currentTarget))?.focus();
+                          }}>
+                          <span className="task-search-result-title">{entry.text.trim() || '無題'}</span>
+                          <span className="task-search-result-meta">生活世界</span>
+                        </button>
+                      </li>)}
                     </ul>
                   </>
                 ) : <p className="task-search-empty">一致するタスクはありません。</p>}
@@ -1339,7 +1384,7 @@ export function TasksPage() {
           onRemoveAttachment={taskStore.removeAttachment}
         />
       ) : null}
-      {view === 'today' && lifeInspector ? (
+      {showLife && lifeInspector ? (
         <LifeWorldInspector selection={lifeInspector} todayDate={todayDate} onClose={closeLifeInspector} />
       ) : null}
     </section>

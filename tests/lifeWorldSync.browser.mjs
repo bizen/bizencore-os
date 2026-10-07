@@ -10,6 +10,7 @@ const cloud = `
   const listeners = new Set();
   let auth = { isLoaded: true, isSignedIn: true, userId: 'fixture-a' };
   const data = { 'fixture-a': emptyLifeData(), 'fixture-b': emptyLifeData() };
+  globalThis.fixtureLifeCloud = data;
   const send = () => listeners.forEach(fn => fn());
   let offline = false;
   const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -23,7 +24,8 @@ const cloud = `
     if (offline) throw new Error('fixture offline');
     if (args.accountId !== auth.userId) throw new Error('fixture unauthorized');
     data[args.accountId] = mergeLifeData(data[args.accountId], { version: 1,
-      entries: Object.fromEntries(args.entries.map(e => [e.id, e])), checks: Object.fromEntries(args.checks.map(c => [lifeCheckKey(c.entryId, c.date), c])) });
+      entries: Object.fromEntries(args.entries.map(e => [e.id, e])), checks: Object.fromEntries(args.checks.map(c => [lifeCheckKey(c.entryId, c.date), c])),
+      ...(args.preferences ? { preferences: args.preferences } : {}) });
     send();
     return { ok: true };
   }
@@ -44,14 +46,19 @@ const { outputFiles } = await build({
     import { LifeWorldSyncBridge } from './src/components/LifeWorldSyncBridge';
     import { LifeWorld } from './src/components/task/LifeWorld';
     import { LifeWorldInspector } from './src/components/task/LifeWorldInspector';
+    import { lifeWorldStore, useLifeWorldState } from './src/lib/lifeWorldStore';
     import { identify, setOffline, remoteComplete } from 'fixture-cloud';
     function Fixture() {
+      const { data } = useLifeWorldState();
       const [selection, setSelection] = useState(null);
       const close = () => { setSelection(null); if (selection) requestAnimationFrame(selection.restoreFocus); };
       return <>
       <div><button onClick={() => identify('fixture-a')}>Account A</button><button onClick={() => identify('fixture-b')}>Account B</button>
       <button onClick={() => identify(null)}>Sign out</button><button onClick={() => setOffline(true)}>Offline</button>
-      <button onClick={() => setOffline(false)}>Online</button><button onClick={remoteComplete}>Remote check</button></div>
+      <button onClick={() => setOffline(false)}>Online</button><button onClick={remoteComplete}>Remote check</button>
+      <button onClick={() => lifeWorldStore.setShowInAll(true)}>Show in All</button>
+      <button onClick={() => lifeWorldStore.moveSection(['root-a', 'root-b'], -1)}>Move label up</button>
+      <output aria-label="All visibility">{data.preferences?.showInAll ? 'shown' : 'hidden'}</output></div>
       <LifeWorldSyncBridge /><LifeWorld todayDate="2026-10-05" inspectedId={selection?.id ?? null} onInspect={setSelection} onDateChange={close} />
       {selection ? <LifeWorldInspector selection={selection} todayDate="2026-10-05" onClose={close} /> : null}
     </>; }
@@ -75,6 +82,11 @@ try {
   const titles = page.getByRole('textbox', { name: '生活タスク', exact: true });
   const synced = () => page.getByRole('status', { name: 'アカウント同期済み', exact: true }).waitFor({ timeout: 10000 });
   await synced();
+  await page.getByRole('button', { name: 'Show in All', exact: true }).click();
+  await synced();
+  assert.equal(await page.evaluate(() => globalThis.fixtureLifeCloud['fixture-a'].preferences.showInAll), true, 'preference-only changes are uploaded');
+  await page.getByRole('button', { name: 'Move label up', exact: true }).click(); await synced();
+  assert.equal(await page.evaluate(() => globalThis.fixtureLifeCloud['fixture-a'].preferences.beforeId), 'root-b');
   await page.getByRole('button', { name: '生活世界に追加', exact: true }).click();
   await titles.first().fill('散歩');
   await page.getByRole('button', { name: '生活タスクの詳細', exact: true }).click();
@@ -85,11 +97,13 @@ try {
   await page.getByRole('button', { name: '生活タスクの詳細', exact: true }).click();
   await page.getByRole('button', { name: 'Account B', exact: true }).click();
   await synced(); assert.equal(await titles.count(), 0);
+  assert.equal(await page.getByLabel('All visibility').textContent(), 'hidden');
   assert.equal(await page.getByRole('dialog', { name: '生活タスクの詳細', exact: true }).count(), 0, 'account switch closes prior-account details');
   await page.getByRole('button', { name: '生活世界に追加', exact: true }).click();
   await titles.first().fill('フォー'); await synced();
   await page.getByRole('button', { name: 'Account A', exact: true }).click();
   await synced(); assert.equal(await titles.first().inputValue(), '散歩');
+  assert.equal(await page.getByLabel('All visibility').textContent(), 'shown');
   await page.getByRole('button', { name: 'Remote check', exact: true }).click();
   await page.getByRole('button', { name: '散歩を未完了に戻す', exact: true }).waitFor();
   assert.equal(await page.locator('.life-streak-dot.is-today.is-done').count(), 1);

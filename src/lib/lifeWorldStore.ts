@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { newId } from './taskModel';
 import { isDateString } from './taskDates';
 import {
-  coerceLifeData, emptyLifeData, lifeCheckKey, lifeEntriesForDate, mergeLifeData, restampLifeEntry,
+  coerceLifeData, emptyLifeData, lifeCheckKey, lifeEntriesForDate, lifeEntryDone, mergeLifeData, restampLifeEntry,
   type LifeData, type LifeEntry, type LifeRepeat,
 } from './lifeWorldModel';
 
@@ -30,7 +30,7 @@ export function createLifeWorldStore(storage?: Storage) {
   let stamp = 0;
   const nextStamp = () => {
     stamp = [...Object.values(state.data.entries), ...Object.values(state.data.checks)]
-      .reduce((max, entry) => Math.max(max, entry.updatedAt + 1), Math.max(Date.now(), stamp + 1));
+      .reduce((max, entry) => Math.max(max, entry.updatedAt + 1), Math.max(Date.now(), stamp + 1, (state.data.preferences?.updatedAt ?? 0) + 1));
     return stamp;
   };
   const emit = () => { for (const listener of listeners) listener(); };
@@ -58,7 +58,7 @@ export function createLifeWorldStore(storage?: Storage) {
     state = { ...state, syncStatus: accountId ? 'pending' : 'local' };
     save(after);
   }
-  function edit(id: string, fields: Partial<Pick<LifeEntry, 'text' | 'note' | 'repeat'>>, key?: string) {
+  function edit(id: string, fields: Partial<Pick<LifeEntry, 'text' | 'note' | 'repeat' | 'locked'>>, key?: string) {
     change(data => {
       const entry = Object.hasOwn(data.entries, id) ? data.entries[id] : undefined;
       if (!entry || entry.deletedAt || Object.entries(fields).every(([k, v]) => entry[k as keyof LifeEntry] === v)) return data;
@@ -70,11 +70,11 @@ export function createLifeWorldStore(storage?: Storage) {
     getStorageKey: () => lifeStorageKey(accountId),
     saveBeforeReload() { save(mergeLifeData(state.data, read())); return !state.saveFailed; },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    add(date: string, afterId?: string): string | undefined {
+    add(date: string, afterId?: string, includeAll = false): string | undefined {
       if (!isDateString(date)) return;
       const id = newId();
       change(data => {
-        const rows = lifeEntriesForDate(data, date);
+        const rows = lifeEntriesForDate(data, date, includeAll);
         const index = afterId ? rows.findIndex(e => e.id === afterId) : rows.length - 1;
         const before = rows[index]?.order;
         const after = rows[index + 1]?.order;
@@ -87,16 +87,42 @@ export function createLifeWorldStore(storage?: Storage) {
     setText: (id: string, text: string) => edit(id, { text }, `text:${id}`),
     setNote: (id: string, note: string) => edit(id, { note }, `note:${id}`),
     setRepeat: (id: string, repeat: LifeRepeat) => edit(id, { repeat }),
-    toggle(id: string, date: string) {
+    setLocked(id: string, locked: boolean, date: string) {
+      const entry = state.data.entries[id];
+      if (!entry || !isDateString(date) || (locked && lifeEntryDone(state.data, entry, date))) return;
+      edit(id, { locked: locked ? true : undefined });
+    },
+    setShowInAll(showInAll: boolean) {
       change(data => {
-        if (!lifeEntriesForDate(data, date).some(e => e.id === id)) return data;
-        const key = lifeCheckKey(id, date);
-        return { ...data, checks: { ...data.checks, [key]: { entryId: id, date, done: !data.checks[key]?.done, updatedAt: nextStamp() } } };
+        if ((data.preferences?.showInAll ?? false) === showInAll) return data;
+        const now = nextStamp();
+        return { ...data, preferences: { beforeId: null, placementStamp: 0, ...data.preferences,
+          showInAll, visibilityStamp: now, updatedAt: now } };
       });
     },
-    move(id: string, date: string, direction: -1 | 1) {
+    moveSection(rootIds: string[], direction: -1 | 1) {
       change(data => {
-        const rows = lifeEntriesForDate(data, date);
+        const beforeId = data.preferences?.beforeId;
+        const current = beforeId ? rootIds.indexOf(beforeId) : rootIds.length;
+        const index = current < 0 ? rootIds.length : current;
+        const target = index + direction;
+        if (target < 0 || target > rootIds.length) return data;
+        const now = nextStamp();
+        return { ...data, preferences: { showInAll: false, visibilityStamp: 0, ...data.preferences,
+          beforeId: rootIds[target] ?? null, placementStamp: now, updatedAt: now } };
+      });
+    },
+    toggle(id: string, date: string, includeAll = false) {
+      change(data => {
+        const entry = lifeEntriesForDate(data, date, includeAll).find(e => e.id === id);
+        if (!entry || entry.locked) return data;
+        const key = lifeCheckKey(id, date);
+        return { ...data, checks: { ...data.checks, [key]: { entryId: id, date, done: !lifeEntryDone(data, entry, date), updatedAt: nextStamp() } } };
+      });
+    },
+    move(id: string, date: string, direction: -1 | 1, includeAll = false) {
+      change(data => {
+        const rows = lifeEntriesForDate(data, date, includeAll);
         const index = rows.findIndex(e => e.id === id);
         const target = index + direction;
         if (index < 0 || target < 0 || target >= rows.length) return data;
@@ -139,7 +165,18 @@ export function createLifeWorldStore(storage?: Storage) {
         checks[key] = { ...(previous.before.checks[key] ?? { ...after, done: false }), updatedAt: now };
       }
       state = { ...state, syncStatus: accountId ? 'pending' : 'local' };
-      save({ ...data, entries, checks });
+      let preferences = data.preferences;
+      if (previous.after.preferences && JSON.stringify(previous.after.preferences) !== JSON.stringify(previous.before.preferences)) {
+        const after = previous.after.preferences;
+        const before = previous.before.preferences;
+        if (preferences?.updatedAt === after.updatedAt || undoStamps.has(preferences?.updatedAt ?? -1)) {
+          const now = nextStamp();
+          undoStamps.add(now);
+          preferences = { showInAll: before?.showInAll ?? false, beforeId: before?.beforeId ?? null,
+            updatedAt: now, visibilityStamp: now, placementStamp: now };
+        }
+      }
+      save({ ...data, entries, checks, ...(preferences ? { preferences } : {}) });
     },
     setAccount(nextAccountId: string | null) {
       if (accountId === nextAccountId) return;

@@ -7,6 +7,7 @@ import { isCloudConfigured } from '../lib/cloudConfig';
 import { isTimeZone } from '../lib/taskDates';
 import type { Theme } from '../lib/theme';
 import { PartnerSettings } from './PartnerSettings';
+import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
 
 const KNOWN_MCP_CLIENTS: Record<string, string> = {
   'https://chatgpt.com/oauth/codex/client.json': 'Codex',
@@ -85,6 +86,7 @@ const THEMES: { id: Theme; lines: string[] }[] = [
 ];
 
 export function SettingsPanel({ onClose, theme, onThemeChange }: { onClose: () => void; theme: Theme; onThemeChange: (theme: Theme) => void }) {
+  const { data } = useLifeWorldState();
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -131,6 +133,14 @@ export function SettingsPanel({ onClose, theme, onThemeChange }: { onClose: () =
               </button>
             ))}
           </div>
+        </section>
+        <section className="settings-section" aria-labelledby="settings-life-title">
+          <h3 id="settings-life-title">生活世界</h3>
+          <label className="settings-life-visibility">
+            <span>Allに表示する</span>
+            <input type="checkbox" checked={data.preferences?.showInAll ?? false}
+              onChange={event => lifeWorldStore.setShowInAll(event.target.checked)} />
+          </label>
         </section>
         <section className="settings-section" aria-labelledby="settings-partner-title">
           <h3 id="settings-partner-title">パートナー</h3>

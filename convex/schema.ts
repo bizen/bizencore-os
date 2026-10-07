@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { lifeEntryFields, lifeCheckFields } from './lifeWorldFields';
+import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 
 export default defineSchema({
     partnerAccounts: defineTable({
@@ -14,6 +14,7 @@ export default defineSchema({
         .index('by_user', ['userId']).index('by_user_entry', ['userId', 'id']),
     lifeChecks: defineTable({ userId: v.string(), ...lifeCheckFields })
         .index('by_user', ['userId']).index('by_user_entry_date', ['userId', 'entryId', 'date']),
+    lifePreferences: defineTable({ userId: v.string(), ...lifePreferenceFields }).index('by_user', ['userId']),
     /**
      * タスクツリーの同期用ストア。
      * クライアント（localStorage）が正で、ここは任意サインイン時のミラー。

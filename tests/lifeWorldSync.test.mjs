@@ -14,7 +14,7 @@ function storage() {
   return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) };
 }
 function server() {
-  const rows = { lifeEntries: [], lifeChecks: [] };
+  const rows = { lifeEntries: [], lifeChecks: [], lifePreferences: [] };
   let identity = 'user-a';
   let id = 0;
   return {
@@ -122,4 +122,39 @@ test('invalid batches are rejected before writing any life entries', async () =>
     { entries: [entry], checks: [{ entryId: 'missing', date: '2026-10-01', done: true, updatedAt: 1 }] },
   ]) await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', ...invalid }));
   assert.equal(s.rows.lifeEntries.length, 0);
+});
+
+test('All visibility and label placement sync independently, round-trip and remain private to an account', async () => {
+  const s = server();
+  const a = createLifeWorldStore(storage()); a.setAccount('user-a');
+  a.setShowInAll(true); a.moveSection(['a', 'b'], -1);
+  const initial = a.getSnapshot().data.preferences;
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [], checks: [], preferences: initial });
+  const first = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.deepEqual(first.preferences, initial);
+  assert.ok(!JSON.stringify(first.preferences).includes('userId'));
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [], checks: [], preferences: {
+    ...initial, beforeId: 'a', placementStamp: initial.updatedAt + 20, updatedAt: initial.updatedAt + 20 } });
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [], checks: [], preferences: {
+    ...initial, showInAll: false, visibilityStamp: initial.updatedAt + 10, updatedAt: initial.updatedAt + 10 } });
+  const latest = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.equal(latest.preferences.beforeId, 'a'); assert.equal(latest.preferences.showInAll, false);
+  const b = createLifeWorldStore(storage()); b.setAccount('user-a'); b.mergeRemote(latest, 'user-a');
+  assert.deepEqual(lifePendingChanges(b.getSnapshot().data, latest), { entries: [], checks: [] });
+  s.identify('user-b');
+  assert.equal((await lifeWorldPull._handler(s.ctx, { accountId: 'user-b' })).preferences, undefined);
+});
+
+test('server refuses completion of a locked life task, including a same-batch lock, but accepts older historical checks', async () => {
+  const s = server();
+  const entry = { id: 'locked', text: '買い物', note: '', startDate: '2026-10-05', repeat: 'once', order: 0,
+    updatedAt: 200, locked: true, stamps: { lock: 200 } };
+  const check = { entryId: entry.id, date: '2026-10-05', done: true, updatedAt: 201 };
+  await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [entry], checks: [check] }), /locked/);
+  assert.equal(s.rows.lifeEntries.length, 0);
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [entry], checks: [{ ...check, updatedAt: 100 }] });
+  await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [], checks: [check] }), /locked/);
+  assert.equal((await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' })).entries[entry.id].locked, true);
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [{ ...entry, locked: undefined, updatedAt: 300, stamps: { lock: 300 } }], checks: [{ ...check, updatedAt: 301 }] });
+  assert.equal((await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' })).checks[lifeCheckKey(entry.id, check.date)].done, true);
 });

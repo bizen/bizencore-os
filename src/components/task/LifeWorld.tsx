@@ -1,30 +1,33 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ChevronLeft, ChevronRight, Cloud, CloudCheck, CloudOff, CloudUpload, PanelRight, Plus, RefreshCw, Repeat2, Undo2 } from 'lucide-react';
-import { LIFE_REPEAT_NAMES, lifeCheckKey, lifeEntriesForDate, lifeWeek, shiftLifeDate, type LifeEntry } from '../../lib/lifeWorldModel';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Cloud, CloudCheck, CloudOff, CloudUpload, EyeOff, LockKeyhole, PanelRight, Plus, RefreshCw, Repeat2, Undo2 } from 'lucide-react';
+import { LIFE_REPEAT_NAMES, LIFE_SECTION_ID, lifeEntryDone, lifeEntriesForDate, lifeWeek, shiftLifeDate, type LifeEntry } from '../../lib/lifeWorldModel';
 import { lifeWorldStore, useLifeWorldState } from '../../lib/lifeWorldStore';
 import { useAutoGrow } from '../../lib/useAutoGrow';
 import { LifeStreak } from './LifeStreak';
 import type { LifeInspection } from './LifeWorldInspector';
 
-function LifeRow({ entry, done, date, week, open, onOpen, register, onKeyDown }: {
+function LifeRow({ entry, done, date, week, open, onOpen, register, onKeyDown, includeAll }: {
   entry: LifeEntry; done: boolean; date: string; open: boolean;
   week: ReturnType<typeof lifeWeek>;
   onOpen: () => void;
   register: (id: string, el: HTMLTextAreaElement | null) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>, entry: LifeEntry) => void;
+  includeAll: boolean;
 }) {
   const titleRef = useAutoGrow(entry.text);
   return (
-    <li className={`row row--task row--root life-row${open ? ' is-active' : ''}${done ? ' is-done' : ''}`} data-life-id={entry.id}>
+    <li className={`row row--task row--root life-row${open ? ' is-active' : ''}${done ? ' is-done' : ''}${entry.locked ? ' row--locked' : ''}`} data-life-id={entry.id}>
       <div className="row-main">
         <div className="row-mark">
-          <button type="button" className={`check${done ? ' is-checked' : ''}`}
+          {entry.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中・詳細から解除できます">
+            <LockKeyhole size={14} aria-hidden />
+          </span> : <button type="button" className={`check${done ? ' is-checked' : ''}`}
             aria-pressed={done} aria-label={`${entry.text.trim() || '生活タスク'}を${done ? '未完了に戻す' : '完了にする'}`}
             title="⌘Enter"
-            onClick={() => lifeWorldStore.toggle(entry.id, date)}>
+            onClick={() => lifeWorldStore.toggle(entry.id, date, includeAll)}>
             <span className="check-fill" aria-hidden />
             <svg className="check-mark" viewBox="0 0 16 16" aria-hidden><path d="M3.4 8.3 L6.5 11.4 L12.6 4.7" /></svg>
-          </button>
+          </button>}
         </div>
         <div className="row-text">
           <textarea rows={1} className="row-title" value={entry.text} placeholder="今日やりたいこと"
@@ -49,11 +52,13 @@ function LifeRow({ entry, done, date, week, open, onOpen, register, onKeyDown }:
   );
 }
 
-export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange }: {
+export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, allRootIds, query = '' }: {
   todayDate: string;
   inspectedId: string | null;
   onInspect: (selection: LifeInspection) => void;
   onDateChange: () => void;
+  allRootIds?: string[];
+  query?: string;
 }) {
   const { data, canUndo, saveFailed, syncStatus } = useLifeWorldState();
   const syncLabel = { local: '端末に保存', loading: 'アカウント同期を準備中', pending: 'アカウント同期中', synced: 'アカウント同期済み', error: 'アカウント同期に失敗・再試行' }[syncStatus];
@@ -61,11 +66,14 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange }: {
     : syncStatus === 'local' ? Cloud : CloudUpload;
   // null follows the account's day, including a midnight/time-zone change.
   const [chosenDate, setChosenDate] = useState<string | null>(null);
-  const date = chosenDate && chosenDate < todayDate ? chosenDate : todayDate;
+  const date = !allRootIds && chosenDate && chosenDate < todayDate ? chosenDate : todayDate;
   const titles = useRef(new Map<string, HTMLTextAreaElement>());
   const addButton = useRef<HTMLButtonElement>(null);
   const pendingFocus = useRef<string | null>(null);
-  const rows = lifeEntriesForDate(data, date);
+  const needle = query.trim().toLowerCase();
+  const rows = lifeEntriesForDate(data, date, !!allRootIds).filter(entry => !needle || `${entry.text}\n${entry.note}`.toLowerCase().includes(needle));
+  const placement = data.preferences?.beforeId ? (allRootIds?.indexOf(data.preferences.beforeId) ?? -1) : -1;
+  const sectionIndex = placement < 0 ? (allRootIds?.length ?? 0) : placement;
 
   useLayoutEffect(() => {
     const id = pendingFocus.current;
@@ -80,10 +88,10 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange }: {
     if (el) el.focus();
     else pendingFocus.current = id;
   };
-  const add = (afterId?: string) => focus(lifeWorldStore.add(date, afterId));
+  const add = (afterId?: string) => focus(lifeWorldStore.add(date, afterId, !!allRootIds));
   const changeDate = (next: string | null) => { setChosenDate(next); onDateChange(); };
   const inspect = (id: string, initialFocus: 'title' | 'note' = 'title') => onInspect({
-    id, date, initialFocus, accountId: lifeWorldStore.getSnapshot().accountId,
+    id, date, initialFocus, includeAll: !!allRootIds, accountId: lifeWorldStore.getSnapshot().accountId,
     restoreFocus: () => {
       const target = titles.current.get(id) ?? titles.current.values().next().value ?? addButton.current;
       target?.focus();
@@ -97,11 +105,11 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange }: {
     } else if (event.key === 'Enter' && event.shiftKey && !mod && !event.altKey) {
       event.preventDefault(); inspect(entry.id, 'note');
     } else if (event.key === 'Enter' && mod) {
-      event.preventDefault(); lifeWorldStore.toggle(entry.id, date);
+      event.preventDefault(); lifeWorldStore.toggle(entry.id, date, !!allRootIds);
     } else if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
       event.preventDefault(); add(entry.id);
     } else if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-      event.preventDefault(); lifeWorldStore.move(entry.id, date, event.key === 'ArrowUp' ? -1 : 1);
+      event.preventDefault(); lifeWorldStore.move(entry.id, date, event.key === 'ArrowUp' ? -1 : 1, !!allRootIds);
     } else if (event.key === 'Escape') {
       event.preventDefault(); event.currentTarget.blur();
     } else if (!mod && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
@@ -114,7 +122,7 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange }: {
   };
 
   return (
-    <section className="life-world" aria-labelledby="life-world-heading" onKeyDown={event => {
+    <section id={`label-${LIFE_SECTION_ID}`} className={`life-world${allRootIds ? ' life-world--all' : ''}`} aria-labelledby="life-world-heading" onKeyDown={event => {
       const mod = event.metaKey || event.ctrlKey;
       if (!event.nativeEvent.isComposing && mod && !event.shiftKey && event.code === 'KeyZ') {
         event.preventDefault(); lifeWorldStore.undo();
@@ -130,21 +138,29 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange }: {
             aria-label={syncLabel} onClick={lifeWorldStore.retrySync}><RefreshCw size={13} aria-hidden /></button>
             : <span className="life-sync-status" role="status" aria-label={syncLabel} title={syncLabel}><SyncIcon size={13} aria-hidden /></span>}
         </h2>
-        <div className="life-date-nav">
+        {allRootIds ? <div className="life-section-actions">
+          <button type="button" className="life-icon-btn" aria-label="生活世界ラベルを上へ移動" title="ラベルを上へ移動"
+            disabled={sectionIndex === 0} onClick={() => lifeWorldStore.moveSection(allRootIds, -1)}><ArrowUp size={15} aria-hidden /></button>
+          <button type="button" className="life-icon-btn" aria-label="生活世界ラベルを下へ移動" title="ラベルを下へ移動"
+            disabled={sectionIndex === allRootIds.length} onClick={() => lifeWorldStore.moveSection(allRootIds, 1)}><ArrowDown size={15} aria-hidden /></button>
+          <button type="button" className="life-icon-btn" aria-label="Allで生活世界を非表示にする" title="Allで非表示"
+            onClick={() => lifeWorldStore.setShowInAll(false)}><EyeOff size={15} aria-hidden /></button>
+        </div> : <div className="life-date-nav">
           <button type="button" className="life-icon-btn" aria-label="生活世界の前日を見る" title="前日"
             onClick={() => changeDate(shiftLifeDate(date, -1))}><ChevronLeft size={15} aria-hidden /></button>
           <time dateTime={date}>{new Intl.DateTimeFormat('ja-JP', { month: '2-digit', day: '2-digit', weekday: 'short', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`))}</time>
           <button type="button" className="life-icon-btn" aria-label="生活世界の翌日を見る" title="翌日"
             disabled={date >= todayDate} onClick={() => changeDate(shiftLifeDate(date, 1))}><ChevronRight size={15} aria-hidden /></button>
           {date !== todayDate ? <button type="button" className="life-return-today" onClick={() => changeDate(null)}>今日</button> : null}
-        </div>
+        </div>}
         <button type="button" className="life-icon-btn" aria-label="生活世界の操作を元に戻す" title="元に戻す"
           disabled={!canUndo} onClick={lifeWorldStore.undo}><Undo2 size={15} aria-hidden /></button>
         <button ref={addButton} type="button" className="life-icon-btn" aria-label="生活世界に追加" title="追加" onClick={() => add()}><Plus size={18} aria-hidden /></button>
       </header>
       <ul className="row-list life-list">
         {rows.map(entry => <LifeRow key={`${date}:${entry.id}`} entry={entry} date={date} week={lifeWeek(data, entry, todayDate)}
-          done={data.checks[lifeCheckKey(entry.id, date)]?.done === true} open={inspectedId === entry.id}
+          includeAll={!!allRootIds}
+          done={lifeEntryDone(data, entry, date)} open={inspectedId === entry.id}
           onOpen={() => inspect(entry.id)}
           register={(id, el) => { if (el) titles.current.set(id, el); else titles.current.delete(id); }}
           onKeyDown={onKeyDown} />)}

@@ -14,7 +14,7 @@ function memoryStorage() {
   return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), data };
 }
 
-test('single-day wishes and habits share a list without creating daily duplicate tasks', () => {
+test('persistent wishes and habits share a list without creating daily duplicate tasks', () => {
   const storage = memoryStorage();
   const store = createLifeWorldStore(storage);
   const wish = store.add('2026-10-05');
@@ -24,7 +24,7 @@ test('single-day wishes and habits share a list without creating daily duplicate
   store.setRepeat(habit, 'daily');
   const data = store.getSnapshot().data;
   assert.deepEqual(model.lifeEntriesForDate(data, '2026-10-05').map(e => e.id), [wish, habit]);
-  assert.deepEqual(model.lifeEntriesForDate(data, '2026-10-06').map(e => e.id), [habit]);
+  assert.deepEqual(model.lifeEntriesForDate(data, '2026-10-06').map(e => e.id), [wish, habit]);
   assert.deepEqual(model.lifeEntriesForDate(data, '2026-10-04'), []);
   for (let day = 1; day <= 28; day++) model.lifeEntriesForDate(data, `2027-02-${String(day).padStart(2, '0')}`);
   assert.equal(Object.keys(data.entries).length, 2);
@@ -120,18 +120,98 @@ test('malformed storage and invalid dates do not create invalid tasks, and save 
   const id = store.add('2026-10-05');
   assert.ok(id);
   assert.equal(store.getSnapshot().saveFailed, true);
-  store.toggle(id, '2026-10-06');
+  store.toggle(id, '2026-02-30');
   assert.deepEqual(store.getSnapshot().data.checks, {});
 });
 
-test('life world is Today-only and uses its own account sync rather than the ordinary task stream', async () => {
+test('life world is opt-in for All and uses its own account sync rather than the ordinary task stream', async () => {
   const page = await readFile('src/pages/TasksPage.tsx', 'utf8');
   const bridge = await readFile('src/components/SyncBridge.tsx', 'utf8');
   const store = await readFile('src/lib/lifeWorldStore.ts', 'utf8');
   assert.match(page, /view === 'today' \? <LifeWorld todayDate=\{todayDate\}/);
+  assert.match(page, /view === 'all' && lifeData.preferences\?\.showInAll === true/);
   assert.doesNotMatch(bridge, /lifeWorldStore|LIFE_STORAGE_KEY/);
   assert.match(bridge, /LifeWorldSyncBridge/);
   assert.doesNotMatch(store, /useMutation|convex\/react|api\.sync|taskStore\./);
+});
+
+test('single tasks and their completion carry forward, including existing date-check data', () => {
+  const storage = memoryStorage();
+  const store = createLifeWorldStore(storage);
+  const id = store.add('2026-10-05');
+  store.setText(id, 'Grocery shopping');
+  store.toggle(id, '2026-10-05');
+  assert.equal(model.lifeEntryDone(store.getSnapshot().data, store.getSnapshot().data.entries[id], '2026-10-06'), true);
+  const reopened = createLifeWorldStore(storage);
+  reopened.toggle(id, '2026-10-07');
+  assert.equal(model.lifeEntryDone(reopened.getSnapshot().data, reopened.getSnapshot().data.entries[id], '2026-10-08'), false);
+  assert.equal(model.lifeEntryDone(reopened.getSnapshot().data, reopened.getSnapshot().data.entries[id], '2026-10-06'), true, 'historical completion remains');
+  assert.equal(model.lifeEntriesForDate(reopened.getSnapshot().data, '2027-01-01').length, 1);
+});
+
+test('locked life tasks have no completion, persist across days and survive reload/undo and legacy edits', () => {
+  const storage = memoryStorage();
+  const store = createLifeWorldStore(storage);
+  const id = store.add('2026-10-05');
+  store.setLocked(id, true, '2026-10-05');
+  assert.equal(store.getSnapshot().data.entries[id].locked, true);
+  store.toggle(id, '2026-10-06');
+  assert.deepEqual(store.getSnapshot().data.checks, {});
+  const reopened = createLifeWorldStore(storage);
+  assert.equal(reopened.getSnapshot().data.entries[id].locked, true);
+  reopened.setLocked(id, false, '2026-10-06');
+  reopened.undo();
+  assert.equal(reopened.getSnapshot().data.entries[id].locked, true);
+  const locked = reopened.getSnapshot().data.entries[id];
+  const legacy = { ...locked, locked: undefined, stamps: undefined, text: '別の端末からのメモ', updatedAt: locked.updatedAt + 10 };
+  const merged = model.mergeLifeEntry(locked, legacy);
+  assert.equal(merged.locked, true, 'old clients cannot clear a lock by editing another field');
+  assert.equal(merged.text, legacy.text);
+  reopened.setLocked(id, false, '2026-10-06');
+  reopened.toggle(id, '2026-10-06');
+  reopened.setLocked(id, true, '2026-10-06');
+  assert.equal(!!reopened.getSnapshot().data.entries[id].locked, false, 'completed tasks cannot be locked');
+});
+
+test('All visibility defaults off, whole-label placement and visibility merge independently and isolate accounts', () => {
+  const storage = memoryStorage();
+  const a = createLifeWorldStore(storage);
+  assert.equal(a.getSnapshot().data.preferences?.showInAll ?? false, false);
+  a.setAccount('a');
+  a.setShowInAll(true);
+  a.moveSection(['a', 'b', 'c'], -1);
+  assert.equal(a.getSnapshot().data.preferences.beforeId, 'c');
+  a.moveSection(['a', 'b', 'c'], -1);
+  assert.equal(a.getSnapshot().data.preferences.beforeId, 'b');
+  a.setShowInAll(false);
+  a.setShowInAll(true);
+  assert.equal(a.getSnapshot().data.preferences.beforeId, 'b');
+  const rows = [{ depth: 0, item: { id: 'a' } }, { depth: 1, item: { id: 'task' } }, { depth: 0, item: { id: 'b' } }];
+  assert.equal(model.lifeSectionIndex(rows, 'b'), 2);
+  assert.equal(model.lifeSectionIndex(rows, 'missing'), 3);
+  const p = a.getSnapshot().data.preferences;
+  const visibility = { ...p, showInAll: false, visibilityStamp: p.updatedAt + 10, updatedAt: p.updatedAt + 10 };
+  const placement = { ...p, beforeId: 'a', placementStamp: p.updatedAt + 20, updatedAt: p.updatedAt + 20 };
+  const merged = model.mergeLifePreferences(visibility, placement);
+  assert.equal(merged.showInAll, false);
+  assert.equal(merged.beforeId, 'a');
+  assert.deepEqual(model.mergeLifePreferences(placement, visibility), merged);
+  const reopened = createLifeWorldStore(storage); reopened.setAccount('a');
+  assert.equal(reopened.getSnapshot().data.preferences.showInAll, true);
+  reopened.setAccount('b');
+  assert.equal(reopened.getSnapshot().data.preferences, undefined);
+});
+
+test('concurrent lock/completion converges without a permanently rejected sync batch', () => {
+  const entry = { id: 'shopping', text: '買い物', note: '', startDate: '2026-10-05', repeat: 'once', order: 0,
+    updatedAt: 200, locked: true, stamps: { lock: 200 } };
+  const check = { entryId: entry.id, date: '2026-10-06', done: true, updatedAt: 201 };
+  const locked = { version: 1, entries: { [entry.id]: entry }, checks: {} };
+  const completed = { version: 1, entries: {}, checks: { [model.lifeCheckKey(entry.id, check.date)]: check } };
+  const merged = model.mergeLifeData(locked, completed);
+  assert.equal(merged.checks[model.lifeCheckKey(entry.id, check.date)].done, false);
+  assert.deepEqual(model.mergeLifeData(completed, locked), merged);
+  assert.deepEqual(model.coerceLifeData(merged), model.coerceLifeData({ ...locked, checks: completed.checks }));
 });
 
 test('seven circles end today and distinguish completed, missed and unscheduled dates', () => {

@@ -5,8 +5,8 @@ import { mergeItems } from "../src/lib/itemMerge";
 import { coerceAttachments } from "../src/lib/attachments";
 import { cleanupFiles } from "./fileCleanup";
 import { isDateString, isTimeZone } from "../src/lib/taskDates";
-import { coerceLifeData, lifeCheckKey, mergeLifeEntry } from '../src/lib/lifeWorldModel';
-import { lifeEntryFields, lifeCheckFields } from './lifeWorldFields';
+import { coerceLifeData, lifeCheckKey, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
+import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 
 export const lifeWorldPull = query({
     args: { accountId: v.string() },
@@ -17,20 +17,29 @@ export const lifeWorldPull = query({
             .withIndex('by_user', q => q.eq('userId', identity.subject)).collect();
         const checks = await ctx.db.query('lifeChecks')
             .withIndex('by_user', q => q.eq('userId', identity.subject)).collect();
+        const preferences = await ctx.db.query('lifePreferences')
+            .withIndex('by_user', q => q.eq('userId', identity.subject)).unique();
         return coerceLifeData({ version: 1,
             entries: Object.fromEntries(entries.map(entry => [entry.id, entry])),
             checks: Object.fromEntries(checks.map(check => [lifeCheckKey(check.entryId, check.date), check])),
+            preferences,
         });
     },
 });
 
 export const lifeWorldPush = mutation({
-    args: { accountId: v.string(), entries: v.array(v.object(lifeEntryFields)), checks: v.array(v.object(lifeCheckFields)) },
-    handler: async (ctx, { accountId, entries, checks }) => {
+    args: { accountId: v.string(), entries: v.array(v.object(lifeEntryFields)), checks: v.array(v.object(lifeCheckFields)),
+        preferences: v.optional(v.object(lifePreferenceFields)) },
+    handler: async (ctx, { accountId, entries, checks, preferences }) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity || identity.subject !== accountId) throw new Error('Unauthorized');
         if (entries.length > 100 || checks.length > 100) throw new Error('Life world batch exceeds limit');
         const validStamp = (stamp: number) => Number.isFinite(stamp) && stamp >= 0;
+        if (preferences && (!validStamp(preferences.updatedAt) || !validStamp(preferences.visibilityStamp) ||
+            !validStamp(preferences.placementStamp) || preferences.visibilityStamp > preferences.updatedAt ||
+            preferences.placementStamp > preferences.updatedAt || (preferences.beforeId?.length ?? 0) > 256)) {
+            throw new Error('Invalid life preferences');
+        }
         const ids = new Set<string>();
         for (const entry of entries) {
             if (!entry.id || entry.id.length > 256 || ids.has(entry.id) || !isDateString(entry.startDate) ||
@@ -43,15 +52,24 @@ export const lifeWorldPush = mutation({
             ids.add(entry.id);
         }
         const checkIds = new Set<string>();
+        const effectiveEntries = new Map<string, ReturnType<typeof mergeLifeEntry>>();
+        for (const entry of entries) {
+            const existing = await ctx.db.query('lifeEntries')
+                .withIndex('by_user_entry', q => q.eq('userId', identity.subject).eq('id', entry.id)).unique();
+            effectiveEntries.set(entry.id, existing ? mergeLifeEntry(entry, existing) : entry);
+        }
         for (const check of checks) {
             const key = lifeCheckKey(check.entryId, check.date);
             if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key)) throw new Error('Invalid life check');
             checkIds.add(key);
-            if (!ids.has(check.entryId)) {
-                const entry = await ctx.db.query('lifeEntries')
+            let entry = effectiveEntries.get(check.entryId);
+            if (!entry) {
+                const stored = await ctx.db.query('lifeEntries')
                     .withIndex('by_user_entry', q => q.eq('userId', identity.subject).eq('id', check.entryId)).unique();
-                if (!entry) throw new Error('Life entry not found');
+                if (!stored) throw new Error('Life entry not found');
+                entry = stored;
             }
+            if (entry.locked && check.done && check.updatedAt >= (entry.stamps?.lock ?? entry.updatedAt)) throw new Error('Life task is locked');
         }
         for (const entry of entries) {
             const existing = await ctx.db.query('lifeEntries')
@@ -67,6 +85,16 @@ export const lifeWorldPush = mutation({
                 (check.updatedAt === existing.updatedAt && check.done && !existing.done)) {
                 await ctx.db.patch(existing._id, check);
             }
+        }
+        if (preferences) {
+            const existing = await ctx.db.query('lifePreferences')
+                .withIndex('by_user', q => q.eq('userId', identity.subject)).unique();
+            const merged = mergeLifePreferences(existing ?? undefined, preferences)!;
+            // Whitelist fields; never copy Convex system fields into a patch.
+            const value = { showInAll: merged.showInAll, beforeId: merged.beforeId, updatedAt: merged.updatedAt,
+                visibilityStamp: merged.visibilityStamp, placementStamp: merged.placementStamp };
+            if (existing) await ctx.db.patch(existing._id, value);
+            else await ctx.db.insert('lifePreferences', { userId: identity.subject, ...value });
         }
         return { ok: true };
     },

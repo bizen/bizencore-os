@@ -27,7 +27,7 @@ export function LifeWorldSyncBridge() {
   useEffect(() => {
     if (!enabled || userId !== accountId || !remote) return;
     const dirty = lifePendingChanges(lifeWorldStore.getSnapshot().data, remote);
-    if (!dirty.entries.length && !dirty.checks.length) {
+    if (!dirty.entries.length && !dirty.checks.length && !dirty.preferences) {
       lifeWorldStore.setSyncStatus('synced', userId);
       return;
     }
@@ -41,7 +41,7 @@ export function LifeWorldSyncBridge() {
       const entries = dirty.entries.slice(0, 100);
       const included = new Set(entries.map(entry => entry.id));
       const checks = dirty.checks.filter(check => remote.entries[check.entryId] || included.has(check.entryId)).slice(0, 100);
-      void push({ accountId: userId, entries, checks }).then(() => {
+      void push({ accountId: userId, entries, checks, ...(dirty.preferences ? { preferences: dirty.preferences } : {}) }).then(() => {
         if (!cancelled) setRetryTick(tick => tick + 1);
       }).catch(() => {
         if (cancelled) return;

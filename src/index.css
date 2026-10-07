@@ -1753,6 +1753,10 @@ body {
   padding-top: 1.15rem;
   border-top: 1px solid var(--border-color);
 }
+.life-world--all { scroll-margin-top: 120px; }
+.life-section-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; }
+.settings-life-visibility { display: flex; align-items: center; justify-content: space-between; min-height: 44px; gap: 16px; color: var(--text-primary); font-size: 0.85rem; cursor: pointer; }
+.settings-life-visibility input { width: 18px; height: 18px; accent-color: var(--accent-color); cursor: pointer; }
 .life-world-heading {
   display: flex;
   align-items: center;
@@ -1769,7 +1773,7 @@ body {
   font-weight: 500;
   white-space: nowrap;
 }
-.life-world-mark { width: 3px; height: 16px; background: var(--accent-color); border-radius: 2px; }
+.life-world-mark { width: 3px; height: 16px; background: var(--text-secondary); border-radius: 2px; }
 .life-date-nav { display: flex; align-items: center; gap: 2px; }
 .life-date-nav time { font-size: 0.72rem; color: var(--text-secondary); white-space: nowrap; }
 .life-icon-btn {
@@ -1816,6 +1820,12 @@ body {
   .life-world-heading { flex-wrap: wrap; }
   .life-world-heading h2 { flex: 1; }
   .life-date-nav { order: 1; flex-basis: 100%; justify-content: flex-end; }
+}
+@media (max-width: 600px) {
+  .life-world--all .life-world-heading { flex-wrap: wrap; }
+  .life-world--all .life-world-heading h2 { flex: 1 0 calc(100% - 100px); }
+  .life-world--all .life-section-actions { order: 1; flex-basis: 100%; }
+  .life-section-actions .life-icon-btn { width: 44px; height: 44px; flex-basis: 44px; }
 }
 
 .tasks-footer {

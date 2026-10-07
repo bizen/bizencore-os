@@ -53,6 +53,8 @@ try {
   assert.equal(await world.locator('.life-details').count(), 0, 'no second inline editor');
   assert.equal(await panel.getByRole('textbox', { name: '生活タスクのタイトル' }).evaluate(el => el === document.activeElement), true);
   await panel.getByRole('textbox', { name: '生活タスクのタイトル' }).press('Tab');
+  assert.equal(await panel.getByRole('switch', { name: 'タスクロック', exact: true }).evaluate(el => el === document.activeElement), true, 'Tab reaches lock');
+  await panel.getByRole('switch', { name: 'タスクロック', exact: true }).press('Tab');
   assert.equal(await panel.getByRole('textbox', { name: '生活タスクのメモ' }).evaluate(el => el === document.activeElement), true, 'Tab navigates within details');
   await panel.getByRole('combobox', { name: '繰り返し' }).focus();
   await panel.getByRole('combobox', { name: '繰り返し' }).press('ArrowDown');
@@ -77,8 +79,8 @@ try {
   assert.equal(await world.getByRole('button', { name: 'ストレッチを未完了に戻す', exact: true }).count(), 1);
 
   await page.getByRole('button', { name: 'Fixture tomorrow', exact: true }).click();
-  assert.equal(await titles.count(), 1);
-  assert.equal(await titles.first().inputValue(), 'ストレッチ');
+  assert.equal(await titles.count(), 2);
+  assert.equal(await titles.first().inputValue(), 'フォーを食べたい');
   assert.equal(await world.getByRole('button', { name: 'ストレッチを完了にする', exact: true }).count(), 1);
   assert.equal(await world.locator('.life-streak-dot.is-today.is-done').count(), 0);
   assert.equal(await world.locator('.life-streak-dot.is-done').count(), 1);
@@ -86,7 +88,7 @@ try {
   assert.equal(await titles.count(), 2);
   assert.equal(await world.getByRole('button', { name: 'ストレッチを未完了に戻す', exact: true }).count(), 1);
   await world.getByRole('button', { name: '今日', exact: true }).click();
-  assert.equal(await titles.count(), 1);
+  assert.equal(await titles.count(), 2);
 
   await page.getByRole('button', { name: 'Fixture original day', exact: true }).click();
   await world.getByRole('button', { name: '生活タスクの詳細', exact: true }).first().click();
@@ -171,16 +173,19 @@ try {
   await panel.waitFor();
   const ordinary = page.getByRole('textbox', { name: 'タスク', exact: true }).first();
   await ordinary.press('Control+i');
+  await panel.waitFor({ state: 'hidden' });
   assert.equal(await panel.count(), 0, 'opening ordinary details closes life details');
   const ordinaryPanel = page.getByRole('dialog', { name: 'タスクの詳細', exact: true });
   await ordinaryPanel.waitFor();
   await ordinaryPanel.getByRole('textbox', { name: 'タスク', exact: true }).press('Tab');
   assert.equal(await page.getByRole('switch', { name: 'タスクロック', exact: true }).evaluate(el => el === document.activeElement), true, 'ordinary inspector navigation still works');
   await titles.first().press('Control+i');
+  await ordinaryPanel.waitFor({ state: 'hidden' });
   assert.equal(await ordinaryPanel.count(), 0, 'opening life details closes ordinary details');
   await panel.getByRole('textbox', { name: '生活タスクのタイトル' }).press('Escape');
   await titles.first().press('Shift+Enter');
   await panel.waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '生活タスクのメモ');
   assert.equal(await panel.getByRole('textbox', { name: '生活タスクのメモ' }).evaluate(el => el === document.activeElement), true, 'Shift+Enter opens note in the shared inspector');
   await panel.getByRole('textbox', { name: '生活タスクのメモ' }).press('Escape');
   await page.getByRole('tab', { name: 'all', exact: true }).click();
@@ -190,5 +195,5 @@ try {
   await page.getByRole('tab', { name: 'board', exact: true }).click();
   assert.equal(await world.count(), 0);
   assert.deepEqual(errors, []);
-  console.log('Passed: Today-only integration, wishes/habits/notes, per-day checks, reload, midnight, date navigation, order/delete/undo, IME, shared inspector navigation/focus/mutual exclusion, full titles, 3 themes at desktop/390/320px; no external network.');
+  console.log('Passed: persistent wishes, habits/notes, per-day checks, reload, midnight, date navigation, order/delete/undo, IME, shared inspector navigation/focus/mutual exclusion, full titles, 3 themes at desktop/390/320px; no external network.');
 } finally { await browser.close(); }
