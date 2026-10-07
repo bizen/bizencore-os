@@ -3,6 +3,13 @@ import { v } from "convex/values";
 import { lifeEntryFields, lifeCheckFields } from './lifeWorldFields';
 
 export default defineSchema({
+    partnerAccounts: defineTable({
+        userId: v.string(), name: v.string(), partnerId: v.optional(v.string()),
+        sharedLabelIds: v.array(v.string()),
+    }).index('by_user', ['userId']),
+    partnerInvites: defineTable({
+        ownerId: v.string(), code: v.string(), expiresAt: v.number(),
+    }).index('by_owner', ['ownerId']).index('by_code', ['code']),
     lifeEntries: defineTable({ userId: v.string(), ...lifeEntryFields })
         .index('by_user', ['userId']).index('by_user_entry', ['userId', 'id']),
     lifeChecks: defineTable({ userId: v.string(), ...lifeCheckFields })

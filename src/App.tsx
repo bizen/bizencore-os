@@ -12,6 +12,7 @@ import { TasksPage } from './pages/TasksPage';
 import { applyTheme, readTheme, saveTheme, type Theme } from './lib/theme';
 import { Brand } from './components/Brand';
 import { AppUpdateButton } from './components/AppUpdateButton';
+import { initialPartnerInvite } from './lib/partnerModel';
 
 const SPLASH_VISIBLE_MS = 1100;
 const SPLASH_FADE_MS = 450;
@@ -35,7 +36,7 @@ function usePageSwitchShortcut() {
 
 export default function App() {
   const [splashState, setSplashState] = useState<'visible' | 'fading' | 'gone'>('visible');
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(() => Boolean(initialPartnerInvite()));
   const [theme, setTheme] = useState<Theme>(readTheme);
   usePageSwitchShortcut();
 

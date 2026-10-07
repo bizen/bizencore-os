@@ -6,6 +6,7 @@ import { TaskRow } from '../components/task/TaskRow';
 import { LifeWorld } from '../components/task/LifeWorld';
 import { LifeWorldInspector, type LifeInspection } from '../components/task/LifeWorldInspector';
 import { TodayRecommendations } from '../components/task/TodayRecommendations';
+import { PartnerWorkspace } from '../components/PartnerWorkspace';
 import { focusFirstMeta } from '../lib/metaCursor';
 import { FOCUS_SHORTCUT_CODES, FOOTER_SHORTCUTS, focusShortcut } from '../lib/shortcuts';
 import { formatEstimate } from '../lib/taskEstimate';
@@ -215,6 +216,7 @@ export function TasksPage() {
   ) ? 'all' : selectedView;
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [partnerSide, setPartnerSide] = useState<'self' | 'partner'>('self');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
   const [deadlineOpenId, setDeadlineOpenId] = useState<string | null>(null);
@@ -631,7 +633,12 @@ export function TasksPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      if (document.getElementById('app-settings-panel')) return;
       const mod = event.metaKey || event.ctrlKey;
+      const navigationCommand = (event.altKey && /^Digit[1-9]$/.test(event.code)) || (mod && (event.code === 'KeyF' || event.code === 'Slash'));
+      if (event.target instanceof Element && event.target.closest('[data-partner-surface]') && !navigationCommand) return;
+      if (window.matchMedia('(max-width: 1100px)').matches && document.querySelector('.partner-workspace[data-partner-view="partner"]') &&
+          !navigationCommand) return;
 
       if (searchOpen) {
         if (event.key === 'Escape' && !event.isComposing) {
@@ -745,6 +752,7 @@ export function TasksPage() {
       }
       if (mod && event.code === 'KeyF') {
         event.preventDefault();
+        setPartnerSide('self');
         setSearchOpen(true);
         return;
       }
@@ -1041,7 +1049,7 @@ export function TasksPage() {
           ref={searchButtonRef}
           type="button"
           className="ghost-btn tasks-search-btn"
-          onClick={() => setSearchOpen(true)}
+          onClick={() => { setPartnerSide('self'); setSearchOpen(true); }}
           title="検索（⌘F）"
           aria-label="検索"
           aria-haspopup="dialog"
@@ -1059,6 +1067,7 @@ export function TasksPage() {
           ?
         </button>
       </div>
+      <PartnerWorkspace enabled={view === 'all'} side={partnerSide} onSideChange={setPartnerSide}>
       <div className={`tasks-layout${indexLabels.length > 0 ? ' has-index' : ''}`}>
         {indexLabels.length > 0 ? (
           <nav className="label-index" aria-label="ラベルの目次">
@@ -1220,6 +1229,7 @@ export function TasksPage() {
       ) : null}
         </div>
       </div>
+      </PartnerWorkspace>
 
       {helpOpen ? <KeyboardHelp onClose={() => setHelpOpen(false)} /> : null}
 

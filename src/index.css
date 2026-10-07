@@ -3294,3 +3294,50 @@ a.context-title:hover {
   padding-left: 1rem;
   overflow-wrap: anywhere;
 }
+
+/* Partner content is a separate read-only column, never an editable task row. */
+.page:has(.partner-workspace.is-connected) { max-width: 1440px; }
+.partner-workspace { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; align-items: start; }
+.partner-self, .partner-list { min-width: 0; }
+.partner-self .tasks-layout.has-index { grid-template-columns: 108px minmax(0, 1fr); gap: 0.75rem; }
+.partner-self .label-index { transform: none; }
+.partner-list { border-left: 1px solid var(--hairline); padding-left: 2rem; }
+.partner-column-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; padding-bottom: 0.7rem; border-bottom: 1px solid var(--hairline); font-size: 0.8rem; font-weight: 500; overflow-wrap: anywhere; }
+.partner-readonly { flex: none; color: var(--text-secondary); font-size: 0.65rem; font-weight: 400; }
+.partner-title { display: block; min-height: 1.5em; height: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.partner-check { cursor: default; }
+.partner-check-mark { position: relative; z-index: 1; color: var(--check-ink); }
+.partner-deadline { display: block; color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.7rem; margin-top: 0.15rem; }
+.partner-side-switch { display: none; }
+.partner-settings { display: flex; flex-direction: column; gap: 0.65rem; }
+.partner-settings .ghost-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; }
+.partner-connection, .partner-accept { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; overflow-wrap: anywhere; }
+.partner-connection strong { min-width: 0; font-size: 0.85rem; }
+.partner-labels { list-style: none; }
+.partner-labels label { display: flex; align-items: center; gap: 0.6rem; min-height: 2.75rem; padding: 0.45rem 0; cursor: pointer; }
+.partner-labels label span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.partner-labels input { width: 16px; height: 16px; flex: none; accent-color: var(--accent-color); }
+.partner-invite-link { display: flex; align-items: center; gap: 0.4rem; }
+.partner-invite-link input { width: 100%; min-width: 0; padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 5px; background: var(--input-bg); color: var(--text-primary); font: inherit; font-size: 0.75rem; }
+.partner-invite-link button { flex: none; }
+.partner-join { padding-top: 0.75rem; border-top: 1px solid var(--hairline); }
+.partner-accept { margin-top: 0.65rem; font-size: 0.8rem; }
+.partner-accept span { min-width: 0; }
+@media (max-width: 1100px) {
+  .partner-workspace { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .partner-self .tasks-layout.has-index { display: flex; flex-direction: column; gap: 0.9rem; }
+  .partner-self .label-index { position: static; width: 100%; max-height: none; }
+  .partner-self .label-index-list { flex-direction: row; overflow-x: auto; }
+  .partner-self .label-index-list li { flex: none; max-width: 45%; }
+  .partner-self > .partner-column-heading { display: none; }
+  .partner-list { padding-left: 0; border-left: 0; }
+  .partner-side-switch { display: flex; gap: 0.2rem; }
+  .partner-side-switch button { display: inline-flex; align-items: center; gap: 0.35rem; min-height: 2.75rem; padding: 0.35rem 0.7rem; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .partner-side-switch button[aria-selected='true'] { border-color: var(--border-color); color: var(--text-primary); background: var(--card-bg); }
+  .partner-workspace[data-partner-view='self'] .partner-list,
+  .partner-workspace[data-partner-view='partner'] .partner-self { display: none; }
+}
+@media (max-width: 600px) {
+  .partner-invite-link input { min-height: 44px; font-size: 16px; }
+  .partner-invite-link .icon-btn { width: 44px; height: 44px; }
+}
