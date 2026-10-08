@@ -9,9 +9,12 @@ import type { Theme } from '../lib/theme';
 import { PartnerSettings } from './PartnerSettings';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
 
-const KNOWN_MCP_CLIENTS: Record<string, string> = {
-  'https://chatgpt.com/oauth/codex/client.json': 'Codex',
-};
+const KNOWN_MCP_CLIENTS = new Map([
+  ['https://chatgpt.com/oauth/codex/client.json', 'Codex'],
+  ['https://chatgpt.com/oauth/client.json', 'ChatGPT'],
+  ['https://claude.ai/oauth/mcp-oauth-client-metadata', 'Claude'],
+  ['https://claude.ai/oauth/claude-code-client-metadata', 'Claude Code'],
+]);
 
 function McpConnectionHistory() {
   const connections = useQuery(api.sync.listMcpConnections);
@@ -24,17 +27,21 @@ function McpConnectionHistory() {
 
   return (
     <ul className="settings-connections">
-      {connections.map(({ clientId, clientName, lastUsedAt }) => (
-        <li key={clientId} className="settings-connection">
-          <div className="settings-connection-main">
-            <strong>{clientName || KNOWN_MCP_CLIENTS[clientId] || clientId}</strong>
-            <time dateTime={new Date(lastUsedAt).toISOString()}>
-              最終利用 {new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUsedAt)}
-            </time>
-          </div>
-          {clientName || KNOWN_MCP_CLIENTS[clientId] ? <code>{clientId}</code> : null}
-        </li>
-      ))}
+      {connections.map(({ clientId, clientName, lastUsedAt }) => {
+        const name = clientName?.trim();
+        const displayName = (name && name !== clientId ? name : undefined) || KNOWN_MCP_CLIENTS.get(clientId);
+        return (
+          <li key={clientId} className="settings-connection">
+            <div className="settings-connection-main">
+              <strong>{displayName || clientId}</strong>
+              <time dateTime={new Date(lastUsedAt).toISOString()}>
+                最終利用 {new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUsedAt)}
+              </time>
+            </div>
+            {displayName ? <code>{clientId}</code> : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
