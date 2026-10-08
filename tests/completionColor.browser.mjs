@@ -54,7 +54,7 @@ try {
         });
         await page.waitForFunction(({ surface, colors }) => {
           const check = id => document.querySelector(surface === 'terminal' ? `[data-row-id="${id}"] .check` : `#item-${id} .check`);
-          return getComputedStyle(check('ai')).borderTopColor === colors.ai
+          return getComputedStyle(check('ai')).borderTopColor === colors.done
             && getComputedStyle(check('human')).borderTopColor === colors.done
             && getComputedStyle(check('pending')).borderTopColor === colors.border;
         }, { surface, colors });
@@ -62,27 +62,36 @@ try {
           border: getComputedStyle(el).borderTopColor,
           fill: getComputedStyle(el.querySelector('.check-fill')).backgroundColor,
           ring: getComputedStyle(el, '::after').borderTopColor,
+          dot: (() => {
+            const dot = getComputedStyle(el, '::before');
+            return { content: dot.content, color: dot.backgroundColor, width: dot.width, height: dot.height, top: dot.top, right: dot.right, radius: dot.borderRadius, pointerEvents: dot.pointerEvents };
+          })(),
           tick: el.querySelector('.check-mark path') ? getComputedStyle(el.querySelector('.check-mark path')).stroke : getComputedStyle(el.querySelector('.picker-check')).color,
         }));
         const ai = await readCheck('ai'), human = await readCheck('human');
-        assert.equal(ai.border, colors.ai, `${surface}/${theme}/${width}: agent outer border stays orange`);
-        assert.equal(ai.ring, colors.ai, 'agent completion ring stays orange');
+        assert.equal(ai.border, colors.done, `${surface}/${theme}/${width}: agent border matches ordinary completion`);
+        assert.equal(ai.ring, colors.done, 'completion ring uses ordinary completion color');
+        assert.deepEqual(ai.dot, { content: '\"\"', color: colors.ai, width: '5px', height: '5px', top: '-3px', right: '-3px', radius: '50%', pointerEvents: 'none' }, 'agent-only amber dot at the upper right');
+        assert.equal(human.dot.content, 'none', 'human completion has no dot');
+        assert.equal(colors.ai, theme === 'white' ? 'rgb(156, 94, 8)' : 'rgb(233, 186, 101)', 'theme-specific amber');
         assert.equal(ai.fill, colors.done, 'agent center uses ordinary completion color');
         assert.equal(ai.fill, human.fill, 'agent and human centers match');
         assert.equal(ai.tick, colors.ink, 'tick retains normal theme contrast');
         assert.equal(human.border, colors.done, 'human border is unchanged');
         assert.equal(await row('pending').locator('.check').evaluate(el => getComputedStyle(el).borderTopColor), colors.border);
+        assert.equal(await row('pending').locator('.check').evaluate(el => getComputedStyle(el, '::before').content), 'none', 'pending tasks have no dot');
         await page.screenshot({ path: `/private/tmp/bizencore-completion-${surface}-${theme}-${width}.png`, fullPage: true, animations: 'disabled' });
       }
     }
     if (surface === 'terminal') {
       await row('ai').locator('.check').click();
       assert.equal(await row('ai').locator('.is-ai-checked').count(), 0, 'reopening removes AI styling');
+      assert.equal(await row('ai').locator('.check').evaluate(el => getComputedStyle(el, '::before').content), 'none', 'reopening removes the dot');
       await row('ai').locator('.check').click();
       assert.equal(await row('ai').locator('.is-ai-checked').count(), 0, 'manual recompletion remains human');
     }
     assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log('Passed: two-tone agent check in terminal and MCP Apps, 3 themes, desktop/mobile, ordinary and pending checks, reopen and human recompletion; no real network or accounts.');
+  console.log('Passed: cyan check with a 5px amber agent-only dot in terminal and MCP Apps, 3 themes, desktop/mobile, ordinary and pending checks, reopen and human recompletion; no real network or accounts.');
 } finally { await browser.close(); }

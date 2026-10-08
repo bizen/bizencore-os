@@ -56,7 +56,7 @@ function TaskLine({ row, hasChildren, selected, today, onSelect, onFocusLabel, f
     <div className="row-main">
       <TaskTreeGuides depth={depth} hasChildren={hasChildren && !label} />
       <div className="row-mark">
-        {label ? <span className="row-section-mark" /> : item.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中"><LockKeyhole size={14} aria-hidden /></span> : <span role="img" aria-label={item.done ? '完了' : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
+        {label ? <span className="row-section-mark" /> : item.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中"><LockKeyhole size={14} aria-hidden /></span> : <span role="img" aria-label={item.done ? (item.completedBy === 'ai' ? 'AIが完了' : '完了') : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.done && item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
           <span className="check-fill" />{item.done ? <Check className="picker-check" size={14} /> : null}
         </span>}
       </div>

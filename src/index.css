@@ -12,8 +12,7 @@
   --hairline: #222a3a;
   /* 完了の色。選択の青とは別にして、完了だけがこの色になる */
   --done-color: #5fd9e8;
-  --ai-done-color: #f28c28;
-  --ai-check-ink: #101724;
+  --ai-done-color: #e9ba65;
   --done-wash: rgba(95, 217, 232, 0.13);
   --done-edge: rgba(95, 217, 232, 0.42);
   /* 期限の切迫度 */
@@ -56,7 +55,7 @@
   --muted-rgb: 164, 169, 174;
   --accent-rgb: 140, 184, 237;
   --done-color: #4bd2c3;
-  --ai-done-color: #f59b3d;
+  --ai-done-color: #e9ba65;
   --done-wash: rgba(75, 210, 195, 0.12);
   --done-edge: rgba(75, 210, 195, 0.4);
   --due-today: #e9ba65;
@@ -86,8 +85,7 @@
   --muted-rgb: 94, 107, 120;
   --accent-rgb: 40, 100, 186;
   --done-color: #087f81;
-  --ai-done-color: #b85d18;
-  --ai-check-ink: #ffffff;
+  --ai-done-color: #9c5e08;
   --done-wash: rgba(8, 127, 129, 0.1);
   --done-edge: rgba(8, 127, 129, 0.35);
   --due-today: #9c5e08;
@@ -1604,12 +1602,17 @@ body {
   border-color: var(--done-color);
 }
 
-.check.is-checked.is-ai-checked {
-  border-color: var(--ai-done-color);
-}
-
-.check.is-ai-checked::after {
-  border-color: var(--ai-done-color);
+.check.is-checked.is-ai-checked::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ai-done-color);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .check-fill {
