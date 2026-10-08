@@ -8,7 +8,7 @@ async function load(path) {
 }
 const { lifeWorldPull, lifeWorldPush } = await load('convex/sync.ts');
 const { createLifeWorldStore } = await load('src/lib/lifeWorldStore.ts');
-const { emptyLifeData, lifePendingChanges, lifeWeek, lifeCheckKey } = await load('src/lib/lifeWorldModel.ts');
+const { emptyLifeData, lifePendingChanges, lifeTreeRows, lifeWeek, lifeCheckKey } = await load('src/lib/lifeWorldModel.ts');
 function storage() {
   const map = new Map();
   return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) };
@@ -157,4 +157,46 @@ test('server refuses completion of a locked life task, including a same-batch lo
   assert.equal((await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' })).entries[entry.id].locked, true);
   await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [{ ...entry, locked: undefined, updatedAt: 300, stamps: { lock: 300 } }], checks: [{ ...check, updatedAt: 301 }] });
   assert.equal((await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' })).checks[lifeCheckKey(entry.id, check.date)].done, true);
+});
+
+test('nested life tasks synchronize between devices, including child-before-parent batches and legacy edits', async () => {
+  const s = server();
+  const a = createLifeWorldStore(storage()); a.setAccount('user-a');
+  const parent = a.add('2026-10-05'); a.setText(parent, 'Grocery shopping');
+  const child = a.add('2026-10-05', parent, true, true); a.setText(child, 'Milk');
+  const initial = a.getSnapshot().data;
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [initial.entries[child]], checks: [] });
+  let remote = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.equal(remote.entries[child].parentId, parent, 'retain link until parent batch arrives');
+  assert.equal(lifeTreeRows(remote)[0].depth, 0, 'temporary orphan stays accessible');
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [initial.entries[parent]], checks: [] });
+  remote = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  const b = createLifeWorldStore(storage()); b.setAccount('user-a'); b.mergeRemote(remote, 'user-a');
+  assert.deepEqual(lifeTreeRows(b.getSnapshot().data).map(row => [row.entry.id, row.depth]), [[parent, 0], [child, 1]]);
+  const legacy = { ...remote.entries[child], note: 'Organic', updatedAt: initial.entries[child].updatedAt + 100,
+    stamps: { ...remote.entries[child].stamps, note: initial.entries[child].updatedAt + 100 } };
+  delete legacy.parentId; delete legacy.stamps.hierarchy;
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [legacy], checks: [] });
+  remote = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.equal(remote.entries[child].parentId, parent); assert.equal(remote.entries[child].note, 'Organic');
+  b.remove(parent);
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', ...lifePendingChanges(b.getSnapshot().data, remote) });
+  assert.deepEqual(lifeTreeRows(await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' })), []);
+});
+
+test('a locked descendant blocks parent completion on the server, but not independent child completion', async () => {
+  const s = server();
+  const parent = { id: 'parent', text: 'List', note: '', startDate: '2026-10-05', repeat: 'once', order: 0, updatedAt: 100 };
+  const locked = { ...parent, id: 'locked-child', parentId: parent.id, locked: true, updatedAt: 200, stamps: { lock: 200 } };
+  const leaf = { ...parent, id: 'leaf', parentId: locked.id };
+  const check = { entryId: parent.id, date: '2026-10-05', done: true, updatedAt: 201 };
+  await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [parent, locked, leaf], checks: [check] }), /locked/);
+  assert.equal(s.rows.lifeEntries.length, 0);
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [parent, locked, leaf], checks: [] });
+  await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [], checks: [check] }), /locked/);
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [], checks: [{ ...check, entryId: leaf.id }] });
+  assert.equal((await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' })).checks[lifeCheckKey(leaf.id, check.date)].done, true);
+  for (const entry of [{ ...parent, parentId: parent.id }, { ...parent, parentId: 'x'.repeat(257) }]) {
+    await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [entry], checks: [] }), /Invalid life entry/);
+  }
 });

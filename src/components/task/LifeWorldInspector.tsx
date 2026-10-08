@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { ArrowDown, ArrowUp, Check, LockKeyhole, Trash2, Undo2 } from 'lucide-react';
-import { LIFE_REPEAT_NAMES, lifeEntryDone, lifeEntriesForDate, lifeWeek, type LifeRepeat } from '../../lib/lifeWorldModel';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, LockKeyhole, Plus, Trash2, Undo2 } from 'lucide-react';
+import { MAX_DEPTH } from '../../lib/taskModel';
+import { LIFE_REPEAT_NAMES, lifeCanIndent, lifeCompletionBlocked, lifeEntryDone, lifeEntriesForDate, lifeParentIds, lifeTreeRows, lifeWeek, type LifeRepeat } from '../../lib/lifeWorldModel';
 import { lifeWorldStore, useLifeWorldState } from '../../lib/lifeWorldStore';
 import { useAutoGrow } from '../../lib/useAutoGrow';
 import { InspectorDialog } from './InspectorDialog';
@@ -15,8 +16,8 @@ export interface LifeInspection {
   includeAll?: boolean;
 }
 
-export function LifeWorldInspector({ selection, todayDate, onClose }: {
-  selection: LifeInspection; todayDate: string; onClose: () => void;
+export function LifeWorldInspector({ selection, todayDate, onClose, onSelect }: {
+  selection: LifeInspection; todayDate: string; onClose: () => void; onSelect?: (selection: LifeInspection) => void;
 }) {
   const { data, accountId, canUndo } = useLifeWorldState();
   const entry = data.entries[selection.id];
@@ -24,8 +25,20 @@ export function LifeWorldInspector({ selection, todayDate, onClose }: {
   const titleRef = useAutoGrow(entry?.text ?? '');
   const noteRef = useAutoGrow(entry?.note ?? '');
   const rows = lifeEntriesForDate(data, selection.date, selection.includeAll);
-  const index = rows.findIndex(row => row.id === selection.id);
+  const parents = lifeParentIds(data);
+  const parentId = parents.get(selection.id) ?? null;
+  const siblings = rows.filter(row => parents.get(row.id) === parentId);
+  const index = siblings.findIndex(row => row.id === selection.id);
+  const fullRows = lifeTreeRows(data);
+  const children = fullRows.filter(row => parents.get(row.entry.id) === selection.id);
+  const depth = fullRows.find(row => row.entry.id === selection.id)?.depth ?? MAX_DEPTH;
   const done = available && lifeEntryDone(data, entry, selection.date);
+  const blocked = lifeCompletionBlocked(data, selection.id);
+  const select = (id: string) => {
+    const restoreFocus = () => document.querySelector<HTMLTextAreaElement>(`[data-life-id="${CSS.escape(id)}"] .row-title`)?.focus();
+    if (onSelect) onSelect({ ...selection, id, initialFocus: 'title', restoreFocus });
+    else { onClose(); requestAnimationFrame(restoreFocus); }
+  };
 
   useEffect(() => {
     if (!available) { onClose(); return; }
@@ -41,7 +54,7 @@ export function LifeWorldInspector({ selection, todayDate, onClose }: {
         <textarea ref={titleRef} rows={1} className="inspector-title" aria-label="生活タスクのタイトル"
           placeholder="今日やりたいこと" spellCheck={false} value={entry.text}
           onChange={event => lifeWorldStore.setText(entry.id, event.target.value)} />
-        <dl className="inspector-attribution"><div><dt>場所</dt><dd>生活世界</dd></div></dl>
+        <dl className="inspector-attribution"><div><dt>場所</dt><dd>生活世界{parentId ? ` › ${data.entries[parentId].text || '生活タスク'}` : ''}</dd></div></dl>
       </div>
       <div className="inspector-prop">
         <span className="inspector-label">タスクロック</span>
@@ -77,7 +90,9 @@ export function LifeWorldInspector({ selection, todayDate, onClose }: {
           <span className="inspector-label">達成</span>
           <button type="button" className={`life-inspector-complete${done ? ' is-done' : ''}`} aria-pressed={done}
             aria-label={`${selection.date}の生活タスクを${done ? '未完了に戻す' : '完了にする'}`}
-            disabled={index < 0 || entry.locked} onClick={() => lifeWorldStore.toggle(entry.id, selection.date, selection.includeAll)}>
+            disabled={index < 0 || entry.locked || (!done && blocked)}
+            title={!done && blocked ? 'ロック中の子タスクがあるため完了できません' : undefined}
+            onClick={() => lifeWorldStore.toggle(entry.id, selection.date, selection.includeAll)}>
             {entry.locked ? <LockKeyhole size={14} aria-hidden /> : <Check size={14} aria-hidden />}{entry.locked ? 'ロック中' : done ? '達成済み' : '未達成'}
           </button>
         </div>
@@ -89,12 +104,34 @@ export function LifeWorldInspector({ selection, todayDate, onClose }: {
         </section>
       ) : null}
       <section className="inspector-section">
+        <div className="life-subtasks-head">
+          <h3 className="inspector-label">サブタスク</h3>
+          <button type="button" className="ghost-btn" aria-label="生活タスクにサブタスクを追加" disabled={depth >= MAX_DEPTH}
+            onClick={() => {
+              const id = lifeWorldStore.add(selection.date, entry.id, selection.includeAll, true);
+              if (id) select(id);
+            }}><Plus size={14} aria-hidden />追加</button>
+        </div>
+        {children.length ? <ul className="life-subtasks-list">
+          {children.map(({ entry: child }) => <li key={child.id}>
+            <button type="button" className="life-subtask-link" onClick={() => select(child.id)}>
+              {child.locked ? <LockKeyhole size={14} aria-hidden /> : <Check size={14} aria-hidden className={lifeEntryDone(data, child, selection.date) ? 'is-done' : 'is-pending'} />}
+              <span>{child.text || '生活タスク'}</span><ArrowRight size={14} aria-hidden />
+            </button>
+          </li>)}
+        </ul> : null}
+      </section>
+      <section className="inspector-section">
         <h3 className="inspector-label">並べ替え</h3>
         <div className="life-entry-actions">
           <button type="button" className="icon-btn" title="上へ移動" aria-label="生活タスクを上へ移動"
             disabled={index <= 0} onClick={() => lifeWorldStore.move(entry.id, selection.date, -1, selection.includeAll)}><ArrowUp size={16} aria-hidden /></button>
           <button type="button" className="icon-btn" title="下へ移動" aria-label="生活タスクを下へ移動"
-            disabled={index < 0 || index === rows.length - 1} onClick={() => lifeWorldStore.move(entry.id, selection.date, 1, selection.includeAll)}><ArrowDown size={16} aria-hidden /></button>
+            disabled={index < 0 || index === siblings.length - 1} onClick={() => lifeWorldStore.move(entry.id, selection.date, 1, selection.includeAll)}><ArrowDown size={16} aria-hidden /></button>
+          <button type="button" className="icon-btn" title="サブタスクにする（Tab）" aria-label="生活タスクをサブタスクにする"
+            disabled={!lifeCanIndent(data, entry.id)} onClick={() => lifeWorldStore.indent(entry.id)}><ArrowRight size={16} aria-hidden /></button>
+          <button type="button" className="icon-btn" title="階層を戻す（Shift+Tab）" aria-label="生活タスクの階層を戻す"
+            disabled={!parentId} onClick={() => lifeWorldStore.outdent(entry.id)}><ArrowLeft size={16} aria-hidden /></button>
           <button type="button" className="icon-btn" title="元に戻す" aria-label="生活世界の操作を元に戻す"
             disabled={!canUndo} onClick={lifeWorldStore.undo}><Undo2 size={16} aria-hidden /></button>
         </div>

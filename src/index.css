@@ -1797,8 +1797,15 @@ body {
 .life-icon-btn:hover:not(:disabled) { background: rgba(var(--surface-rgb), 0.06); color: var(--text-primary); }
 .life-icon-btn:disabled { opacity: 0.3; cursor: default; }
 .life-world :focus-visible { outline: 1px solid var(--accent-color); outline-offset: 2px; }
-.life-row > .row-main { grid-template-columns: 22px minmax(0, 1fr) 30px; }
-.life-row .row-meta { grid-template-columns: 28px; gap: 0; }
+.life-row .row-meta { grid-template-columns: 28px 28px; gap: 0; }
+.life-row > .row-main { grid-template-columns: 22px minmax(0, 1fr) 56px; }
+.life-row .row-meta .meta-remove { opacity: 0; pointer-events: none; }
+.life-row:hover .row-meta .meta-remove, .life-row:focus-within .row-meta .meta-remove { opacity: 1; pointer-events: auto; }
+@media (max-width: 600px) {
+  .life-row > .row-main { grid-template-columns: 22px minmax(0, 1fr) 30px; }
+  .life-row .row-meta { grid-template-columns: 28px; }
+  .life-row .row-meta .meta-remove { display: none; }
+}
 .life-row .check { position: relative; }
 .life-repeat-label { display: flex; align-items: center; gap: 4px; padding: 0 0.15rem; color: var(--text-secondary); font-size: 0.68rem; }
 .life-habit-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 3px 0 4px; }
@@ -1811,6 +1818,13 @@ body {
 .life-sync-retry { border: 0; background: none; cursor: pointer; }
 .life-row .row-note { margin: 0; }
 .life-entry-actions { display: flex; gap: 2px; }
+.life-subtasks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.life-subtasks-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.life-subtask-link { display: grid; grid-template-columns: 16px minmax(0, 1fr) 16px; gap: 8px; align-items: start; width: 100%; min-height: 36px; border: 0; padding: 8px 0; background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.life-subtask-link span { overflow-wrap: anywhere; }
+.life-subtask-link .is-done { color: var(--done-color); }
+.life-subtask-link .is-pending { opacity: 0.25; }
+.life-subtask-link:hover { color: var(--accent-color); }
 .life-inspector-date { color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem; }
 .life-inspector-repeat { width: 100%; max-width: 10rem; min-height: 34px; background-color: var(--popover-bg); }
 .life-inspector-complete { display: inline-flex; align-items: center; justify-self: start; gap: 6px; border: 1px solid var(--border-color); border-radius: 4px; padding: 6px 10px; min-height: 34px; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }

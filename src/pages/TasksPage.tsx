@@ -239,7 +239,7 @@ export function TasksPage() {
   const closeLifeInspector = useCallback(() => {
     setLifeInspector(null);
     if (lifeInspector) requestAnimationFrame(() => {
-      if (!document.querySelector('.inspector')) lifeInspector.restoreFocus();
+      if (!document.querySelector('.inspector') && (document.activeElement === document.body || !document.activeElement?.isConnected)) lifeInspector.restoreFocus();
     });
   }, [lifeInspector]);
   const [completedOpen, setCompletedOpen] = useState(loadShelfOpen);
@@ -1385,7 +1385,7 @@ export function TasksPage() {
         />
       ) : null}
       {showLife && lifeInspector ? (
-        <LifeWorldInspector selection={lifeInspector} todayDate={todayDate} onClose={closeLifeInspector} />
+        <LifeWorldInspector selection={lifeInspector} todayDate={todayDate} onClose={closeLifeInspector} onSelect={openLifeInspector} />
       ) : null}
     </section>
   );

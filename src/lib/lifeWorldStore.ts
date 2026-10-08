@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
-import { newId } from './taskModel';
+import { MAX_DEPTH, newId } from './taskModel';
 import { isDateString } from './taskDates';
 import {
   coerceLifeData, emptyLifeData, lifeCheckKey, lifeEntriesForDate, lifeEntryDone, mergeLifeData, restampLifeEntry,
+  lifeCanIndent, lifeCompletionBlocked, lifeParentIds, lifeSubtreeEntries, lifeTreeRows,
   type LifeData, type LifeEntry, type LifeRepeat,
 } from './lifeWorldModel';
 
@@ -82,16 +83,23 @@ export function createLifeWorldStore(storage?: Storage) {
     getStorageKey: () => lifeStorageKey(accountId),
     saveBeforeReload() { save(mergeLifeData(state.data, read())); return !state.saveFailed; },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    add(date: string, afterId?: string, includeAll = false): string | undefined {
+    add(date: string, afterId?: string, includeAll = false, asChild = false): string | undefined {
       if (!isDateString(date)) return;
-      const id = newId();
+      let id: string | undefined;
       change(data => {
-        const rows = lifeEntriesForDate(data, date, includeAll);
-        const index = afterId ? rows.findIndex(e => e.id === afterId) : rows.length - 1;
+        const parents = lifeParentIds(data);
+        const anchor = afterId ? data.entries[afterId] : undefined;
+        if (afterId && (!anchor || anchor.deletedAt || !lifeEntriesForDate(data, date, includeAll).some(entry => entry.id === afterId))) return data;
+        if (asChild && (!anchor || (lifeTreeRows(data).find(row => row.entry.id === anchor.id)?.depth ?? MAX_DEPTH) >= MAX_DEPTH)) return data;
+        const parentId = asChild ? afterId! : afterId ? parents.get(afterId) ?? null : null;
+        const rows = lifeTreeRows(data).map(row => row.entry).filter(entry => parents.get(entry.id) === parentId);
+        const index = !asChild && afterId ? rows.findIndex(e => e.id === afterId) : rows.length - 1;
         const before = rows[index]?.order;
         const after = rows[index + 1]?.order;
         const order = before === undefined ? (after ?? 1) - 1 : after === undefined ? before + 1 : (before + after) / 2;
-        const entry = restampLifeEntry(undefined, { id, text: '', note: '', startDate: date, repeat: 'once', order, updatedAt: 0 }, nextStamp());
+        id = newId();
+        const entry = restampLifeEntry(undefined, { id, parentId: parentId ?? undefined, text: '', note: '', startDate: date,
+          repeat: parentId ? data.entries[parentId].repeat : 'once', order, updatedAt: 0 }, nextStamp());
         return { ...data, entries: { ...data.entries, [id]: entry } };
       });
       return id;
@@ -128,28 +136,79 @@ export function createLifeWorldStore(storage?: Storage) {
       change(data => {
         const entry = lifeEntriesForDate(data, date, includeAll).find(e => e.id === id);
         if (!entry || entry.locked) return data;
-        const key = lifeCheckKey(id, date);
-        return { ...data, checks: { ...data.checks, [key]: { entryId: id, date, done: !lifeEntryDone(data, entry, date), updatedAt: nextStamp() } } };
+        const done = !lifeEntryDone(data, entry, date);
+        if (done && lifeCompletionBlocked(data, id)) return data;
+        const visible = new Set(lifeEntriesForDate(data, date, includeAll).map(value => value.id));
+        const checks = { ...data.checks };
+        for (const child of lifeSubtreeEntries(data, id)) {
+          if (!visible.has(child.id) || child.locked || lifeEntryDone(data, child, date) === done) continue;
+          checks[lifeCheckKey(child.id, date)] = { entryId: child.id, date, done, updatedAt: nextStamp() };
+        }
+        return { ...data, checks };
       });
     },
     move(id: string, date: string, direction: -1 | 1, includeAll = false) {
       change(data => {
-        const rows = lifeEntriesForDate(data, date, includeAll);
+        const parents = lifeParentIds(data);
+        const rows = lifeEntriesForDate(data, date, includeAll).filter(entry => parents.get(entry.id) === parents.get(id));
         const index = rows.findIndex(e => e.id === id);
         const target = index + direction;
         if (index < 0 || target < 0 || target >= rows.length) return data;
-        [rows[index], rows[target]] = [rows[target], rows[index]];
+        const siblings = lifeTreeRows(data).map(row => row.entry).filter(entry => parents.get(entry.id) === parents.get(id));
+        const current = siblings.findIndex(entry => entry.id === id);
+        const destination = siblings.findIndex(entry => entry.id === rows[target].id);
+        const [entry] = siblings.splice(current, 1);
+        siblings.splice(destination, 0, entry);
         const entries = { ...data.entries };
-        rows.forEach((entry, i) => { if (entry.order !== i) entries[entry.id] = restampLifeEntry(entry, { ...entry, order: i }, nextStamp()); });
+        siblings.forEach((entry, i) => { if (entry.order !== i) entries[entry.id] = restampLifeEntry(entry, { ...entry, order: i }, nextStamp()); });
         return { ...data, entries };
       });
+    },
+    indent(id: string): boolean {
+      let changed = false;
+      change(data => {
+        if (!lifeCanIndent(data, id)) return data;
+        const parents = lifeParentIds(data);
+        const rows = lifeTreeRows(data).map(row => row.entry);
+        const siblings = rows.filter(entry => parents.get(entry.id) === parents.get(id));
+        const parent = siblings[siblings.findIndex(entry => entry.id === id) - 1];
+        const children = rows.filter(entry => parents.get(entry.id) === parent.id);
+        const entry = data.entries[id];
+        changed = true;
+        return { ...data, entries: { ...data.entries, [id]: restampLifeEntry(entry,
+          { ...entry, parentId: parent.id, order: (children.at(-1)?.order ?? -1) + 1 }, nextStamp()) } };
+      });
+      return changed;
+    },
+    outdent(id: string): boolean {
+      let changed = false;
+      change(data => {
+        const parents = lifeParentIds(data);
+        const parentId = parents.get(id);
+        const entry = data.entries[id];
+        if (!entry || entry.deletedAt || !parentId) return data;
+        const parent = data.entries[parentId];
+        const grandparentId = parents.get(parentId) ?? null;
+        const siblings = lifeTreeRows(data).map(row => row.entry).filter(value => parents.get(value.id) === grandparentId);
+        const index = siblings.findIndex(value => value.id === parentId);
+        if (index < 0) return data;
+        const nextOrder = siblings[index + 1]?.order;
+        changed = true;
+        return { ...data, entries: { ...data.entries, [id]: restampLifeEntry(entry, { ...entry,
+          parentId: grandparentId ?? undefined, order: nextOrder === undefined ? parent.order + 1 : (parent.order + nextOrder) / 2 }, nextStamp()) } };
+      });
+      return changed;
     },
     remove(id: string) {
       change(data => {
         const entry = data.entries[id];
         if (!entry || entry.deletedAt) return data;
         const now = nextStamp();
-        return { ...data, entries: { ...data.entries, [id]: restampLifeEntry(entry, { ...entry, deletedAt: now }, now) } };
+        const entries = { ...data.entries };
+        for (const child of lifeSubtreeEntries(data, id)) {
+          entries[child.id] = restampLifeEntry(child, { ...child, deletedAt: now }, now);
+        }
+        return { ...data, entries };
       });
     },
     undo() {

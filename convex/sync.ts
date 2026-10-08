@@ -5,7 +5,7 @@ import { mergeItems } from "../src/lib/itemMerge";
 import { coerceAttachments } from "../src/lib/attachments";
 import { cleanupFiles } from "./fileCleanup";
 import { isDateString, isTimeZone } from "../src/lib/taskDates";
-import { coerceLifeData, lifeCheckKey, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
+import { coerceLifeData, lifeCheckKey, lifeEntryStamp, lifeSubtreeEntries, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
 import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 import { accountActive, requireActiveAccount } from './accountAccess';
 
@@ -48,6 +48,7 @@ export const lifeWorldPush = mutation({
                 !Number.isFinite(entry.order) || !validStamp(entry.updatedAt) ||
                 (entry.deletedAt !== undefined && (!validStamp(entry.deletedAt) || entry.deletedAt > entry.updatedAt)) ||
                 entry.text.length > 10000 || entry.note.length > 40000 ||
+                entry.parentId === entry.id || (entry.parentId?.length ?? 0) > 256 ||
                 Object.values(entry.stamps ?? {}).some(stamp => stamp !== undefined && (!validStamp(stamp) || stamp > entry.updatedAt))) {
                 throw new Error('Invalid life entry');
             }
@@ -60,6 +61,12 @@ export const lifeWorldPush = mutation({
                 .withIndex('by_user_entry', q => q.eq('userId', identity.subject).eq('id', entry.id)).unique();
             effectiveEntries.set(entry.id, existing ? mergeLifeEntry(entry, existing) : entry);
         }
+        const completeEntries = checks.some(check => check.done) ? await ctx.db.query('lifeEntries')
+            .withIndex('by_user', q => q.eq('userId', identity.subject)).collect() : [];
+        const effectiveTree = { version: 1 as const, entries: {
+            ...Object.fromEntries(completeEntries.map(entry => [entry.id, entry])),
+            ...Object.fromEntries(effectiveEntries),
+        }, checks: {} };
         for (const check of checks) {
             const key = lifeCheckKey(check.entryId, check.date);
             if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key)) throw new Error('Invalid life check');
@@ -72,6 +79,8 @@ export const lifeWorldPush = mutation({
                 entry = stored;
             }
             if (entry.locked && check.done && check.updatedAt >= (entry.stamps?.lock ?? entry.updatedAt)) throw new Error('Life task is locked');
+            if (check.done && lifeSubtreeEntries(effectiveTree, check.entryId)
+                .some(child => child.locked && check.updatedAt >= lifeEntryStamp(child, 'lock'))) throw new Error('Life task subtree is locked');
         }
         for (const entry of entries) {
             const existing = await ctx.db.query('lifeEntries')

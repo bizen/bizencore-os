@@ -91,8 +91,9 @@ try {
   await titles.first().fill('散歩');
   await page.getByRole('button', { name: '生活タスクの詳細', exact: true }).click();
   await page.getByRole('combobox', { name: '繰り返し' }).selectOption('daily');
-  await page.getByRole('textbox', { name: '生活タスクのメモ' }).fill('アカウントAのメモ');
-  await page.getByRole('textbox', { name: '生活タスクのメモ' }).press('Escape');
+  const inspectorNote = page.getByRole('dialog', { name: '生活タスクの詳細', exact: true }).getByRole('textbox', { name: '生活タスクのメモ' });
+  await inspectorNote.fill('アカウントAのメモ');
+  await inspectorNote.press('Escape');
   await synced();
   await page.getByRole('button', { name: '生活タスクの詳細', exact: true }).click();
   await page.getByRole('button', { name: 'Account B', exact: true }).click();

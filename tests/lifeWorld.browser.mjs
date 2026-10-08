@@ -64,7 +64,7 @@ try {
   await panel.getByRole('textbox', { name: '生活タスクのメモ' }).fill('肩と背中をゆっくり伸ばす。');
   await panel.getByRole('textbox', { name: '生活タスクのメモ' }).press('Escape');
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '生活タスク');
-  assert.equal(await world.getByRole('textbox', { name: '生活タスクのメモ' }).count(), 0);
+  assert.equal(await world.getByRole('textbox', { name: '生活タスクのメモ' }).count(), 1);
   await titles.nth(1).press('Control+Enter');
   assert.equal(await world.getByRole('button', { name: 'ストレッチを未完了に戻す', exact: true }).getAttribute('aria-pressed'), 'true');
   assert.equal(await world.locator('.life-streak-dot').count(), 7);
@@ -185,10 +185,10 @@ try {
   assert.equal(await ordinaryPanel.count(), 0, 'opening life details closes ordinary details');
   await panel.getByRole('textbox', { name: '生活タスクのタイトル' }).press('Escape');
   await titles.first().press('Shift+Enter');
-  await panel.waitFor();
+  assert.equal(await panel.count(), 0, 'Shift+Enter edits notes inline, matching ordinary tasks');
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '生活タスクのメモ');
-  assert.equal(await panel.getByRole('textbox', { name: '生活タスクのメモ' }).evaluate(el => el === document.activeElement), true, 'Shift+Enter opens note in the shared inspector');
-  await panel.getByRole('textbox', { name: '生活タスクのメモ' }).press('Escape');
+  assert.equal(await titles.first().evaluate(el => el.closest('.life-row').querySelector('.row-note') === document.activeElement), true, 'Shift+Enter opens an inline note');
+  await page.locator(':focus').press('Escape');
   await page.getByRole('tab', { name: 'all', exact: true }).click();
   assert.equal(await world.count(), 0);
   assert.equal(await page.getByRole('button', { name: '+ ラベル（⌥S）', exact: true }).count(), 1, 'All still offers label creation');
