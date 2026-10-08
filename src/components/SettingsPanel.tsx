@@ -8,6 +8,7 @@ import { isTimeZone } from '../lib/taskDates';
 import type { Theme } from '../lib/theme';
 import { PartnerSettings } from './PartnerSettings';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
+import { AccountDeletionSetting } from './AccountDeletionSetting';
 
 const KNOWN_MCP_CLIENTS = new Map([
   ['https://chatgpt.com/oauth/codex/client.json', 'Codex'],
@@ -174,6 +175,13 @@ export function SettingsPanel({ onClose, theme, onThemeChange }: { onClose: () =
           ) : (
             <p className="settings-muted">クラウド接続が設定されていません。</p>
           )}
+        </section>
+        <section className="settings-section" aria-labelledby="settings-account-delete-title">
+          <h3 id="settings-account-delete-title">アカウント削除</h3>
+          {isCloudConfigured ? <>
+            <SignedIn><AccountDeletionSetting /></SignedIn>
+            <SignedOut><p className="settings-muted">削除するにはサインインしてください。</p></SignedOut>
+          </> : <p className="settings-muted">クラウド接続が設定されていません。</p>}
         </section>
       </div>
     </div>

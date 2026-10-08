@@ -2027,6 +2027,26 @@ body {
 .settings-timezone-foot button { border: 0; color: var(--text-secondary); }
 .settings-error { color: var(--danger-soft); font-size: 0.75rem; }
 
+.settings-account-delete > p + p { margin-top: 0.5rem; }
+.account-delete-button, .account-delete-actions button, .account-deletion-status button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 2.5rem; padding: 0.5rem 0.7rem; border: 1px solid var(--border-color);
+  border-radius: 4px; background: transparent; color: var(--text-primary); font: inherit;
+  font-size: 0.8rem; cursor: pointer; white-space: normal;
+}
+.account-delete-button { margin-top: 0.85rem; color: var(--danger-soft); }
+.account-delete-actions .account-delete-button { margin-top: 0; color: var(--danger-soft); }
+.account-delete-button:disabled, .account-delete-actions button:disabled { opacity: 0.45; cursor: default; }
+.account-delete-confirmation { display: grid; gap: 0.6rem; margin-top: 0.9rem; font-size: 0.8rem; }
+.account-delete-confirmation input {
+  min-width: 0; width: 100%; padding: 0.55rem; border: 1px solid var(--border-color);
+  border-radius: 4px; background: transparent; color: var(--text-primary); font: inherit;
+}
+.account-delete-actions { display: flex; justify-content: flex-end; gap: 0.6rem; flex-wrap: wrap; }
+.account-deletion-status { width: min(100% - 2rem, 32rem); margin: 15vh auto; line-height: 1.65; }
+.account-deletion-status h1 { font-size: 1.2rem; margin-bottom: 1rem; }
+.account-deletion-status p { margin: 0.75rem 0; color: var(--text-secondary); }
+
 .theme-switch {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

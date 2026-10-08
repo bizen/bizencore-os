@@ -13,6 +13,7 @@ import { applyTheme, readTheme, saveTheme, type Theme } from './lib/theme';
 import { Brand } from './components/Brand';
 import { AppUpdateButton } from './components/AppUpdateButton';
 import { initialPartnerInvite } from './lib/partnerModel';
+import { AccountDeletionBoundary } from './components/AccountDeletionBoundary';
 
 const SPLASH_VISIBLE_MS = 1100;
 const SPLASH_FADE_MS = 450;
@@ -72,6 +73,7 @@ export default function App() {
     <>
       {splashState !== 'gone' && <SplashScreen fadingOut={splashState === 'fading'} />}
 
+      <AccountDeletionBoundary>
       <SyncBridge />
 
       <div className="app-shell">
@@ -121,6 +123,7 @@ export default function App() {
         <Mascot />
         {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={changeTheme} /> : null}
       </div>
+      </AccountDeletionBoundary>
     </>
   );
 }

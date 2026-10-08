@@ -95,7 +95,7 @@ test('MCP exposes lock state and rejects direct or ancestor completion before an
 });
 
 function memoryContext() {
-  const rows = { syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
+  const rows = { accountDeletions: [], syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
   let nextId = 0;
   const db = {
     query(table) {

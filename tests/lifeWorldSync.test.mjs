@@ -14,7 +14,7 @@ function storage() {
   return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) };
 }
 function server() {
-  const rows = { lifeEntries: [], lifeChecks: [], lifePreferences: [] };
+  const rows = { accountDeletions: [], lifeEntries: [], lifeChecks: [], lifePreferences: [] };
   let identity = 'user-a';
   let id = 0;
   return {

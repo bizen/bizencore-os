@@ -113,6 +113,9 @@ http.route({
     handler: httpAction(async (ctx, request) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) return uploadResponse({ error: "Unauthorized" }, 401);
+        if (await ctx.runQuery(internal.accountDeletion.job, { userId: identity.subject })) {
+            return uploadResponse({ error: "Account is being deleted" }, 403);
+        }
 
         const taskId = request.headers.get("X-Task-Id")?.trim();
         const encodedName = request.headers.get("X-File-Name");

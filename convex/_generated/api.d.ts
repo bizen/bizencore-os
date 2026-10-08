@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as accountAccess from "../accountAccess.js";
+import type * as accountDeletion from "../accountDeletion.js";
 import type * as countStocks from "../countStocks.js";
 import type * as fileCleanup from "../fileCleanup.js";
 import type * as http from "../http.js";
@@ -24,6 +26,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountAccess: typeof accountAccess;
+  accountDeletion: typeof accountDeletion;
   countStocks: typeof countStocks;
   fileCleanup: typeof fileCleanup;
   http: typeof http;

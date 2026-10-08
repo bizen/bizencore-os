@@ -1,6 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { mergeRows } from "./sync";
+import { requireActiveAccount } from './accountAccess';
 
 /*
  * Clerk を開発用から本番用へ移すと、同じ人でもユーザー ID が変わる。
@@ -15,6 +16,8 @@ export const moveUser = internalMutation({
     args: { from: v.string(), to: v.string() },
     handler: async (ctx, { from, to }) => {
         if (!from || !to || from === to) throw new Error("from と to に別々の ID を渡す");
+        await requireActiveAccount(ctx, from);
+        await requireActiveAccount(ctx, to);
 
         let moved = 0;
         let merged = 0;

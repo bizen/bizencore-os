@@ -3,6 +3,12 @@ import { v } from "convex/values";
 import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 
 export default defineSchema({
+    // Keep only an account ID tombstone so old sessions cannot recreate deleted data.
+    accountDeletions: defineTable({
+        userId: v.string(),
+        phase: v.union(v.literal('data'), v.literal('identity'), v.literal('complete')),
+        attempts: v.number(), updatedAt: v.number(), retrying: v.boolean(), nextAttemptAt: v.number(),
+    }).index('by_user', ['userId']),
     partnerAccounts: defineTable({
         userId: v.string(), name: v.string(), partnerId: v.optional(v.string()),
         sharedLabelIds: v.array(v.string()),
@@ -36,7 +42,7 @@ export default defineSchema({
         itemId: v.string(),
         attachmentId: v.string(),
         storageId: v.id("_storage"),
-    }).index("by_user_item", ["userId", "itemId"]),
+    }).index("by_user_item", ["userId", "itemId"]).index('by_user', ['userId']),
 
     /** MCP の認証済みリクエストを受けた接続元。認可状態そのものではない。 */
     mcpConnections: defineTable({

@@ -76,6 +76,7 @@ const { outputFiles } = await build({
           if (name === 'partners:disconnect') globalThis.fixturePatch({ state: { ...f.state, partner: null, sharedLabelIds: [] }, list: null });
         };
       }
+      export const useAction = useMutation;
     ` : `
       import { useSyncExternalStore } from 'react';
       export function useAuth() { useSyncExternalStore(fn => { globalThis.fixtureListeners.add(fn); return () => globalThis.fixtureListeners.delete(fn); }, () => globalThis.fixtureRevision); return globalThis.fixtureAuth; }

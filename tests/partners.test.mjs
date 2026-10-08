@@ -14,7 +14,7 @@ function row(id, parentId = null, fields = {}) {
 }
 
 function server() {
-  const rows = { partnerAccounts: [], partnerInvites: [], syncItems: [] };
+  const rows = { accountDeletions: [], partnerAccounts: [], partnerInvites: [], syncItems: [] };
   let subject = 'alice', next = 0;
   const ctx = {
     auth: { getUserIdentity: async () => subject ? { subject, name: subject.toUpperCase() } : null },

@@ -7,12 +7,13 @@ import { cleanupFiles } from "./fileCleanup";
 import { isDateString, isTimeZone } from "../src/lib/taskDates";
 import { coerceLifeData, lifeCheckKey, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
 import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
+import { accountActive, requireActiveAccount } from './accountAccess';
 
 export const lifeWorldPull = query({
     args: { accountId: v.string() },
     handler: async (ctx, { accountId }) => {
         const identity = await ctx.auth.getUserIdentity();
-        if (!identity || identity.subject !== accountId) return null;
+        if (!identity || identity.subject !== accountId || !(await accountActive(ctx, identity.subject))) return null;
         const entries = await ctx.db.query('lifeEntries')
             .withIndex('by_user', q => q.eq('userId', identity.subject)).collect();
         const checks = await ctx.db.query('lifeChecks')
@@ -33,6 +34,7 @@ export const lifeWorldPush = mutation({
     handler: async (ctx, { accountId, entries, checks, preferences }) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity || identity.subject !== accountId) throw new Error('Unauthorized');
+        await requireActiveAccount(ctx, identity.subject);
         if (entries.length > 100 || checks.length > 100) throw new Error('Life world batch exceeds limit');
         const validStamp = (stamp: number) => Number.isFinite(stamp) && stamp >= 0;
         if (preferences && (!validStamp(preferences.updatedAt) || !validStamp(preferences.visibilityStamp) ||
@@ -104,7 +106,7 @@ export const getTimeZone = query({
     args: {},
     handler: async (ctx) => {
         const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return null;
+        if (!identity || !(await accountActive(ctx, identity.subject))) return null;
         const row = await ctx.db.query("userPreferences")
             .withIndex("by_user", (q) => q.eq("userId", identity.subject)).unique();
         return row ? { timeZone: row.timeZone, automatic: row.automatic } : null;
@@ -116,6 +118,7 @@ export const setTimeZone = mutation({
     handler: async (ctx, { timeZone, automatic }) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) throw new Error("Unauthorized");
+        await requireActiveAccount(ctx, identity.subject);
         if (!isTimeZone(timeZone)) throw new Error("Invalid IANA time zone");
         const existing = await ctx.db.query("userPreferences")
             .withIndex("by_user", (q) => q.eq("userId", identity.subject)).unique();
@@ -136,7 +139,7 @@ export const listMcpConnections = query({
     args: {},
     handler: async (ctx) => {
         const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return null;
+        if (!identity || !(await accountActive(ctx, identity.subject))) return null;
         const rows = await ctx.db.query("mcpConnections")
             .withIndex("by_user", (q) => q.eq("userId", identity.subject))
             .collect();
@@ -148,6 +151,7 @@ export const listMcpConnections = query({
 export const touchMcpConnection = internalMutation({
     args: { userId: v.string(), clientId: v.string(), clientName: v.optional(v.string()) },
     handler: async (ctx, { userId, clientId, clientName }) => {
+        await requireActiveAccount(ctx, userId);
         if (!clientId || clientId === "unknown" || clientId.length > 512) return;
         const name = clientName?.trim().slice(0, 256) || undefined;
         const existing = await ctx.db.query("mcpConnections")
@@ -209,7 +213,7 @@ export const pull = query({
     args: {},
     handler: async (ctx) => {
         const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return null;
+        if (!identity || !(await accountActive(ctx, identity.subject))) return null;
 
         const rows = await ctx.db
             .query("syncItems")
@@ -230,7 +234,7 @@ export const fileUrl = query({
     args: { taskId: v.string(), attachmentId: v.string() },
     handler: async (ctx, { taskId, attachmentId }) => {
         const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return null;
+        if (!identity || !(await accountActive(ctx, identity.subject))) return null;
         const row = await ctx.db.query("syncItems")
             .withIndex("by_user_item", (q) => q.eq("userId", identity.subject).eq("itemId", taskId))
             .unique();
@@ -261,6 +265,7 @@ export const push = mutation({
     handler: async (ctx, { items }) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) throw new Error("Unauthorized");
+        await requireActiveAccount(ctx, identity.subject);
 
         for (const item of items) {
             const existing = await ctx.db
@@ -319,6 +324,7 @@ export const importLegacy = mutation({
     handler: async (ctx) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) throw new Error("Unauthorized");
+        await requireActiveAccount(ctx, identity.subject);
 
         const already = await ctx.db
             .query("syncItems")

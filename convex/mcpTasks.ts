@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { cleanupFiles } from "./fileCleanup";
+import { requireActiveAccount } from './accountAccess';
 import { dateInTimeZone, isDateString, isTimeString } from "../src/lib/taskDates";
 import { coerceStamps, restamp, type Stamps } from "../src/lib/itemMerge";
 import { compareItems, isLabelColor, type Item } from "../src/lib/taskModel";
@@ -102,6 +103,7 @@ function parsePayload(row: SyncRow): StoredItem | null {
 }
 
 async function loadItems(ctx: QueryCtx | MutationCtx, userId: string): Promise<StoredItem[]> {
+    await requireActiveAccount(ctx, userId);
     const rows = await ctx.db
         .query("syncItems")
         .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -132,6 +134,7 @@ function nextOrder(items: StoredItem[], parentId: string | null): number {
  * 時刻まで進めると、ブラウザで同時に直したものを上書きしてしまう。
  */
 async function writeItem(ctx: MutationCtx, userId: string, item: StoredItem): Promise<void> {
+    await requireActiveAccount(ctx, userId);
     const existing = await ctx.db
         .query("syncItems")
         .withIndex("by_user_item", (q) => q.eq("userId", userId).eq("itemId", item.id))
@@ -203,6 +206,7 @@ function requestHash(request: string): string {
 }
 
 async function previousAdd(ctx: MutationCtx, userId: string, key: string, request: string, explicit: boolean): Promise<unknown | undefined> {
+    await requireActiveAccount(ctx, userId);
     const row = await ctx.db.query("mcpIdempotency")
         .withIndex("by_user_key", (q) => q.eq("userId", userId).eq("key", key)).unique();
     if (!row) return undefined;

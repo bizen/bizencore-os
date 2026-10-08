@@ -1,13 +1,16 @@
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { ConvexError, v } from 'convex/values';
 import { partnerLabels, publicPartnerItems } from '../src/lib/partnerModel';
+import { accountActive, requireActiveAccount } from './accountAccess';
 
-const account = (ctx: QueryCtx, userId: string) => ctx.db.query('partnerAccounts').withIndex('by_user', q => q.eq('userId', userId)).unique();
+const account = async (ctx: QueryCtx, userId: string) => (await accountActive(ctx, userId))
+  ? ctx.db.query('partnerAccounts').withIndex('by_user', q => q.eq('userId', userId)).unique() : null;
 const source = (ctx: QueryCtx, userId: string) => ctx.db.query('syncItems').withIndex('by_user', q => q.eq('userId', userId)).collect();
 
 async function identity(ctx: QueryCtx, accountId: string) {
   const user = await ctx.auth.getUserIdentity();
   if (!user || user.subject !== accountId) throw new ConvexError('サインインを確認してください。');
+  await requireActiveAccount(ctx, accountId);
   return user;
 }
 
@@ -20,7 +23,7 @@ export const state = query({
   args: { accountId: v.string() },
   handler: async (ctx, { accountId }) => {
     const user = await ctx.auth.getUserIdentity();
-    if (!user || user.subject !== accountId) return null;
+    if (!user || user.subject !== accountId || !(await accountActive(ctx, accountId))) return null;
     const own = await account(ctx, accountId);
     const peer = own?.partnerId ? await account(ctx, own.partnerId) : null;
     const labels = partnerLabels(await source(ctx, accountId));
@@ -59,7 +62,7 @@ export const previewInvite = query({
   args: { accountId: v.string(), code: v.string() },
   handler: async (ctx, { accountId, code }) => {
     const user = await ctx.auth.getUserIdentity();
-    if (!user || user.subject !== accountId || !/^[a-f0-9]{64}$/.test(code)) return null;
+    if (!user || user.subject !== accountId || !(await accountActive(ctx, accountId)) || !/^[a-f0-9]{64}$/.test(code)) return null;
     const invite = await ctx.db.query('partnerInvites').withIndex('by_code', q => q.eq('code', code)).unique();
     if (!invite || invite.ownerId === accountId || invite.expiresAt <= Date.now()) return null;
     const owner = await account(ctx, invite.ownerId);
@@ -104,7 +107,7 @@ export const list = query({
   args: { accountId: v.string() },
   handler: async (ctx, { accountId }) => {
     const user = await ctx.auth.getUserIdentity();
-    if (!user || user.subject !== accountId) return null;
+    if (!user || user.subject !== accountId || !(await accountActive(ctx, accountId))) return null;
     const own = await account(ctx, accountId);
     const peer = own?.partnerId ? await account(ctx, own.partnerId) : null;
     if (!peer || peer.partnerId !== accountId) return null;

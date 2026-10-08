@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { accountActive, requireActiveAccount } from './accountAccess';
 
 const MAX_STOCKS = 80;
 
@@ -7,7 +8,7 @@ export const list = query({
     args: {},
     handler: async (ctx) => {
         const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return [];
+        if (!identity || !(await accountActive(ctx, identity.subject))) return [];
 
         const rows = await ctx.db
             .query("countStocks")
@@ -23,6 +24,7 @@ export const add = mutation({
     handler: async (ctx, { text: raw }) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) throw new Error("Unauthorized");
+        await requireActiveAccount(ctx, identity.subject);
 
         if (!raw.trim()) throw new Error("Empty text");
 
@@ -59,6 +61,7 @@ export const remove = mutation({
     handler: async (ctx, { id }) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) throw new Error("Unauthorized");
+        await requireActiveAccount(ctx, identity.subject);
 
         const doc = await ctx.db.get(id);
         if (!doc || doc.userId !== identity.subject) throw new Error("Not found");
@@ -80,6 +83,7 @@ export const mergeLocalStocks = mutation({
     handler: async (ctx, { entries }) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) throw new Error("Unauthorized");
+        await requireActiveAccount(ctx, identity.subject);
 
         if (entries.length === 0) return;
 

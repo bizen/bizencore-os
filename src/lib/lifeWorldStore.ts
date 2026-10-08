@@ -66,6 +66,18 @@ export function createLifeWorldStore(storage?: Storage) {
     }, key);
   }
   return {
+    clearAccount(deletedAccountId: string) {
+      const empty = emptyLifeData();
+      if (accountId === deletedAccountId) {
+        history.length = 0;
+        lastEdit = undefined;
+        undoStamps.clear();
+        state = { ...state, data: empty, canUndo: false, saveFailed: false, syncStatus: 'local' };
+        emit();
+      }
+      // Guest storage and other accounts are intentionally left intact.
+      storage?.setItem(lifeStorageKey(deletedAccountId), JSON.stringify(empty));
+    },
     getSnapshot: () => state,
     getStorageKey: () => lifeStorageKey(accountId),
     saveBeforeReload() { save(mergeLifeData(state.data, read())); return !state.saveFailed; },

@@ -38,6 +38,7 @@ const { outputFiles } = await build({
         return null;
       }
       export function useMutation() { return async () => { throw new Error('Mutations are not allowed in this fixture'); }; }
+      export const useAction = useMutation;
     ` : `
       export const SignedIn = ({ children }) => children;
       export const SignedOut = () => null;
