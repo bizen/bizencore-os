@@ -43,7 +43,8 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'ラベル', exact: true }).count(), 0, 'label shortcut cannot create a label in Today');
   const world = page.locator('.life-world');
   const panel = page.getByRole('dialog', { name: '生活タスクの詳細', exact: true });
-  await world.getByRole('button', { name: '生活世界に追加', exact: true }).click();
+  assert.equal(await world.locator('.life-world-heading').getByRole('button', { name: '生活世界に追加', exact: true }).count(), 0);
+  await world.getByRole('button', { name: '今日やりたいこと', exact: true }).click();
   const titles = world.getByRole('textbox', { name: '生活タスク', exact: true });
   await titles.first().fill('フォーを食べたい');
   await titles.first().press('Enter');
@@ -143,7 +144,7 @@ try {
   await panel.getByRole('textbox', { name: '生活タスクのメモ' }).fill('帰りに、いつもの店に寄ろう。');
   await panel.getByRole('textbox', { name: '生活タスクのメモ' }).press('Escape');
   for (let i = 0; i < 6; i++) await world.getByRole('button', { name: '生活世界の前日を見る', exact: true }).click();
-  await world.getByRole('button', { name: '生活世界に追加', exact: true }).click();
+  await world.getByRole('button', { name: '今日やりたいこと', exact: true }).click();
   await titles.first().fill('読書');
   const readerId = await titles.first().evaluate(el => el.closest('li').dataset.lifeId);
   await world.getByRole('button', { name: '生活タスクの詳細', exact: true }).first().click();

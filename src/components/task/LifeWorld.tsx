@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Cloud, CloudCheck, CloudOff, CloudUpload, EyeOff, LockKeyhole, PanelRight, Plus, RefreshCw, Repeat2, Undo2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Cloud, CloudCheck, CloudOff, CloudUpload, EyeOff, LockKeyhole, PanelRight, Plus, RefreshCw, Repeat2, Undo2 } from 'lucide-react';
 import { LIFE_REPEAT_NAMES, LIFE_SECTION_ID, lifeEntryDone, lifeEntriesForDate, lifeWeek, shiftLifeDate, type LifeEntry } from '../../lib/lifeWorldModel';
 import { lifeWorldStore, useLifeWorldState } from '../../lib/lifeWorldStore';
 import { useAutoGrow } from '../../lib/useAutoGrow';
@@ -68,12 +68,10 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const date = !allRootIds && chosenDate && chosenDate < todayDate ? chosenDate : todayDate;
   const titles = useRef(new Map<string, HTMLTextAreaElement>());
-  const addButton = useRef<HTMLButtonElement>(null);
+  const emptyAddButton = useRef<HTMLButtonElement>(null);
   const pendingFocus = useRef<string | null>(null);
   const needle = query.trim().toLowerCase();
   const rows = lifeEntriesForDate(data, date, !!allRootIds).filter(entry => !needle || `${entry.text}\n${entry.note}`.toLowerCase().includes(needle));
-  const placement = data.preferences?.beforeId ? (allRootIds?.indexOf(data.preferences.beforeId) ?? -1) : -1;
-  const sectionIndex = placement < 0 ? (allRootIds?.length ?? 0) : placement;
 
   useLayoutEffect(() => {
     const id = pendingFocus.current;
@@ -93,7 +91,7 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
   const inspect = (id: string, initialFocus: 'title' | 'note' = 'title') => onInspect({
     id, date, initialFocus, includeAll: !!allRootIds, accountId: lifeWorldStore.getSnapshot().accountId,
     restoreFocus: () => {
-      const target = titles.current.get(id) ?? titles.current.values().next().value ?? addButton.current;
+      const target = titles.current.get(id) ?? titles.current.values().next().value ?? emptyAddButton.current;
       target?.focus();
     },
   });
@@ -138,14 +136,10 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
             aria-label={syncLabel} onClick={lifeWorldStore.retrySync}><RefreshCw size={13} aria-hidden /></button>
             : <span className="life-sync-status" role="status" aria-label={syncLabel} title={syncLabel}><SyncIcon size={13} aria-hidden /></span>}
         </h2>
-        {allRootIds ? <div className="life-section-actions">
-          <button type="button" className="life-icon-btn" aria-label="生活世界ラベルを上へ移動" title="ラベルを上へ移動"
-            disabled={sectionIndex === 0} onClick={() => lifeWorldStore.moveSection(allRootIds, -1)}><ArrowUp size={15} aria-hidden /></button>
-          <button type="button" className="life-icon-btn" aria-label="生活世界ラベルを下へ移動" title="ラベルを下へ移動"
-            disabled={sectionIndex === allRootIds.length} onClick={() => lifeWorldStore.moveSection(allRootIds, 1)}><ArrowDown size={15} aria-hidden /></button>
+        {allRootIds ? (
           <button type="button" className="life-icon-btn" aria-label="Allで生活世界を非表示にする" title="Allで非表示"
             onClick={() => lifeWorldStore.setShowInAll(false)}><EyeOff size={15} aria-hidden /></button>
-        </div> : <div className="life-date-nav">
+        ) : <div className="life-date-nav">
           <button type="button" className="life-icon-btn" aria-label="生活世界の前日を見る" title="前日"
             onClick={() => changeDate(shiftLifeDate(date, -1))}><ChevronLeft size={15} aria-hidden /></button>
           <time dateTime={date}>{new Intl.DateTimeFormat('ja-JP', { month: '2-digit', day: '2-digit', weekday: 'short', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`))}</time>
@@ -155,7 +149,6 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
         </div>}
         <button type="button" className="life-icon-btn" aria-label="生活世界の操作を元に戻す" title="元に戻す"
           disabled={!canUndo} onClick={lifeWorldStore.undo}><Undo2 size={15} aria-hidden /></button>
-        <button ref={addButton} type="button" className="life-icon-btn" aria-label="生活世界に追加" title="追加" onClick={() => add()}><Plus size={18} aria-hidden /></button>
       </header>
       <ul className="row-list life-list">
         {rows.map(entry => <LifeRow key={`${date}:${entry.id}`} entry={entry} date={date} week={lifeWeek(data, entry, todayDate)}
@@ -165,7 +158,7 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
           register={(id, el) => { if (el) titles.current.set(id, el); else titles.current.delete(id); }}
           onKeyDown={onKeyDown} />)}
       </ul>
-      {rows.length === 0 ? <button type="button" className="life-add-empty" onClick={() => add()}><Plus size={14} aria-hidden />今日やりたいこと</button> : null}
+      {rows.length === 0 ? <button ref={emptyAddButton} type="button" className="life-add-empty" onClick={() => add()}><Plus size={14} aria-hidden />今日やりたいこと</button> : null}
       {saveFailed ? <p className="life-save-error" role="alert">端末に保存できませんでした。画面を閉じる前に保存領域を確認してください。</p> : null}
     </section>
   );

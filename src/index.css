@@ -1604,9 +1604,12 @@ body {
   border-color: var(--done-color);
 }
 
-.check.is-ai-checked {
-  --done-color: var(--ai-done-color);
-  --check-ink: var(--ai-check-ink);
+.check.is-checked.is-ai-checked {
+  border-color: var(--ai-done-color);
+}
+
+.check.is-ai-checked::after {
+  border-color: var(--ai-done-color);
 }
 
 .check-fill {
@@ -1754,7 +1757,6 @@ body {
   border-top: 1px solid var(--border-color);
 }
 .life-world--all { scroll-margin-top: 120px; }
-.life-section-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; }
 .settings-life-visibility { display: flex; align-items: center; justify-content: space-between; min-height: 44px; gap: 16px; color: var(--text-primary); font-size: 0.85rem; cursor: pointer; }
 .settings-life-visibility input { width: 18px; height: 18px; accent-color: var(--accent-color); cursor: pointer; }
 .life-world-heading {
@@ -1823,9 +1825,8 @@ body {
 }
 @media (max-width: 600px) {
   .life-world--all .life-world-heading { flex-wrap: wrap; }
-  .life-world--all .life-world-heading h2 { flex: 1 0 calc(100% - 100px); }
-  .life-world--all .life-section-actions { order: 1; flex-basis: 100%; }
-  .life-section-actions .life-icon-btn { width: 44px; height: 44px; flex-basis: 44px; }
+  .life-world--all .life-world-heading h2 { flex: 1; }
+  .life-world--all .life-world-heading > .life-icon-btn { width: 44px; height: 44px; flex-basis: 44px; }
 }
 
 .tasks-footer {

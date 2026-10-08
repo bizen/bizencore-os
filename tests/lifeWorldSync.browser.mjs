@@ -87,7 +87,7 @@ try {
   assert.equal(await page.evaluate(() => globalThis.fixtureLifeCloud['fixture-a'].preferences.showInAll), true, 'preference-only changes are uploaded');
   await page.getByRole('button', { name: 'Move label up', exact: true }).click(); await synced();
   assert.equal(await page.evaluate(() => globalThis.fixtureLifeCloud['fixture-a'].preferences.beforeId), 'root-b');
-  await page.getByRole('button', { name: '生活世界に追加', exact: true }).click();
+  await page.getByRole('button', { name: '今日やりたいこと', exact: true }).click();
   await titles.first().fill('散歩');
   await page.getByRole('button', { name: '生活タスクの詳細', exact: true }).click();
   await page.getByRole('combobox', { name: '繰り返し' }).selectOption('daily');
@@ -99,7 +99,7 @@ try {
   await synced(); assert.equal(await titles.count(), 0);
   assert.equal(await page.getByLabel('All visibility').textContent(), 'hidden');
   assert.equal(await page.getByRole('dialog', { name: '生活タスクの詳細', exact: true }).count(), 0, 'account switch closes prior-account details');
-  await page.getByRole('button', { name: '生活世界に追加', exact: true }).click();
+  await page.getByRole('button', { name: '今日やりたいこと', exact: true }).click();
   await titles.first().fill('フォー'); await synced();
   await page.getByRole('button', { name: 'Account A', exact: true }).click();
   await synced(); assert.equal(await titles.first().inputValue(), '散歩');

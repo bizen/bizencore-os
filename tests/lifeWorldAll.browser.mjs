@@ -16,6 +16,7 @@ const { outputFiles } = await build({
     let now = '2026-10-05'; Date.now = () => Date.parse(now + 'T12:00:00Z');
     applyTheme('black'); setUserTimeZone('UTC');
     globalThis.fixtureHideLife = () => lifeWorldStore.setShowInAll(false);
+    globalThis.fixtureSavedLifePosition = () => lifeWorldStore.moveSection(['first-label', 'second-label'], -1);
     const items = [
       { id: 'first-label', text: 'ビルド', type: 'section', parentId: null, order: 0 },
       { id: 'ordinary', text: '作業', type: 'task', parentId: 'first-label', order: 0 },
@@ -60,12 +61,11 @@ try {
   const headingOrder = () => page.locator('.tasks-content [data-row-id="first-label"], .tasks-content [data-row-id="second-label"], .tasks-content .life-world')
     .evaluateAll(elements => elements.map(el => el.dataset.rowId ?? 'life'));
   assert.deepEqual(await headingOrder(), ['first-label', 'second-label', 'life']);
-  await world.getByRole('button', { name: '生活世界ラベルを上へ移動', exact: true }).click();
-  assert.deepEqual(await headingOrder(), ['first-label', 'life', 'second-label']);
-  await world.getByRole('button', { name: '生活世界ラベルを上へ移動', exact: true }).click();
-  assert.deepEqual(await headingOrder(), ['life', 'first-label', 'second-label']);
-  assert.equal(await world.getByRole('button', { name: '生活世界ラベルを上へ移動', exact: true }).isDisabled(), true);
-  await world.getByRole('button', { name: '生活世界ラベルを下へ移動', exact: true }).click();
+  for (const name of ['生活世界ラベルを上へ移動', '生活世界ラベルを下へ移動', '生活世界に追加']) {
+    assert.equal(await world.getByRole('button', { name, exact: true }).count(), 0, `${name} is removed`);
+  }
+  // Retain an existing saved position even though its header controls are removed.
+  await page.evaluate(() => globalThis.fixtureSavedLifePosition());
   await page.reload(); await world.waitFor();
   assert.deepEqual(await headingOrder(), ['first-label', 'life', 'second-label'], 'position and visibility survive reload');
   assert.equal(await world.locator('.color-popover, .meta-color').count(), 0, 'no color control');
