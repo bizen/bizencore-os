@@ -49,6 +49,7 @@ try {
   await page.route('**/*', route => route.request().url() === 'https://life-all.test/'
     ? route.fulfill({ contentType: 'text/html', body: `<style>${css}</style><div id="root"></div><script>${outputFiles[0].text}</script>` }) : route.abort());
   await page.goto('https://life-all.test/');
+  assert.equal(await page.locator('.app-header').evaluate(element => getComputedStyle(element).borderBottomWidth), '0px', 'web header has no bottom divider');
   const world = page.locator('.life-world');
   assert.equal(await world.count(), 0, 'All defaults to hidden');
   await page.getByRole('button', { name: '設定', exact: true }).click();

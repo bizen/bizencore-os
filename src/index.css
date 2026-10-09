@@ -137,7 +137,6 @@ body {
   justify-content: space-between;
   gap: 1.5rem;
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
   background: var(--header-bg);
