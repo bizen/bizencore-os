@@ -43,6 +43,7 @@ try {
     assert.equal(await page.locator('html').evaluate(element => getComputedStyle(element).scrollbarWidth), 'none');
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow');
     const box = await rail.boundingBox();
+    assert.equal(box.x, width <= 640 ? 8 : 22, 'rail has breathing room from the left edge');
     assert.ok(Math.abs(box.y + box.height / 2 - 450) < 1, 'rail is vertically centered');
     await page.locator('.row--task .row-title').first().evaluate(element => {
       const rail = document.querySelector('.task-scroll-rail').getBoundingClientRect();
