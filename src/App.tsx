@@ -14,6 +14,7 @@ import { Brand } from './components/Brand';
 import { AppUpdateButton } from './components/AppUpdateButton';
 import { initialPartnerInvite } from './lib/partnerModel';
 import { AccountDeletionBoundary } from './components/AccountDeletionBoundary';
+import { TaskScrollRail } from './components/TaskScrollRail';
 
 const SPLASH_VISIBLE_MS = 1100;
 const SPLASH_FADE_MS = 450;
@@ -36,6 +37,8 @@ function usePageSwitchShortcut() {
 }
 
 export default function App() {
+  const location = useLocation();
+  const taskScroll = location.pathname === '/';
   const [splashState, setSplashState] = useState<'visible' | 'fading' | 'gone'>('visible');
   const [settingsOpen, setSettingsOpen] = useState(() => Boolean(initialPartnerInvite()));
   const [theme, setTheme] = useState<Theme>(readTheme);
@@ -76,7 +79,7 @@ export default function App() {
       <AccountDeletionBoundary>
       <SyncBridge />
 
-      <div className="app-shell">
+      <div className={`app-shell${taskScroll ? ' app-shell--task-scroll' : ''}`}>
         <header className="app-header">
           <Brand />
           <div className="app-header-end">
@@ -110,7 +113,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className="app-main">
+        <main className="app-main" id="task-scroll-content">
           <Routes>
             <Route path="/" element={<TasksPage />} />
             <Route path="/count" element={<CountPage />} />
@@ -119,6 +122,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+        {taskScroll ? <TaskScrollRail controls="task-scroll-content" /> : null}
 
         <Mascot />
         {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={changeTheme} /> : null}
