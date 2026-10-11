@@ -245,7 +245,7 @@ body {
 :root:has(.app-shell--task-scroll) { scrollbar-width: none; }
 :root:has(.app-shell--task-scroll)::-webkit-scrollbar { width: 0; }
 .app-shell--task-scroll > .app-main { padding-left: 3rem; }
-.task-scroll-rail { position: fixed; top: 50%; left: 22px; transform: translateY(-50%); z-index: 9; display: flex; flex-direction: column; align-items: flex-start; width: 32px; padding: 8px 4px; touch-action: none; cursor: grab; user-select: none; }
+.task-scroll-rail { position: fixed; top: 50%; left: 38px; transform: translateY(-50%); z-index: 9; display: flex; flex-direction: column; align-items: flex-start; width: 32px; padding: 8px 4px; touch-action: none; cursor: grab; user-select: none; }
 .task-scroll-rail:active { cursor: grabbing; }
 .task-scroll-rail:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 2px; border-radius: 4px; }
 .task-scroll-mark { position: relative; display: block; width: 100%; height: 14px; flex: none; }
@@ -254,7 +254,7 @@ body {
 .task-scroll-rail:hover .task-scroll-mark:not(.is-current)::before { opacity: 0.6; }
 @media (max-width: 640px) {
   .app-shell--task-scroll > .app-main { padding-left: 30px; }
-  .task-scroll-rail { left: 8px; width: 22px; }
+  .task-scroll-rail { left: 12px; width: 22px; }
   .task-scroll-mark::before { width: 10px; }
   .task-scroll-mark.is-current::before { width: 14px; }
 }
