@@ -5,7 +5,7 @@ import { mergeItems } from "../src/lib/itemMerge";
 import { coerceAttachments } from "../src/lib/attachments";
 import { cleanupFiles } from "./fileCleanup";
 import { isDateString, isTimeZone } from "../src/lib/taskDates";
-import { coerceLifeData, lifeCheckKey, lifeEntryStamp, lifeSubtreeEntries, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
+import { coerceLifeData, lifeCheckKey, lifeEntryStamp, lifeSubtreeEntries, mergeLifeCheck, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
 import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 import { accountActive, requireActiveAccount } from './accountAccess';
 
@@ -69,7 +69,7 @@ export const lifeWorldPush = mutation({
         }, checks: {} };
         for (const check of checks) {
             const key = lifeCheckKey(check.entryId, check.date);
-            if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key)) throw new Error('Invalid life check');
+            if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key) || (check.filed && !check.done)) throw new Error('Invalid life check');
             checkIds.add(key);
             let entry = effectiveEntries.get(check.entryId);
             if (!entry) {
@@ -91,10 +91,10 @@ export const lifeWorldPush = mutation({
         for (const check of checks) {
             const existing = await ctx.db.query('lifeChecks')
                 .withIndex('by_user_entry_date', q => q.eq('userId', identity.subject).eq('entryId', check.entryId).eq('date', check.date)).unique();
-            if (!existing) await ctx.db.insert('lifeChecks', { userId: identity.subject, ...check });
-            else if (check.updatedAt > existing.updatedAt ||
-                (check.updatedAt === existing.updatedAt && check.done && !existing.done)) {
-                await ctx.db.patch(existing._id, check);
+            const value = { ...check, filed: check.done && check.filed ? true : undefined };
+            if (!existing) await ctx.db.insert('lifeChecks', { userId: identity.subject, ...value });
+            else if (mergeLifeCheck(existing, check) === check) {
+                await ctx.db.patch(existing._id, value);
             }
         }
         if (preferences) {

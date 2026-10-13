@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { MAX_FILE_SIZE } from "../src/lib/attachments";
+import { desktopMcpIdentity } from "./lib/desktopMcp";
 
 /*
  * MCP サーバ（api/mcp.ts）からの入口。
@@ -48,13 +49,33 @@ function jsonResponse(body: unknown, status = 200): Response {
 /** 中の関数が投げた理由は、そのままエージェントに見せたいので本文に載せる */
 function route(run: (ctx: Parameters<Parameters<typeof httpAction>[0]>[0], body: Record<string, unknown>) => Promise<unknown>) {
     return httpAction(async (ctx, request) => {
-        if (!authorized(request)) return jsonResponse({ error: "Unauthorized" }, 401);
+        const desktop = new URL(request.url).pathname.startsWith("/desktop-mcp/");
+        let desktopUser: string | undefined;
+        if (desktop) {
+            let identity;
+            try {
+                identity = await ctx.auth.getUserIdentity();
+            } catch {
+                return jsonResponse({ error: "Desktop MCP unavailable or unauthorized" }, 401);
+            }
+            const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+            desktopUser = desktopMcpIdentity(identity, env);
+            if (!desktopUser) return jsonResponse({ error: "Desktop MCP unavailable or unauthorized" }, 401);
+            if (await ctx.runQuery(internal.accountDeletion.job, { userId: desktopUser })) {
+                return jsonResponse({ error: "Account is being deleted" }, 403);
+            }
+        } else if (!authorized(request)) return jsonResponse({ error: "Unauthorized" }, 401);
 
         let body: Record<string, unknown>;
         try {
             body = (await request.json()) as Record<string, unknown>;
         } catch {
             return jsonResponse({ error: "Invalid JSON body" }, 400);
+        }
+        if (!body || typeof body !== "object" || Array.isArray(body)) return jsonResponse({ error: "Invalid JSON body" }, 400);
+        if (desktopUser) {
+            const agent = body.clientId === "desktop-claude" ? "Claude Code" : "Codex";
+            body = { ...body, userId: desktopUser, clientId: agent === "Codex" ? "desktop-codex" : "desktop-claude", clientName: agent };
         }
         if (typeof body.userId !== "string" || !body.userId) {
             return jsonResponse({ error: "userId is required" }, 400);
@@ -87,6 +108,11 @@ function route(run: (ctx: Parameters<Parameters<typeof httpAction>[0]>[0], body:
 }
 
 const http = httpRouter();
+
+function mcpRoute(options: { path: string; method: "POST"; handler: ReturnType<typeof httpAction> }) {
+    http.route(options);
+    http.route({ ...options, path: options.path.replace("/mcp/", "/desktop-mcp/") });
+}
 
 const uploadHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -156,7 +182,7 @@ http.route({
     }),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/list",
     method: "POST",
     handler: route((ctx, body) =>
@@ -173,7 +199,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/task-view",
     method: "POST",
     handler: route((ctx, body) =>
@@ -184,7 +210,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/get",
     method: "POST",
     handler: route((ctx, body) =>
@@ -195,7 +221,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/record-progress",
     method: "POST",
     handler: route((ctx, body) =>
@@ -210,7 +236,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/preview-delete",
     method: "POST",
     handler: route((ctx, body) =>
@@ -221,7 +247,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/add",
     method: "POST",
     handler: route((ctx, body) =>
@@ -242,7 +268,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/complete",
     method: "POST",
     handler: route((ctx, body) =>
@@ -255,7 +281,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/update",
     method: "POST",
     handler: route((ctx, body) =>
@@ -274,7 +300,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/attach",
     method: "POST",
     handler: route((ctx, body) =>
@@ -288,7 +314,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/update-context",
     method: "POST",
     handler: route((ctx, body) =>
@@ -304,7 +330,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/add-many",
     method: "POST",
     handler: route((ctx, body) =>
@@ -323,7 +349,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/add-label",
     method: "POST",
     handler: route((ctx, body) =>
@@ -334,7 +360,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/move",
     method: "POST",
     handler: route((ctx, body) =>
@@ -347,7 +373,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/label-to-task",
     method: "POST",
     handler: route((ctx, body) =>
@@ -359,7 +385,7 @@ http.route({
     ),
 });
 
-http.route({
+mcpRoute({
     path: "/mcp/delete",
     method: "POST",
     handler: route((ctx, body) =>

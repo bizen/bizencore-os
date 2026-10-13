@@ -26,7 +26,8 @@ import {
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
-import { LIFE_SECTION_ID, lifeEntriesForDate, lifeSectionIndex } from '../lib/lifeWorldModel';
+import { LIFE_SECTION_ID, lifeEntriesForDate, lifeParentIds, lifeSectionIndex, partitionLifeRows } from '../lib/lifeWorldModel';
+import { collapseRows } from '../lib/collapsedRows';
 
 type ViewMode = 'all' | 'today' | 'board' | `label:${string}`;
 
@@ -221,6 +222,30 @@ export function TasksPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [partnerSide, setPartnerSide] = useState<'self' | 'partner'>('self');
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleCollapse = useCallback((id: string) => {
+    setActiveId(id);
+    setCollapsedIds(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+  const revealTask = useCallback((id: string) => {
+    const tasks = taskStore.getState().items;
+    const life = lifeWorldStore.getSnapshot().data;
+    const parents = tasks[id] ? null : lifeParentIds(life);
+    const ancestors = new Set<string>();
+    let parent = tasks[id]?.parentId ?? parents?.get(id) ?? null;
+    while (parent && !ancestors.has(parent)) {
+      ancestors.add(parent);
+      parent = tasks[parent]?.parentId ?? parents?.get(parent) ?? null;
+    }
+    setCollapsedIds(previous => {
+      if (![...ancestors].some(parent => previous.has(parent))) return previous;
+      return new Set([...previous].filter(parent => !ancestors.has(parent)));
+    });
+  }, []);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
   const [deadlineOpenId, setDeadlineOpenId] = useState<string | null>(null);
   const [colorOpenId, setColorOpenId] = useState<string | null>(null);
@@ -229,13 +254,15 @@ export function TasksPage() {
   const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate' } | null>(null);
   const [lifeInspector, setLifeInspector] = useState<LifeInspection | null>(null);
   const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate' }) => {
+    revealTask(selection.id);
     setLifeInspector(null);
     setInspector(selection);
-  }, []);
+  }, [revealTask]);
   const openLifeInspector = useCallback((selection: LifeInspection) => {
+    revealTask(selection.id);
     setInspector(null);
     setLifeInspector(selection);
-  }, []);
+  }, [revealTask]);
   const closeLifeInspector = useCallback(() => {
     setLifeInspector(null);
     if (lifeInspector) requestAnimationFrame(() => {
@@ -247,6 +274,7 @@ export function TasksPage() {
   const [burstOrder, setBurstOrder] = useState<ReadonlyMap<string, number>>(EMPTY_BURST);
 
   const titleRefs = useRef(new Map<string, HTMLTextAreaElement>());
+  const lifeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const noteRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const searchRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -268,23 +296,40 @@ export function TasksPage() {
     () => focusedLabelId ? rowsForLabel(allRows, focusedLabelId) : [],
     [allRows, focusedLabelId]
   );
-  const { activeRows, doneRows } = useMemo(() => {
+  const { activeRows, doneRows, hiddenCounts, unfoldedActiveRows } = useMemo(() => {
     const source = view === 'today' ? todayRows : focusedLabelId ? focusRows : allRows;
     const split = partitionCompleted(source, items, burstOrder);
+    const unfoldedActiveRows = filterRows(split.active, query);
+    const folded = collapseRows(unfoldedActiveRows,
+      row => !query.trim() && !!row.item.locked && collapsedIds.has(row.item.id), row => row.item.id, row => row.item.type === 'task');
     return {
-      activeRows: filterRows(split.active, query),
+      activeRows: folded.rows,
       doneRows: filterRows(split.done, query),
+      hiddenCounts: folded.hiddenCounts,
+      unfoldedActiveRows,
     };
-  }, [view, focusedLabelId, focusRows, todayRows, allRows, items, burstOrder, query]);
+  }, [view, focusedLabelId, focusRows, todayRows, allRows, items, burstOrder, query, collapsedIds]);
 
-  const doneCount = useMemo(
-    () => doneRows.filter((row) => row.item.type === 'task').length,
-    [doneRows]
-  );
+  const lifeRows = useMemo(() => {
+    if (!showLife) return { active: [], done: [] };
+    const parts = partitionLifeRows(lifeData, todayDate, view === 'all', query);
+    return { ...parts, active: collapseRows(parts.active,
+      row => !query.trim() && !!row.entry.locked && collapsedIds.has(row.entry.id), row => row.entry.id).rows };
+  }, [showLife, lifeData, todayDate, view, query, collapsedIds]);
+  const doneCount = doneRows.filter(row => row.item.type === 'task').length + lifeRows.done.length;
+  const fileCompleted = useCallback(() => {
+    taskStore.fileCompleted();
+    lifeWorldStore.fileCompleted(todayDate);
+  }, [todayDate]);
 
   const boardColumns = useMemo(
-    () => (view === 'board' ? toBoardColumns(activeRows) : []),
-    [view, activeRows]
+    () => {
+      if (view !== 'board') return [];
+      const counts = new Map(toBoardColumns(unfoldedActiveRows).map(column => [column.key,
+        column.rows.filter(row => row.item.type === 'task' && !row.item.done && !row.item.locked).length]));
+      return toBoardColumns(activeRows).map(column => ({ ...column, remaining: counts.get(column.key) ?? 0 }));
+    },
+    [view, activeRows, unfoldedActiveRows]
   );
 
   const lifeIndex = lifeSectionIndex(activeRows, lifeData.preferences?.beforeId);
@@ -356,13 +401,19 @@ export function TasksPage() {
   }, [view, focusedLabels]);
 
   /** 検索中は、当たったものが隠れないよう棚を開けておく（この状態は覚えない） */
-  const shelfOpen = completedOpen || (query.trim() !== '' && doneRows.length > 0);
+  const shelfOpen = completedOpen || (query.trim() !== '' && doneCount > 0);
 
   /** ↑↓ で行き来できる範囲。棚を開いているときはそこも含める */
   const rows = useMemo(
     () => (shelfOpen ? [...activeRows, ...doneRows] : activeRows),
     [shelfOpen, activeRows, doneRows]
   );
+  const navigationIds = useMemo(() => {
+    const ids = activeRows.map(row => row.item.id);
+    if (view === 'all' && showLife) ids.splice(lifeIndex, 0, LIFE_SECTION_ID, ...lifeRows.active.map(row => row.entry.id));
+    return shelfOpen ? [...ids, ...doneRows.map(row => row.item.id), ...(view === 'all' ? lifeRows.done.map(row => row.entry.id) : [])] : ids;
+  }, [activeRows, doneRows, shelfOpen, view, showLife, lifeIndex, lifeRows]);
+  const visibleRootIds = useMemo(() => activeRows.filter(row => row.depth === 0).map(row => row.item.id), [activeRows]);
   const searchResults = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle ? rows.filter((row) => matchesQuery(row.item, needle)) : [];
@@ -373,6 +424,7 @@ export function TasksPage() {
       .filter(entry => `${entry.text}\n${entry.note}`.toLowerCase().includes(needle)) : [];
   }, [query, showLife, lifeData, todayDate, view]);
   const chooseLifeSearchResult = (id: string) => {
+    if (lifeRows.done.some(row => row.entry.id === id)) setCompletedOpen(true);
     setSearchOpen(false);
     setQuery('');
     openLifeInspector({ id, date: todayDate, accountId: lifeWorldStore.getSnapshot().accountId,
@@ -388,6 +440,7 @@ export function TasksPage() {
   };
 
   const chooseSearchResult = (row: Row) => {
+    revealTask(row.item.id);
     if (doneRows.some((doneRow) => doneRow.item.id === row.item.id)) setCompletedOpen(true);
     setSearchOpen(false);
     setQuery('');
@@ -434,6 +487,12 @@ export function TasksPage() {
   const completionBlocked = useMemo(() => completionBlockedIds(items), [items]);
 
   const applyFocus = useCallback((pending: PendingFocus): boolean => {
+    if (pending.id === LIFE_SECTION_ID) {
+      const heading = lifeHeadingRef.current;
+      if (!heading) return false;
+      heading.focus();
+      return true;
+    }
     const map = pending.target === 'note' ? noteRefs.current : titleRefs.current;
     const el = map.get(pending.id);
     if (!el) return false;
@@ -457,9 +516,10 @@ export function TasksPage() {
     (id: string | null | undefined, target: FocusTarget = 'title', caret: Caret = 'end') => {
       if (!id) return;
       const pending: PendingFocus = { id, target, caret, misses: 0 };
-      pendingFocus.current = applyFocus(pending) ? null : pending;
+      if (applyFocus(pending)) pendingFocus.current = null;
+      else { revealTask(id); pendingFocus.current = pending; }
     },
-    [applyFocus]
+    [applyFocus, revealTask]
   );
 
   useLayoutEffect(() => {
@@ -493,13 +553,13 @@ export function TasksPage() {
 
   const moveFocus = useCallback(
     (fromId: string, direction: -1 | 1, caret: Caret = 'end') => {
-      const index = rowIndexOf(fromId);
-      const target = rows[index + direction];
+      const index = navigationIds.indexOf(fromId);
+      const target = index >= 0 ? navigationIds[index + direction] : undefined;
       if (!target) return false;
-      requestFocus(target.item.id, 'title', caret);
+      requestFocus(target, 'title', caret);
       return true;
     },
-    [rowIndexOf, rows, requestFocus]
+    [navigationIds, requestFocus]
   );
 
   const removeRow = useCallback(
@@ -723,31 +783,31 @@ export function TasksPage() {
           if (active === searchRef.current) {
             if (event.key !== 'ArrowDown') return;
             event.preventDefault();
-            requestFocus(rows[0]?.item.id);
+            requestFocus(navigationIds[0]);
             return;
           }
         }
 
         event.preventDefault();
-        const index = activeId ? rows.findIndex((row) => row.item.id === activeId) : -1;
+        const index = activeId ? navigationIds.indexOf(activeId) : -1;
         if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
           const step = event.key === 'ArrowDown' ? 1 : -1;
           const target =
             index >= 0
-              ? (rows[index + step] ?? rows[index])
-              : (event.key === 'ArrowDown' ? rows[0] : rows[rows.length - 1]);
-          requestFocus(target?.item.id);
+              ? (navigationIds[index + step] ?? navigationIds[index])
+              : (event.key === 'ArrowDown' ? navigationIds[0] : navigationIds[navigationIds.length - 1]);
+          requestFocus(target);
           return;
         }
         // ← → は、いまいる行に戻るだけ
-        requestFocus((index >= 0 ? rows[index] : rows[0])?.item.id);
+        requestFocus(index >= 0 ? navigationIds[index] : navigationIds[0]);
         return;
       }
 
       if (event.altKey && event.code === 'KeyC') {
         event.preventDefault();
         if (event.shiftKey) taskStore.clearCompleted();
-        else taskStore.fileCompleted();
+        else fileCompleted();
         return;
       }
 
@@ -792,7 +852,7 @@ export function TasksPage() {
     colorOpenId,
     helpOpen,
     searchOpen,
-    rows,
+    navigationIds,
     activeId,
     requestFocus,
     handleDeadlineOpenChange,
@@ -802,6 +862,7 @@ export function TasksPage() {
     inspector,
     lifeInspector,
     closeLifeInspector,
+    fileCompleted,
   ]);
 
   const handleTitleKeyDown = (
@@ -858,7 +919,18 @@ export function TasksPage() {
     // ---- 並べ替え ----
     if (mod && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       event.preventDefault();
-      taskStore.move(item.id, event.key === 'ArrowUp' ? -1 : 1);
+      const direction = event.key === 'ArrowUp' ? -1 : 1;
+      const rootIndex = visibleRootIds.indexOf(item.id);
+      const sectionIndex = lifeSectionIndex(activeRows, lifeData.preferences?.beforeId);
+      const lifeRootIndex = activeRows.slice(0, sectionIndex).filter(row => row.depth === 0).length;
+      if (view === 'all' && showLife && rootIndex >= 0 &&
+          (direction === -1 ? rootIndex === lifeRootIndex : rootIndex === lifeRootIndex - 1)) {
+        // Crossing the separate list remounts the title; restore focus after that render.
+        pendingFocus.current = { id: item.id, target: 'title', caret, misses: 0 };
+        lifeWorldStore.moveSection(visibleRootIds, direction === -1 ? 1 : -1);
+        return;
+      }
+      taskStore.move(item.id, direction);
       requestFocus(item.id, 'title', caret);
       return;
     }
@@ -975,6 +1047,9 @@ export function TasksPage() {
       item={row.item}
       depth={row.depth}
       hasChildren={(rows[index + 1]?.depth ?? 0) > row.depth}
+      collapsed={hiddenCounts.has(row.item.id)}
+      hiddenCount={hiddenCounts.get(row.item.id) ?? 0}
+      onToggleCollapse={query.trim() ? undefined : toggleCollapse}
       context={row.context}
       todayDate={todayDate}
       todayTime={todayTime}
@@ -1141,7 +1216,7 @@ export function TasksPage() {
                   <p className="board-col-title">ラベルなし</p>
                 )}
                 <span className="board-col-count" title="残っているタスク">
-                  {column.rows.filter((row) => row.item.type === 'task' && !row.item.done && !row.item.locked).length}
+                  {column.remaining}
                 </span>
               </div>
               <ul className="row-list board-col-list">{column.rows.map(renderRow)}</ul>
@@ -1160,6 +1235,10 @@ export function TasksPage() {
           <ul className="row-list">{(view === 'all' && showLife ? activeRows.slice(0, lifeIndex) : activeRows).map(renderRow)}</ul>
           {view === 'all' && showLife ? <>
             <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null} allRootIds={allRootIds} query={query}
+              collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
+              navigation={{ activeId, onFocus: setActiveId, moveFocus, registerTitle,
+                registerHeading: el => { lifeHeadingRef.current = el; },
+                moveSection: direction => lifeWorldStore.moveSection(visibleRootIds, direction) }}
               onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} />
             <ul className="row-list">{activeRows.slice(lifeIndex).map(renderRow)}</ul>
           </> : null}
@@ -1181,6 +1260,7 @@ export function TasksPage() {
       ) : null}
 
       {view === 'today' ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
+        collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
         onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} /> : null}
 
       <div className="tasks-footer">
@@ -1211,7 +1291,7 @@ export function TasksPage() {
             <button
               type="button"
               className="ghost-btn"
-              onClick={() => taskStore.fileCompleted()}
+              onClick={fileCompleted}
               title="完了したタスクを完了済みへ移す（⌥C）"
             >
               完了を整理（⌥C）
@@ -1253,7 +1333,16 @@ export function TasksPage() {
             </button>
           </div>
           {shelfOpen ? (
-            <ul className="row-list done-shelf-list">{doneRows.map(renderRow)}</ul>
+            <>
+              <ul className="row-list done-shelf-list">{doneRows.map(renderRow)}</ul>
+              {lifeRows.done.length > 0 ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
+                collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
+                allRootIds={view === 'all' ? allRootIds : undefined} query={query} filedOnly
+                navigation={view === 'all' ? { activeId, onFocus: setActiveId, moveFocus, registerTitle,
+                  registerHeading: el => { lifeHeadingRef.current = el; },
+                  moveSection: direction => lifeWorldStore.moveSection(visibleRootIds, direction) } : undefined}
+                onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} /> : null}
+            </>
           ) : null}
         </section>
       ) : null}

@@ -100,7 +100,8 @@ export function LifeWorldInspector({ selection, todayDate, onClose, onSelect }: 
       {entry.repeat !== 'once' ? (
         <section className="inspector-section life-inspector-week">
           <h3 className="inspector-label">今日までの7日間</h3>
-          <LifeStreak week={lifeWeek(data, entry, todayDate)} />
+          <LifeStreak week={lifeWeek(data, entry, todayDate)} isDisabled={day => !day.done && blocked}
+            onChange={(date, achieved) => lifeWorldStore.setHabitDayDone(entry.id, date, achieved, todayDate)} />
         </section>
       ) : null}
       <section className="inspector-section">

@@ -1,4 +1,4 @@
-import { LockKeyhole, Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
+import { Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
 import { fitTextarea, useAutoGrow } from '../../lib/useAutoGrow';
 import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
 import { liveAttachments } from '../../lib/attachments';
@@ -7,6 +7,7 @@ import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
 import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
 import { TaskTreeGuides } from './TaskTreeGuides';
+import { TaskLockMark } from './TaskLockMark';
 
 /**
  * チェックマークは線を描き込みたいので、アイコンフォントではなく path を直接持つ。
@@ -51,6 +52,9 @@ export interface TaskRowProps {
   item: Item;
   depth: number;
   hasChildren?: boolean;
+  collapsed?: boolean;
+  hiddenCount?: number;
+  onToggleCollapse?: (id: string) => void;
   /** 親から離れて棚に置かれたサブタスクに添える親の名前 */
   context?: string;
   todayDate: string;
@@ -90,6 +94,9 @@ export function TaskRow(props: TaskRowProps) {
     item,
     depth,
     hasChildren = false,
+    collapsed = false,
+    hiddenCount = 0,
+    onToggleCollapse,
     context,
     todayDate,
     todayTime,
@@ -167,9 +174,8 @@ export function TaskRow(props: TaskRowProps) {
           {isSection ? (
             <span className="row-section-mark" aria-hidden />
           ) : item.locked ? (
-            <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中・詳細から解除できます">
-              <LockKeyhole size={14} aria-hidden />
-            </span>
+            <TaskLockMark text={item.text} hasChildren={hasChildren} collapsed={collapsed} hiddenCount={hiddenCount}
+              onToggle={onToggleCollapse ? () => onToggleCollapse(item.id) : undefined} />
           ) : (
             <CheckBox
               done={item.done}

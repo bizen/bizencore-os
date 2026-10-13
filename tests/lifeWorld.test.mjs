@@ -14,6 +14,98 @@ function memoryStorage() {
   return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), data };
 }
 
+test('habit history edits one scheduled day in the last seven days without changing descendants or other days', () => {
+  const storage = memoryStorage(), store = createLifeWorldStore(storage), today = '2026-10-07';
+  const habit = store.add('2026-10-01'); store.setRepeat(habit, 'daily');
+  const child = store.add('2026-10-01', habit, true, true); store.setRepeat(child, 'once');
+  store.setHabitDayDone(habit, today, true, today); store.fileCompleted(today);
+  const todayCheck = store.getSnapshot().data.checks[model.lifeCheckKey(habit, today)];
+  assert.deepEqual(model.partitionLifeRows(store.getSnapshot().data, today, true).active.map(row => row.entry.id), [habit, child],
+    'filing a completed container does not hide its unfinished child');
+  store.setHabitDayDone(habit, '2026-10-01', true, today);
+  let data = store.getSnapshot().data;
+  assert.equal(data.checks[model.lifeCheckKey(habit, '2026-10-01')].done, true, 'oldest visible day is editable');
+  assert.deepEqual(data.checks[model.lifeCheckKey(habit, today)], todayCheck, 'today stays filed and complete');
+  assert.equal(model.lifeEntryDone(data, data.entries[child], today), false, 'one-off child is untouched');
+  const saved = JSON.stringify(data); store.setHabitDayDone(habit, '2026-10-01', true, today);
+  assert.equal(JSON.stringify(store.getSnapshot().data), saved, 'setting the same value is a no-op');
+  for (const invalid of ['2026-09-30', '2026-10-08', '2026-02-30']) store.setHabitDayDone(habit, invalid, true, today);
+  store.setHabitDayDone(child, '2026-10-01', true, today);
+  assert.equal(JSON.stringify(store.getSnapshot().data), saved, 'out-of-range, invalid and one-off edits are rejected');
+  store.setHabitDayDone(habit, today, false, today); data = store.getSnapshot().data;
+  assert.equal(data.checks[model.lifeCheckKey(habit, today)].filed, undefined, 'unchecking restores a filed habit');
+  assert.equal(data.checks[model.lifeCheckKey(habit, '2026-10-01')].done, true);
+  store.undo(); assert.deepEqual(store.getSnapshot().data.checks[model.lifeCheckKey(habit, today)].done, true);
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(habit, today)].filed, true);
+  const reopened = createLifeWorldStore(storage);
+  assert.equal(model.lifeWeek(reopened.getSnapshot().data, reopened.getSnapshot().data.entries[habit], today).filter(day => day.done).length, 2);
+});
+
+test('habit history rejects unscheduled, pre-creation, deleted and locked days and respects subtree completion locks', () => {
+  const store = createLifeWorldStore(memoryStorage()), today = '2026-10-07';
+  const habit = store.add('2026-10-01'); store.setRepeat(habit, 'weekdays');
+  for (const date of ['2026-10-03', '2026-10-04', '2026-09-30']) store.setHabitDayDone(habit, date, true, today);
+  assert.deepEqual(store.getSnapshot().data.checks, {});
+  store.setHabitDayDone(habit, '2026-10-02', true, today);
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(habit, '2026-10-02')].done, true);
+  const child = store.add('2026-10-01', habit, true, true); store.setLocked(child, true, today);
+  store.setHabitDayDone(habit, '2026-10-05', true, today);
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(habit, '2026-10-05')], undefined);
+  store.setHabitDayDone(habit, '2026-10-02', false, today);
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(habit, '2026-10-02')].done, false, 'existing history can be unchecked without completing a locked subtree');
+  store.setLocked(habit, true, today); store.setHabitDayDone(habit, '2026-10-06', true, today);
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(habit, '2026-10-06')], undefined);
+  store.setLocked(habit, false, today); store.remove(habit); store.setHabitDayDone(habit, today, true, today);
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(habit, today)], undefined);
+});
+
+test('filing moves only completed life tasks, carries single tasks forward and leaves daily checks intact', () => {
+  const storage = memoryStorage(), store = createLifeWorldStore(storage), date = '2026-10-05';
+  const wish = store.add(date), habit = store.add(date), unfinished = store.add(date), locked = store.add(date);
+  store.setRepeat(habit, 'daily'); store.setLocked(locked, true, date);
+  store.toggle(wish, date); store.toggle(habit, date);
+  const history = model.lifeWeek(store.getSnapshot().data, store.getSnapshot().data.entries[habit], date);
+  store.fileCompleted('2026-02-30');
+  assert.equal(model.partitionLifeRows(store.getSnapshot().data, date, true).done.length, 0);
+  store.fileCompleted(date);
+  let data = store.getSnapshot().data;
+  assert.deepEqual(model.partitionLifeRows(data, date, true).active.map(row => row.entry.id), [unfinished, locked]);
+  assert.deepEqual(model.partitionLifeRows(data, date, true).done.map(row => row.entry.id), [wish, habit]);
+  assert.deepEqual(model.lifeWeek(data, data.entries[habit], date), history, 'streak is unchanged');
+  assert.equal(Object.values(data.entries).some(entry => entry.deletedAt), false, 'filing is not deletion');
+  const before = JSON.stringify(data); store.fileCompleted(date);
+  assert.equal(JSON.stringify(store.getSnapshot().data), before, 'repeated filing is a no-op');
+  store.undo();
+  assert.equal(model.partitionLifeRows(store.getSnapshot().data, date, true).done.length, 0, 'one undo restores the filing batch');
+  store.fileCompleted(date);
+  const reopened = createLifeWorldStore(storage); data = reopened.getSnapshot().data;
+  assert.deepEqual(model.partitionLifeRows(data, '2026-10-06', true).done.map(row => row.entry.id), [wish]);
+  assert.equal(model.lifeEntryDone(data, data.entries[habit], '2026-10-06'), false);
+  assert.equal(model.lifeEntryDone(data, data.entries[habit], date), true);
+  reopened.toggle(wish, '2026-10-06'); data = reopened.getSnapshot().data;
+  assert.equal(model.lifeEntryFiled(data, data.entries[wish], '2026-10-06'), false, 'unchecking restores the original position');
+  assert.equal(model.lifeEntryFiled(data, data.entries[wish], date), true, 'history stays filed');
+});
+
+test('completed life subtasks can be filed under an unfinished or locked parent without losing hierarchy', () => {
+  const store = createLifeWorldStore(memoryStorage()), date = '2026-10-05';
+  const parent = store.add(date); store.setText(parent, '買い物'); store.setLocked(parent, true, date);
+  const child = store.add(date, parent, true, true); store.setText(child, '牛乳');
+  const other = store.add(date, child, true); store.setText(other, 'パン');
+  store.toggle(child, date, true); store.fileCompleted(date);
+  let parts = model.partitionLifeRows(store.getSnapshot().data, date, true);
+  assert.deepEqual(parts.active.map(row => [row.entry.id, row.depth]), [[parent, 0], [other, 1]]);
+  assert.deepEqual(parts.done.map(row => [row.entry.id, row.depth, row.context]), [[child, 0, '生活世界 › 買い物']]);
+  store.toggle(child, date, true);
+  parts = model.partitionLifeRows(store.getSnapshot().data, date, true);
+  assert.deepEqual(parts.active.map(row => [row.entry.id, row.depth]), [[parent, 0], [child, 1], [other, 1]]);
+  assert.equal(parts.done.length, 0);
+  store.setLocked(parent, false, date); store.toggle(parent, date, true); store.fileCompleted(date);
+  parts = model.partitionLifeRows(store.getSnapshot().data, date, true);
+  assert.equal(parts.active.length, 0);
+  assert.deepEqual(parts.done.map(row => [row.entry.id, row.depth]), [[parent, 0], [child, 1], [other, 1]]);
+});
+
 test('persistent wishes and habits share a list without creating daily duplicate tasks', () => {
   const storage = memoryStorage();
   const store = createLifeWorldStore(storage);

@@ -1,14 +1,25 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { ChevronLeft, ChevronRight, Cloud, CloudCheck, CloudOff, CloudUpload, EyeOff, LockKeyhole, PanelRight, Plus, RefreshCw, Repeat2, Trash2, Undo2 } from 'lucide-react';
-import { LIFE_REPEAT_NAMES, LIFE_SECTION_ID, lifeCompletionBlocked, lifeEntryDone, lifeSubtreeEntries, lifeTreeRows, lifeWeek, shiftLifeDate, type LifeEntry } from '../../lib/lifeWorldModel';
+import { ChevronLeft, ChevronRight, Cloud, CloudCheck, CloudOff, CloudUpload, EyeOff, PanelRight, Plus, RefreshCw, Repeat2, Trash2, Undo2 } from 'lucide-react';
+import { LIFE_REPEAT_NAMES, LIFE_SECTION_ID, lifeCompletionBlocked, lifeEntryDone, lifeParentIds, lifeSubtreeEntries, partitionLifeRows, lifeWeek, shiftLifeDate, type LifeEntry } from '../../lib/lifeWorldModel';
 import { lifeWorldStore, useLifeWorldState } from '../../lib/lifeWorldStore';
 import { fitTextarea, useAutoGrow } from '../../lib/useAutoGrow';
 import { focusFirstMeta, handleMetaKeyDown } from '../../lib/metaCursor';
 import { LifeStreak } from './LifeStreak';
 import type { LifeInspection } from './LifeWorldInspector';
 import { TaskTreeGuides } from './TaskTreeGuides';
+import { TaskLockMark } from './TaskLockMark';
+import { collapseRows } from '../../lib/collapsedRows';
 
-function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote, onKeyDown, onNoteKeyDown, onRemove, includeAll, depth, hasChildren, blocked, noteOpen }: {
+interface LifeNavigation {
+  activeId: string | null;
+  onFocus: (id: string) => void;
+  moveFocus: (id: string, direction: -1 | 1) => boolean;
+  moveSection: (direction: -1 | 1) => void;
+  registerTitle: (id: string, el: HTMLTextAreaElement | null) => void;
+  registerHeading: (el: HTMLHeadingElement | null) => void;
+}
+
+function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote, onKeyDown, onNoteKeyDown, onRemove, includeAll, depth, hasChildren, blocked, noteOpen, navigation, context, collapsed, hiddenCount, onToggleCollapse }: {
   entry: LifeEntry; done: boolean; date: string; open: boolean;
   week: ReturnType<typeof lifeWeek>;
   onOpen: () => void;
@@ -19,18 +30,22 @@ function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote
   onRemove: () => void;
   includeAll: boolean;
   depth: number; hasChildren: boolean; blocked: boolean; noteOpen: boolean;
+  navigation?: LifeNavigation;
+  context?: string;
+  collapsed: boolean;
+  hiddenCount: number;
+  onToggleCollapse?: () => void;
 }) {
   const titleRef = useAutoGrow(entry.text);
   const noteRef = useAutoGrow(entry.note);
   return (
-    <li className={`row row--task${depth === 0 ? ' row--root' : ''} life-row${open ? ' is-active' : ''}${done ? ' is-done' : ''}${entry.locked ? ' row--locked' : ''}`}
+    <li className={`row row--task${depth === 0 ? ' row--root' : ''} life-row${open || navigation?.activeId === entry.id ? ' is-active' : ''}${done ? ' is-done' : ''}${entry.locked ? ' row--locked' : ''}`}
       style={{ '--depth': depth } as CSSProperties} data-life-id={entry.id}>
       <div className="row-main">
         <TaskTreeGuides depth={depth} hasChildren={hasChildren} />
         <div className="row-mark">
-          {entry.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中・詳細から解除できます">
-            <LockKeyhole size={14} aria-hidden />
-          </span> : <button type="button" className={`check${done ? ' is-checked' : ''}`}
+          {entry.locked ? <TaskLockMark text={entry.text} hasChildren={hasChildren} hiddenCount={hiddenCount}
+            collapsed={collapsed} onToggle={onToggleCollapse} /> : <button type="button" className={`check${done ? ' is-checked' : ''}`}
             aria-pressed={done} aria-label={`${entry.text.trim() || '生活タスク'}を${done ? '未完了に戻す' : '完了にする'}`}
             disabled={!done && blocked} tabIndex={-1}
             title={!done && blocked ? 'ロック中の子タスクがあるため完了できません' : '⌘Enter'}
@@ -40,9 +55,11 @@ function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote
           </button>}
         </div>
         <div className="row-text">
+          {context ? <span className="row-context">{context} ›</span> : null}
           <textarea rows={1} className="row-title" value={entry.text} placeholder="今日やりたいこと"
             aria-label="生活タスク" spellCheck={false}
-            ref={el => { titleRef.current = el; register(entry.id, el); }}
+            ref={el => { titleRef.current = el; register(entry.id, el); navigation?.registerTitle(entry.id, el); }}
+            onFocus={() => navigation?.onFocus(entry.id)}
             onChange={event => lifeWorldStore.setText(entry.id, event.target.value)}
             onKeyDown={event => onKeyDown(event, entry)} />
           {entry.repeat !== 'once' ? (
@@ -70,13 +87,18 @@ function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote
   );
 }
 
-export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, allRootIds, query = '' }: {
+export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, allRootIds, query = '', navigation, filedOnly = false, collapsedIds, onToggleCollapse, onReveal }: {
   todayDate: string;
   inspectedId: string | null;
   onInspect: (selection: LifeInspection) => void;
   onDateChange: () => void;
   allRootIds?: string[];
   query?: string;
+  navigation?: LifeNavigation;
+  filedOnly?: boolean;
+  collapsedIds?: ReadonlySet<string>;
+  onToggleCollapse?: (id: string) => void;
+  onReveal?: (id: string) => void;
 }) {
   const { data, canUndo, saveFailed, syncStatus } = useLifeWorldState();
   const syncLabel = { local: '端末に保存', loading: 'アカウント同期を準備中', pending: 'アカウント同期中', synced: 'アカウント同期済み', error: 'アカウント同期に失敗・再試行' }[syncStatus];
@@ -90,7 +112,20 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
   const emptyAddButton = useRef<HTMLButtonElement>(null);
   const pendingFocus = useRef<{ id: string; field: 'title' | 'note'; caret?: number } | null>(null);
-  const rows = lifeTreeRows(data, date, !!allRootIds, query);
+  const [localCollapsedIds, setLocalCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const foldedIds = collapsedIds ?? localCollapsedIds;
+  const toggleCollapse = (id: string) => {
+    if (onToggleCollapse) { onToggleCollapse(id); return; }
+    setLocalCollapsedIds(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const partitions = partitionLifeRows(data, date, !!allRootIds, query);
+  const folded = collapseRows(filedOnly ? partitions.done : partitions.active,
+    row => !query.trim() && !!row.entry.locked && foldedIds.has(row.entry.id), row => row.entry.id);
+  const rows = folded.rows.map((row, index) => ({ ...row, hasChildren: (folded.rows[index + 1]?.depth ?? 0) > row.depth }));
 
   useLayoutEffect(() => {
     const pending = pendingFocus.current;
@@ -103,7 +138,16 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
     if (!id) return;
     const el = (field === 'note' ? notes : titles).current.get(id);
     if (el) { el.focus(); if (caret !== undefined) el.setSelectionRange(caret, caret); }
-    else pendingFocus.current = { id, field, caret };
+    else {
+      pendingFocus.current = { id, field, caret };
+      if (onReveal) onReveal(id);
+      else {
+        const parents = lifeParentIds(lifeWorldStore.getSnapshot().data), ancestors = new Set<string>();
+        let parent = parents.get(id) ?? null;
+        while (parent && !ancestors.has(parent)) { ancestors.add(parent); parent = parents.get(parent) ?? null; }
+        setLocalCollapsedIds(previous => new Set([...previous].filter(parent => !ancestors.has(parent))));
+      }
+    }
   };
   const add = (afterId?: string) => focus(lifeWorldStore.add(date, afterId, !!allRootIds));
   const remove = (id: string) => {
@@ -151,6 +195,10 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
     } else if (event.key === 'Escape') {
       event.preventDefault(); event.currentTarget.blur();
     } else if (!mod && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      if (navigation) {
+        if (navigation.moveFocus(entry.id, event.key === 'ArrowUp' ? -1 : 1)) event.preventDefault();
+        return;
+      }
       const atBoundary = event.key === 'ArrowUp' ? event.currentTarget.selectionStart === 0
         : event.currentTarget.selectionEnd === event.currentTarget.value.length;
       if (!atBoundary) return;
@@ -166,18 +214,32 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
   };
 
   return (
-    <section id={`label-${LIFE_SECTION_ID}`} className={`life-world${allRootIds ? ' life-world--all' : ''}`} aria-labelledby="life-world-heading" onKeyDown={event => {
+    <section id={filedOnly ? undefined : `label-${LIFE_SECTION_ID}`} className={filedOnly ? 'life-filed' : `life-world${allRootIds ? ' life-world--all' : ''}`}
+      aria-labelledby={filedOnly ? undefined : 'life-world-heading'} aria-label={filedOnly ? '生活世界の完了済み' : undefined} onKeyDown={event => {
       const mod = event.metaKey || event.ctrlKey;
       if (!event.nativeEvent.isComposing && mod && !event.shiftKey && event.code === 'KeyZ') {
         event.preventDefault(); lifeWorldStore.undo();
       }
       // The page's view/search commands work here; task-delete/complete commands do not leak out.
-      if ((event.altKey && /^Digit[1-9]$/.test(event.code)) ||
+      if ((event.altKey && (/^Digit[1-9]$/.test(event.code) || (event.code === 'KeyC' && !event.shiftKey))) ||
           (mod && (event.code === 'KeyF' || event.code === 'Slash'))) return;
       event.stopPropagation();
     }}>
-      <header className="life-world-heading">
-        <h2 id="life-world-heading"><span className="life-world-mark" aria-hidden />生活世界
+      {!filedOnly ? <header className={`life-world-heading${navigation?.activeId === LIFE_SECTION_ID ? ' is-active' : ''}`}>
+        <h2 id="life-world-heading" aria-label="生活世界" tabIndex={navigation ? 0 : undefined} ref={navigation?.registerHeading}
+          onFocus={() => navigation?.onFocus(LIFE_SECTION_ID)}
+          onClick={event => { if (navigation && !(event.target instanceof Element && event.target.closest('button'))) event.currentTarget.focus(); }}
+          onKeyDown={event => {
+            if (!navigation || event.target !== event.currentTarget || event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (!event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+              event.preventDefault();
+              const direction = event.key === 'ArrowUp' ? -1 : 1;
+              if (event.metaKey || event.ctrlKey) navigation.moveSection(direction);
+              else navigation.moveFocus(LIFE_SECTION_ID, direction);
+            } else if (event.key === 'Escape') {
+              event.preventDefault(); event.currentTarget.blur();
+            }
+          }}><span className="life-world-mark" aria-hidden />生活世界
           {syncStatus === 'error' ? <button type="button" className="life-sync-retry" title={syncLabel}
             aria-label={syncLabel} onClick={lifeWorldStore.retrySync}><RefreshCw size={13} aria-hidden /></button>
             : <span className="life-sync-status" role="status" aria-label={syncLabel} title={syncLabel}><SyncIcon size={13} aria-hidden /></span>}
@@ -195,19 +257,22 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
         </div>}
         <button type="button" className="life-icon-btn" aria-label="生活世界の操作を元に戻す" title="元に戻す"
           disabled={!canUndo} onClick={lifeWorldStore.undo}><Undo2 size={15} aria-hidden /></button>
-      </header>
+      </header> : null}
       <ul className="row-list life-list">
-        {rows.map(({ entry, depth, hasChildren }) => <LifeRow key={`${date}:${entry.id}`} entry={entry} date={date} week={lifeWeek(data, entry, todayDate)}
+        {rows.map(({ entry, depth, hasChildren, context }) => <LifeRow key={`${date}:${entry.id}`} entry={entry} date={date} week={lifeWeek(data, entry, todayDate)}
           includeAll={!!allRootIds}
-          depth={depth} hasChildren={hasChildren} blocked={lifeCompletionBlocked(data, entry.id)} noteOpen={noteOpenId === entry.id}
+          navigation={navigation}
+          collapsed={folded.hiddenCounts.has(entry.id)} hiddenCount={folded.hiddenCounts.get(entry.id) ?? 0}
+          onToggleCollapse={query.trim() ? undefined : () => toggleCollapse(entry.id)}
+          depth={depth} hasChildren={hasChildren} context={context} blocked={lifeCompletionBlocked(data, entry.id)} noteOpen={noteOpenId === entry.id}
           done={lifeEntryDone(data, entry, date)} open={inspectedId === entry.id}
           onOpen={() => inspect(entry.id)}
           register={(id, el) => { if (el) titles.current.set(id, el); else titles.current.delete(id); }}
           registerNote={(id, el) => { if (el) notes.current.set(id, el); else notes.current.delete(id); }}
           onRemove={() => remove(entry.id)} onNoteKeyDown={onNoteKeyDown} onKeyDown={onKeyDown} />)}
       </ul>
-      {rows.length === 0 ? <button ref={emptyAddButton} type="button" className="life-add-empty" onClick={() => add()}><Plus size={14} aria-hidden />今日やりたいこと</button> : null}
-      {saveFailed ? <p className="life-save-error" role="alert">端末に保存できませんでした。画面を閉じる前に保存領域を確認してください。</p> : null}
+      {!filedOnly && rows.length === 0 ? <button ref={emptyAddButton} type="button" className="life-add-empty" onClick={() => add()}><Plus size={14} aria-hidden />今日やりたいこと</button> : null}
+      {!filedOnly && saveFailed ? <p className="life-save-error" role="alert">端末に保存できませんでした。画面を閉じる前に保存領域を確認してください。</p> : null}
     </section>
   );
 }

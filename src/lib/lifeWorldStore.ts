@@ -2,8 +2,8 @@ import { useSyncExternalStore } from 'react';
 import { MAX_DEPTH, newId } from './taskModel';
 import { isDateString } from './taskDates';
 import {
-  coerceLifeData, emptyLifeData, lifeCheckKey, lifeEntriesForDate, lifeEntryDone, mergeLifeData, restampLifeEntry,
-  lifeCanIndent, lifeCompletionBlocked, lifeParentIds, lifeSubtreeEntries, lifeTreeRows,
+  coerceLifeData, emptyLifeData, lifeCheckKey, lifeCheckForDate, lifeEntriesForDate, lifeEntryDone, mergeLifeData, restampLifeEntry,
+  lifeCanIndent, lifeCompletionBlocked, lifeParentIds, lifeSubtreeEntries, lifeTreeRows, lifeWeek,
   type LifeData, type LifeEntry, type LifeRepeat,
 } from './lifeWorldModel';
 
@@ -145,6 +145,33 @@ export function createLifeWorldStore(storage?: Storage) {
           checks[lifeCheckKey(child.id, date)] = { entryId: child.id, date, done, updatedAt: nextStamp() };
         }
         return { ...data, checks };
+      });
+    },
+    setHabitDayDone(id: string, date: string, done: boolean, todayDate: string) {
+      if (!isDateString(date) || !isDateString(todayDate) || typeof done !== 'boolean') return;
+      change(data => {
+        const entry = data.entries[id];
+        if (!entry || entry.deletedAt || entry.repeat === 'once' || entry.locked ||
+            !lifeWeek(data, entry, todayDate).some(day => day.date === date && day.scheduled) ||
+            (done && lifeCompletionBlocked(data, id))) return data;
+        const key = lifeCheckKey(id, date);
+        if ((data.checks[key]?.done === true) === done) return data;
+        // History editing targets this habit/day only, never the rest of its subtree.
+        return { ...data, checks: { ...data.checks, [key]: { entryId: id, date, done, updatedAt: nextStamp() } } };
+      });
+    },
+    fileCompleted(date: string) {
+      if (!isDateString(date)) return;
+      change(data => {
+        const checks = { ...data.checks };
+        let changed = false;
+        for (const entry of lifeEntriesForDate(data, date, true)) {
+          const check = lifeCheckForDate(data, entry, date);
+          if (!check?.done || check.filed || !lifeEntryDone(data, entry, date) || lifeCompletionBlocked(data, entry.id)) continue;
+          checks[lifeCheckKey(entry.id, check.date)] = { ...check, filed: true, updatedAt: nextStamp() };
+          changed = true;
+        }
+        return changed ? { ...data, checks } : data;
       });
     },
     move(id: string, date: string, direction: -1 | 1, includeAll = false) {

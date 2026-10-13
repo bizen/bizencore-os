@@ -122,7 +122,10 @@ try {
   await titles.nth(1).press('Alt+c');
   assert.equal(await page.locator('[data-row-id="ordinary"]').count(), 1);
   await page.getByRole('button', { name: '完了を整理（⌥C）', exact: true }).click();
-  assert.equal(await titles.count(), 2, 'ordinary completion cleanup leaves life tasks alone');
+  assert.equal(await titles.count(), 1, 'completion cleanup also files completed life tasks');
+  assert.equal(await page.locator('.done-shelf .life-row').count(), 1);
+  await world.getByRole('button', { name: '生活世界の操作を元に戻す', exact: true }).click();
+  assert.equal(await titles.count(), 2, 'undo restores life tasks without erasing their completion');
 
   for (const theme of ['black', 'white', 'original']) {
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);

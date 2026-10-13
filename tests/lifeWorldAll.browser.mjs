@@ -65,7 +65,51 @@ try {
   for (const name of ['生活世界ラベルを上へ移動', '生活世界ラベルを下へ移動', '生活世界に追加']) {
     assert.equal(await world.getByRole('button', { name, exact: true }).count(), 0, `${name} is removed`);
   }
-  // Retain an existing saved position even though its header controls are removed.
+  const heading = world.getByRole('heading', { name: '生活世界', exact: true });
+  const secondLabel = page.locator('[data-row-id="second-label"] .row-title');
+  const ordinary = page.locator('[data-row-id="ordinary"] .row-title');
+  await ordinary.focus(); await ordinary.press('ArrowDown');
+  assert.equal(await secondLabel.evaluate(el => el === document.activeElement), true);
+  await secondLabel.press('ArrowDown');
+  assert.equal(await heading.evaluate(el => el === document.activeElement), true, 'normal label navigates into the life heading');
+  assert.equal(await world.locator('.life-world-heading').getAttribute('class'), 'life-world-heading is-active');
+  await heading.press('x'); await heading.press('Backspace'); await heading.press('Meta+Backspace'); await heading.press('Enter');
+  assert.equal(await heading.textContent(), '生活世界', 'the fixed label cannot be edited, deleted or split');
+  await heading.press('ArrowDown');
+  const firstLifeTitle = world.getByRole('textbox', { name: '生活タスク', exact: true }).first();
+  assert.equal(await firstLifeTitle.evaluate(el => el === document.activeElement), true, 'heading navigates into its tasks');
+  await firstLifeTitle.press('ArrowUp');
+  assert.equal(await heading.evaluate(el => el === document.activeElement), true, 'first life task navigates back to its label');
+  await heading.press('ArrowUp');
+  assert.equal(await secondLabel.evaluate(el => el === document.activeElement), true);
+  await secondLabel.press('ArrowDown'); await heading.press('Meta+ArrowUp');
+  assert.deepEqual(await headingOrder(), ['first-label', 'life', 'second-label'], 'Cmd-Up moves the entire life section');
+  assert.equal(await heading.evaluate(el => el === document.activeElement), true, 'reordering retains heading focus');
+  await heading.press('ArrowUp');
+  assert.equal(await ordinary.evaluate(el => el === document.activeElement), true, 'navigation follows the new visual order');
+  await ordinary.press('ArrowDown'); await heading.press('ArrowDown');
+  const lastLifeTitle = world.getByRole('textbox', { name: '生活タスク', exact: true }).last();
+  await lastLifeTitle.focus(); await lastLifeTitle.press('ArrowDown');
+  assert.equal(await secondLabel.evaluate(el => el === document.activeElement), true, 'last life task navigates out to the next label');
+  await secondLabel.press('Control+ArrowUp');
+  assert.deepEqual(await headingOrder(), ['first-label', 'second-label', 'life'], 'ordinary labels can move across the life section');
+  assert.equal(await secondLabel.evaluate(el => el === document.activeElement), true);
+  await secondLabel.press('Meta+ArrowDown');
+  assert.deepEqual(await headingOrder(), ['first-label', 'life', 'second-label']);
+  await firstLifeTitle.focus(); await firstLifeTitle.press('ArrowUp');
+  await heading.press('Control+ArrowUp');
+  assert.deepEqual(await headingOrder(), ['life', 'first-label', 'second-label']);
+  await heading.press('Control+ArrowUp');
+  assert.deepEqual(await headingOrder(), ['life', 'first-label', 'second-label'], 'first-position reorder is a no-op');
+  await heading.press('Meta+ArrowDown'); await heading.press('Meta+ArrowDown'); await heading.press('Meta+ArrowDown');
+  assert.deepEqual(await headingOrder(), ['first-label', 'second-label', 'life'], 'last-position reorder is a no-op');
+  await heading.press('Meta+ArrowUp');
+  await heading.press('Escape'); await page.keyboard.press('ArrowDown');
+  assert.equal(await firstLifeTitle.evaluate(el => el === document.activeElement), true, 'arrows resume from a blurred life selection');
+  await page.reload(); await world.waitFor();
+  assert.deepEqual(await headingOrder(), ['first-label', 'life', 'second-label'], 'keyboard reorder survives reload');
+  // Retain positions saved by another client as well.
+  await heading.focus(); await heading.press('Meta+ArrowDown');
   await page.evaluate(() => globalThis.fixtureSavedLifePosition());
   await page.reload(); await world.waitFor();
   assert.deepEqual(await headingOrder(), ['first-label', 'life', 'second-label'], 'position and visibility survive reload');
@@ -98,6 +142,7 @@ try {
   assert.equal(await panel.getByRole('textbox', { name: '生活タスクのタイトル' }).inputValue(), 'Grocery shopping');
   await panel.getByRole('button', { name: '閉じる（Esc）', exact: true }).click();
   await page.getByRole('tab', { name: /today/ }).click();
+  assert.equal(await heading.getAttribute('tabindex'), null, 'Today keeps its separate day navigation');
   assert.equal(await world.getByRole('textbox', { name: '生活タスク', exact: true }).count(), 2, 'Today keeps weekday scheduling');
   await page.getByRole('tab', { name: 'all', exact: true }).click();
   for (const theme of ['black', 'white', 'original']) {
@@ -131,5 +176,5 @@ try {
   await page.getByRole('tab', { name: 'board', exact: true }).click();
   assert.equal(await world.count(), 0, 'Board stays unchanged');
   assert.deepEqual(errors, []);
-  console.log('Passed: All opt-in setting, whole-label reorder/persistence, lock/unlock/keyboard guards, persistent single completion, daily and weekday habits, search-to-inspector, 3 themes/desktop/mobile and Today/Board regressions; no real accounts or network.');
+  console.log('Passed: All opt-in setting, cross-list keyboard navigation, fixed label guards, Cmd/Ctrl whole-label reorder/focus/persistence/bounds, lock/unlock/keyboard guards, persistent single completion, daily and weekday habits, search-to-inspector, 3 themes/desktop/mobile and Today/Board regressions; no real accounts or network.');
 } finally { await browser.close(); }

@@ -74,6 +74,58 @@ test('two devices round-trip habits and independent date checks through the auth
   assert.deepEqual(lifeWeek(latest, latest.entries[habit], '2026-10-05').map(d => d.done), [false, false, true, false, true, false, true]);
 });
 
+test('filed checks sync across accounts/devices, survive reload and clear on uncompletion without losing streaks', async () => {
+  const s = server(), a = createLifeWorldStore(storage()), b = createLifeWorldStore(storage());
+  a.setAccount('user-a'); b.setAccount('user-a');
+  const date = '2026-10-05', habit = a.add(date); a.setRepeat(habit, 'daily'); a.toggle(habit, date);
+  const send = async (device, remote) => lifeWorldPush._handler(s.ctx, { accountId: 'user-a', ...lifePendingChanges(device.getSnapshot().data, remote) });
+  await send(a, emptyLifeData());
+  const completed = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  b.mergeRemote(completed, 'user-a'); a.fileCompleted(date); await send(a, completed);
+  const filed = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' }); b.mergeRemote(filed, 'user-a');
+  const key = lifeCheckKey(habit, date);
+  assert.equal(b.getSnapshot().data.checks[key].filed, true);
+  assert.equal(lifeWeek(filed, filed.entries[habit], date).at(-1).done, true);
+  assert.deepEqual(lifePendingChanges(b.getSnapshot().data, filed), { entries: [], checks: [] });
+  await send(a, completed); // Idempotent repeated upload.
+  // A same-revision older client cannot erase the filed bit.
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [], checks: [{ ...filed.checks[key], filed: undefined }] });
+  assert.equal((await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' })).checks[key].filed, true);
+  b.toggle(habit, date); await send(b, filed);
+  const reopened = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.equal(reopened.checks[key].done, false);
+  assert.equal(reopened.checks[key].filed, undefined);
+  assert.equal(s.rows.lifeChecks[0].filed, undefined, 'server patch removes the previous filed flag');
+  s.identify('user-b');
+  assert.deepEqual(await lifeWorldPull._handler(s.ctx, { accountId: 'user-b' }), emptyLifeData());
+});
+
+test('recent habit history edits synchronize without changing today or independent descendant records', async () => {
+  const s = server(), a = createLifeWorldStore(storage()), b = createLifeWorldStore(storage());
+  a.setAccount('user-a'); b.setAccount('user-a');
+  const today = '2026-10-05', habit = a.add('2026-09-29'); a.setRepeat(habit, 'daily');
+  const child = a.add('2026-09-29', habit, true, true); a.setRepeat(child, 'once');
+  a.setHabitDayDone(habit, today, true, today);
+  const send = async (device, remote) => lifeWorldPush._handler(s.ctx, { accountId: 'user-a', ...lifePendingChanges(device.getSnapshot().data, remote) });
+  await send(a, emptyLifeData());
+  const first = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' }); b.mergeRemote(first, 'user-a');
+  a.setHabitDayDone(habit, '2026-09-30', true, today);
+  b.setHabitDayDone(habit, '2026-10-02', true, today); b.setHabitDayDone(habit, '2026-10-02', false, today);
+  await send(a, first); await send(b, first);
+  const edited = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  a.mergeRemote(edited, 'user-a'); b.mergeRemote(edited, 'user-a');
+  assert.equal(edited.checks[lifeCheckKey(habit, '2026-09-30')].done, true);
+  assert.equal(edited.checks[lifeCheckKey(habit, '2026-10-02')].done, false);
+  assert.deepEqual(edited.checks[lifeCheckKey(habit, today)], first.checks[lifeCheckKey(habit, today)]);
+  assert.equal(Object.values(edited.checks).some(check => check.entryId === child), false);
+  assert.deepEqual(lifePendingChanges(a.getSnapshot().data, edited), { entries: [], checks: [] });
+  assert.deepEqual(lifePendingChanges(b.getSnapshot().data, edited), { entries: [], checks: [] });
+  b.undo(); await send(b, edited);
+  const restored = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.equal(restored.checks[lifeCheckKey(habit, '2026-10-02')].done, true);
+  assert.deepEqual(restored.checks[lifeCheckKey(habit, today)], first.checks[lifeCheckKey(habit, today)]);
+});
+
 test('sync handlers isolate accounts and reject unauthorized, stale-account and foreign-entry requests', async () => {
   const s = server();
   const a = createLifeWorldStore(storage()); a.setAccount('user-a');
