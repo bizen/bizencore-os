@@ -210,6 +210,15 @@ body {
   font-size: 17px;
 }
 
+.brand-power {
+  position: relative;
+  top: -0.45em;
+  margin-left: 0.06em;
+  font-size: 0.65em;
+  line-height: 0;
+  vertical-align: baseline;
+}
+
 .app-nav {
   display: flex;
   gap: 1.6rem;

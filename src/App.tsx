@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Settings2 } from 'lucide-react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppHeaderAuth } from './components/AppHeaderAuth';
@@ -12,15 +13,17 @@ import { TasksPage } from './pages/TasksPage';
 import { applyTheme, readTheme, saveTheme, type Theme } from './lib/theme';
 import { Brand } from './components/Brand';
 import { AppUpdateButton } from './components/AppUpdateButton';
+import { DesktopUpdateButton } from './components/DesktopUpdateButton';
 import { initialPartnerInvite } from './lib/partnerModel';
 import { AccountDeletionBoundary } from './components/AccountDeletionBoundary';
+import { DesktopHeaderContext } from './lib/desktopHeader';
 import { TaskScrollRail } from './components/TaskScrollRail';
 
 const SPLASH_VISIBLE_MS = 1100;
 const SPLASH_FADE_MS = 450;
 
 /** ⌘K / Ctrl+K で tasks と count を行き来する */
-function usePageSwitchShortcut() {
+function usePageSwitchShortcut(onSwitch?: () => void) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -29,20 +32,23 @@ function usePageSwitchShortcut() {
       if (event.defaultPrevented) return;
       if (!(event.metaKey || event.ctrlKey) || event.code !== 'KeyK') return;
       event.preventDefault();
+      onSwitch?.();
       navigate(location.pathname.startsWith('/count') ? '/' : '/count');
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [navigate, location.pathname]);
+  }, [navigate, location.pathname, onSwitch]);
 }
 
-export default function App() {
+export default function App({ desktop = false }: { desktop?: boolean }) {
   const location = useLocation();
-  const taskScroll = location.pathname === '/';
+  const taskScroll = !desktop && location.pathname === '/';
+  const desktopHeader = useContext(DesktopHeaderContext);
+  const headerHost = desktopHeader?.host;
   const [splashState, setSplashState] = useState<'visible' | 'fading' | 'gone'>('visible');
   const [settingsOpen, setSettingsOpen] = useState(() => Boolean(initialPartnerInvite()));
   const [theme, setTheme] = useState<Theme>(readTheme);
-  usePageSwitchShortcut();
+  usePageSwitchShortcut(desktop ? desktopHeader?.showTasks : undefined);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -72,46 +78,50 @@ export default function App() {
     };
   }, []);
 
+  const header = (
+    <header className="app-header">
+      <Brand desktop={desktop} />
+      <div className="app-header-end">
+        <nav className="app-nav">
+          <NavLink to="/" end onClick={desktop ? desktopHeader?.showTasks : undefined} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            tasks
+          </NavLink>
+          <NavLink to="/count" onClick={desktop ? desktopHeader?.showTasks : undefined} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            count
+          </NavLink>
+        </nav>
+        <div className="app-header-tools">
+          {desktop ? <DesktopUpdateButton /> : <AppUpdateButton />}
+          <button
+            type="button"
+            className="app-settings-btn"
+            onClick={() => setSettingsOpen((open) => !open)}
+            aria-label="設定"
+            title="設定"
+            aria-expanded={settingsOpen}
+            aria-controls="app-settings-panel"
+          >
+            <Settings2 size={17} aria-hidden />
+          </button>
+        </div>
+        {isCloudConfigured ? (
+          <div className="app-header-auth">
+            <AppHeaderAuth />
+          </div>
+        ) : null}
+      </div>
+    </header>
+  );
+
   return (
     <>
-      {splashState !== 'gone' && <SplashScreen fadingOut={splashState === 'fading'} />}
+      {splashState !== 'gone' && <SplashScreen fadingOut={splashState === 'fading'} desktop={desktop} />}
 
       <AccountDeletionBoundary>
       <SyncBridge />
 
       <div className={`app-shell${taskScroll ? ' app-shell--task-scroll' : ''}`}>
-        <header className="app-header">
-          <Brand />
-          <div className="app-header-end">
-            <nav className="app-nav">
-              <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                tasks
-              </NavLink>
-              <NavLink to="/count" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                count
-              </NavLink>
-            </nav>
-            <div className="app-header-tools">
-              <AppUpdateButton />
-              <button
-                type="button"
-                className="app-settings-btn"
-                onClick={() => setSettingsOpen((open) => !open)}
-                aria-label="設定"
-                title="設定"
-                aria-expanded={settingsOpen}
-                aria-controls="app-settings-panel"
-              >
-                <Settings2 size={17} aria-hidden />
-              </button>
-            </div>
-            {isCloudConfigured ? (
-              <div className="app-header-auth">
-                <AppHeaderAuth />
-              </div>
-            ) : null}
-          </div>
-        </header>
+        {desktop && headerHost ? createPortal(header, headerHost) : header}
 
         <main className="app-main" id="task-scroll-content">
           <Routes>

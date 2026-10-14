@@ -1,6 +1,6 @@
-import { AppWindow, Check, Copy, ExternalLink, FileText, Globe, Link2, LockKeyhole, Paperclip, Settings, Trash2, X } from 'lucide-react';
+import { AppWindow, Check, Copy, ExternalLink, FileText, Globe, Link2, ListChecks, LockKeyhole, Paperclip, Settings, TerminalSquare, Trash2, Workflow, X } from 'lucide-react';
 import { SignedIn, SignedOut } from '@clerk/clerk-react';
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { AI_TARGETS, aiConversationLink, buildTaskHandoff, readHandoffPreferences, saveHandoffPreferences, type HandoffPreferences } from '../../lib/aiHandoff';
 import type { HandoffIntent } from '../../lib/taskWorkPrompt';
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_TEXT, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
@@ -13,6 +13,8 @@ import { TaskFileInput, TaskFileLink } from './TaskFileContext';
 import { HandoffIntentControl } from './HandoffIntentControl';
 import { ContextDocument } from './ContextDocument';
 import { InspectorDialog } from './InspectorDialog';
+import { useDesktopHandoff } from '../../lib/desktopHandoff';
+import { DesktopInspectorContext } from '../../lib/desktopInspector';
 
 export interface TaskInspectorProps {
   item: Item;
@@ -84,11 +86,15 @@ function actorLabel(actor: Item['createdBy'], client?: string): string {
 }
 
 function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap; canUseMcp: boolean }) {
+  const desktop = useDesktopHandoff();
+  const [paneId, setPaneId] = useState('new');
+  const [assignmentError, setAssignmentError] = useState('');
   const [preferences, setPreferences] = useState(readHandoffPreferences);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsId = useId();
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
-  const mode = canUseMcp ? preferences.mode : 'text';
+  const mcpEnabled = canUseMcp && desktop?.mcpAvailable !== false;
+  const mode = mcpEnabled ? preferences.mode : 'text';
   const destination = preferences.destination;
   const [intent, setIntent] = useState<HandoffIntent>('consult');
   const [copied, setCopied] = useState<string | null>(null);
@@ -131,7 +137,7 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
           <div className="handoff-option">
             <span className="handoff-option-label">渡し方</span>
             <div className="inspector-handoff-mode" role="group" aria-label="AIへの渡し方">
-              <button type="button" className={mode === 'mcp' ? 'is-on' : ''} aria-pressed={mode === 'mcp'} disabled={!canUseMcp} onClick={() => changePreferences({ mode: 'mcp' })} title={canUseMcp ? '選んだAIにも同じアカウントのbizencore MCP接続が必要です' : 'MCP連携にはサインインが必要です'}>MCPで進める</button>
+              <button type="button" className={mode === 'mcp' ? 'is-on' : ''} aria-pressed={mode === 'mcp'} disabled={!mcpEnabled} onClick={() => changePreferences({ mode: 'mcp' })} title={desktop?.mcpAvailable === false ? '開発環境のタスクを本番MCPへ渡すことはできません' : canUseMcp ? '選んだAIにも同じアカウントのbizencore MCP接続が必要です' : 'MCP連携にはサインインが必要です'}>MCPで進める</button>
               <button type="button" className={mode === 'text' ? 'is-on' : ''} aria-pressed={mode === 'text'} onClick={() => changePreferences({ mode: 'text' })} title="現在の内容のコピーを渡す。進捗の自動反映と添付ファイルの転送はできません">内容だけ渡す</button>
             </div>
           </div>
@@ -146,6 +152,22 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
         </div>
       ) : null}
       <HandoffIntentControl intent={intent} onChange={(value) => { setIntent(value); setCopied(null); }} />
+      {desktop?.openTools && !item.done ? <div className="desktop-inspector-handoff">
+        <button type="button" className="inspector-ai-btn" onClick={() => desktop.openTools?.('decompose', [item.id])}><ListChecks size={14} />タスクベース分解</button>
+        {Object.values(items).some(child => !child.deletedAt && child.type === 'task' && child.parentId === item.id && !child.done) ? <button type="button" className="inspector-ai-btn" onClick={() => desktop.openTools?.('execute', [item.id])}><Workflow size={14} />配下をオーケストレーション</button> : null}
+      </div> : null}
+      {desktop ? <div className="desktop-inspector-handoff">
+        <select aria-label="ハンドオフ先のペイン" value={paneId} onChange={event => setPaneId(event.target.value)}>
+          <option value="new" disabled={desktop.panes.length >= 8}>新しいペイン</option>
+          {desktop.panes.map(pane => <option key={pane.id} value={pane.id} disabled={pane.busy}>{pane.name}{pane.busy ? ' · 起動中' : ''}</option>)}
+        </select>
+        <button type="button" className="inspector-ai-btn" disabled={item.done || (paneId === 'new' && desktop.panes.length >= 8)} onClick={() => {
+          const error = desktop.assign(paneId === 'new' ? null : paneId, { taskId: item.id, intent, mode });
+          setAssignmentError(error ?? '');
+          if (!error) setCopied('pane');
+        }}><TerminalSquare size={14} aria-hidden />{paneId === 'new' ? copied === 'pane' ? '起動設定を開きました' : '起動を設定' : copied === 'pane' ? '割り当てました' : 'ペインに割り当て'}</button>
+        {assignmentError ? <p role="alert" className="inspector-hint">{assignmentError}</p> : null}
+      </div> : null}
       <div className="inspector-ai">
         {AI_TARGETS.map((target) => {
           if (target.kind === 'open') {
@@ -211,6 +233,7 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
  * 作業想定時間など、行に置かない項目もここで編集する。
  */
 export function TaskInspector(props: TaskInspectorProps) {
+  const inspectorReady = useContext(DesktopInspectorContext)?.open ?? true;
   const {
     item,
     items,
@@ -242,6 +265,7 @@ export function TaskInspector(props: TaskInspectorProps) {
 
   // 通常は本文へ。⌥E から開いたときは想定時間へ直行する
   useEffect(() => {
+    if (!inspectorReady) return;
     if (initialFocus === 'estimate') {
       estimateRef.current?.focus();
       estimateRef.current?.select();
@@ -251,7 +275,7 @@ export function TaskInspector(props: TaskInspectorProps) {
     if (!el) return;
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
-  }, [item.id, initialFocus, titleRef]);
+  }, [item.id, initialFocus, titleRef, inspectorReady]);
 
   const commitEstimate = () => {
     if (estimateDraft === null) return;

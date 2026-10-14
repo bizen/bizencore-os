@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { DesktopInspectorContext } from '../lib/desktopInspector';
 import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
@@ -211,6 +212,7 @@ export function TasksPage() {
 }
 
 function TasksPageContent() {
+  const pageRef = useRef<HTMLElement>(null);
   const { items } = useTaskState();
   const { data: lifeData } = useLifeWorldState();
   const timeZone = useUserTimeZone();
@@ -256,13 +258,25 @@ function TasksPageContent() {
   const [colorOpenId, setColorOpenId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   /** 詳細パネルで開いているタスク */
-  const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate' } | null>(null);
+  const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean } | null>(null);
   const [lifeInspector, setLifeInspector] = useState<LifeInspection | null>(null);
-  const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate' }) => {
+  const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean }) => {
     revealTask(selection.id);
     setLifeInspector(null);
     setInspector(selection);
   }, [revealTask]);
+  const registerTaskOpener = useContext(DesktopInspectorContext)?.registerTaskOpener;
+  useEffect(() => {
+    if (!registerTaskOpener) return;
+    registerTaskOpener(id => {
+      const origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      openInspector({ id, focus: 'title', returnFocus: () => {
+        if (!origin?.isConnected) return false;
+        origin.focus(); return true;
+      } });
+    });
+    return () => registerTaskOpener(null);
+  }, [registerTaskOpener, openInspector]);
   const openLifeInspector = useCallback((selection: LifeInspection) => {
     revealTask(selection.id);
     setInspector(null);
@@ -353,25 +367,47 @@ function TasksPageContent() {
 
   useEffect(() => {
     if (indexLabels.length === 0) return;
+    let container = pageRef.current?.parentElement ?? null;
+    while (container && !['auto', 'scroll'].includes(getComputedStyle(container).overflowY)) container = container.parentElement;
+    const nested = container && container !== document.scrollingElement ? container : null;
+    const target = nested ?? window;
+    let frame = 0;
     const update = () => {
-      const threshold = window.innerWidth <= 860 ? 150 : 112;
+      const page = pageRef.current;
+      if (!page) return;
+      const index = page.querySelector<HTMLElement>('.label-index');
+      const list = index?.querySelector<HTMLElement>('.label-index-list');
+      const horizontal = list && getComputedStyle(list).flexDirection === 'row';
+      const top = nested?.getBoundingClientRect().top ?? 0;
+      const threshold = Math.max(top,
+        page.querySelector('.tasks-toolbar')?.getBoundingClientRect().bottom ?? 0,
+        horizontal ? index?.getBoundingClientRect().bottom ?? 0 : 0) + 12;
       let current = indexLabels[0].item.id;
       for (const row of indexLabels) {
         const anchor = document.getElementById(`label-${row.item.id}`);
-        if (!anchor || anchor.getBoundingClientRect().top > threshold) break;
+        if (!anchor) continue;
+        // Match scrollIntoView's landing offset, including the sticky index and zoom rounding.
+        const cutoff = Math.max(threshold, top + (Number.parseFloat(getComputedStyle(anchor).scrollMarginTop) || 0));
+        if (anchor.getBoundingClientRect().top > cutoff + 2) break;
         current = row.item.id;
       }
-      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+      const maximum = nested ? nested.scrollHeight - nested.clientHeight : document.documentElement.scrollHeight - window.innerHeight;
+      if (maximum > 0 && (nested?.scrollTop ?? window.scrollY) >= maximum - 2) {
         current = indexLabels[indexLabels.length - 1].item.id;
       }
       setCurrentLabelId(current);
     };
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(update); };
+    const resize = new ResizeObserver(schedule);
+    if (pageRef.current) resize.observe(pageRef.current);
+    if (nested) resize.observe(nested);
     update();
-    window.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
+    target.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
     return () => {
-      window.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
+      resize.disconnect(); cancelAnimationFrame(frame);
+      target.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
     };
   }, [indexLabels]);
 
@@ -757,7 +793,7 @@ function TasksPageContent() {
         if (event.key === 'Escape' && !event.isComposing) {
           event.preventDefault();
           setInspector(null);
-          requestFocus(inspector.id);
+          if (!inspector.returnFocus?.()) requestFocus(inspector.id);
         }
         return;
       }
@@ -1097,11 +1133,11 @@ function TasksPageContent() {
   const closeInspector = () => {
     const id = inspector?.id;
     setInspector(null);
-    if (id) requestFocus(id);
+    if (id && !inspector?.returnFocus?.()) requestFocus(id);
   };
 
   return (
-    <section className={`page${view === 'board' ? ' page--board' : ''}${indexLabels.length > 0 ? ' page--indexed' : ''}`}>
+    <section ref={pageRef} className={`page${view === 'board' ? ' page--board' : ''}${indexLabels.length > 0 ? ' page--indexed' : ''}`}>
       <div className="tasks-toolbar">
         <div ref={viewSwitchRef} className="view-switch" role="tablist" aria-label="表示">
           <button

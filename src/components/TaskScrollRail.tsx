@@ -23,11 +23,17 @@ export function TaskScrollRail({ container, controls }: { container?: RefObject<
     resize.observe(element);
     const content = container ? container.current?.querySelector('.app-shell') : document.querySelector('.app-shell');
     if (content) resize.observe(content);
+    const mutations = container ? new MutationObserver(() => {
+      const currentContent = container.current?.querySelector('.app-shell');
+      if (currentContent) resize.observe(currentContent);
+      schedule();
+    }) : null;
+    mutations?.observe(element, { childList: true, subtree: true, characterData: true });
     target.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
     update();
     return () => {
-      resize.disconnect(); cancelAnimationFrame(frame);
+      mutations?.disconnect(); resize.disconnect(); cancelAnimationFrame(frame);
       target.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     };

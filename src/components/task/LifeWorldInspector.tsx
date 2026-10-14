@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useContext, useEffect } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, LockKeyhole, Plus, Trash2, Undo2 } from 'lucide-react';
 import { MAX_DEPTH } from '../../lib/taskModel';
 import { LIFE_REPEAT_NAMES, lifeCanIndent, lifeCompletionBlocked, lifeEntryDone, lifeEntriesForDate, lifeParentIds, lifeTreeRows, lifeWeek, type LifeRepeat } from '../../lib/lifeWorldModel';
@@ -6,6 +6,7 @@ import { lifeWorldStore, useLifeWorldState } from '../../lib/lifeWorldStore';
 import { useAutoGrow } from '../../lib/useAutoGrow';
 import { InspectorDialog } from './InspectorDialog';
 import { LifeStreak } from './LifeStreak';
+import { DesktopInspectorContext } from '../../lib/desktopInspector';
 
 export interface LifeInspection {
   id: string;
@@ -19,6 +20,7 @@ export interface LifeInspection {
 export function LifeWorldInspector({ selection, todayDate, onClose, onSelect }: {
   selection: LifeInspection; todayDate: string; onClose: () => void; onSelect?: (selection: LifeInspection) => void;
 }) {
+  const inspectorReady = useContext(DesktopInspectorContext)?.open ?? true;
   const { data, accountId, canUndo } = useLifeWorldState();
   const entry = data.entries[selection.id];
   const available = !!entry && !entry.deletedAt && accountId === selection.accountId;
@@ -42,10 +44,11 @@ export function LifeWorldInspector({ selection, todayDate, onClose, onSelect }: 
 
   useEffect(() => {
     if (!available) { onClose(); return; }
+    if (!inspectorReady) return;
     const input = selection.initialFocus === 'note' ? noteRef.current : titleRef.current;
     input?.focus();
     input?.setSelectionRange(input.value.length, input.value.length);
-  }, [available, selection.id, selection.initialFocus, titleRef, noteRef, onClose]);
+  }, [available, selection.id, selection.initialFocus, titleRef, noteRef, onClose, inspectorReady]);
 
   if (!available) return null;
   return (

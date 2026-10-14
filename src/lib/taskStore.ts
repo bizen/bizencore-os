@@ -33,6 +33,7 @@ import {
 } from './itemMerge';
 import { MAX_ATTACHMENTS, attachmentFrom, coerceAttachments, contextStorageError, liveAttachments } from './attachments';
 import { isDateString, isTimeString } from './taskDates';
+import { applyWorkPlan, type WorkAgent, type WorkResult } from './taskTools';
 
 const STORAGE_KEY = 'chrct.tasks.v2';
 const UNDO_LIMIT = 50;
@@ -320,6 +321,13 @@ export const taskStore = {
 
   getState(): TaskState {
     return state;
+  },
+
+  applyWorkPlan(taskId: string, expectedUpdatedAt: number, result: WorkResult, agent: WorkAgent): void {
+    const next = applyWorkPlan(state.items, taskId, expectedUpdatedAt, result, agent, nextStamp());
+    const stamped = withPatches(Object.values(next).filter(item => item !== state.items[item.id]));
+    if (!writeNow(stamped)) throw Error('分担案を保存できませんでした');
+    commit(stamped);
   },
 
   canUndo(): boolean {
