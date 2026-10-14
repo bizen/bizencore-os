@@ -8,6 +8,7 @@ import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
 import { TaskTreeGuides } from './TaskTreeGuides';
 import { TaskLockMark } from './TaskLockMark';
+import { useTaskContextDrop } from '../../lib/taskContextDropReact';
 
 /**
  * チェックマークは線を描き込みたいので、アイコンフォントではなく path を直接持つ。
@@ -134,6 +135,7 @@ export function TaskRow(props: TaskRowProps) {
   const isToday = item.assignedDate === todayDate;
   const isOverdue = !item.done && !!item.dueDate && (item.dueDate < todayDate || (item.dueDate === todayDate && !!item.dueTime && item.dueTime < todayTime));
   const contextCount = liveAttachments(item.attachments).length;
+  const contextDrop = useTaskContextDrop(item.id);
 
   const attachTitle = (el: HTMLTextAreaElement | null) => {
     titleRef.current = el;
@@ -155,11 +157,13 @@ export function TaskRow(props: TaskRowProps) {
         depth === 0 ? 'row--root' : '',
         item.done ? 'is-done' : '',
         isActive ? 'is-active' : '',
+        !isSection && contextDrop.active ? 'is-context-drop-target' : '',
         burstIndex === undefined ? '' : 'is-bursting',
       ]
         .filter(Boolean)
         .join(' ')}
       data-row-id={item.id}
+      {...(!isSection ? contextDrop.handlers : undefined)}
       style={
         {
           '--depth': depth,

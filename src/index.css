@@ -3375,6 +3375,43 @@ a.context-title:hover {
   overflow-wrap: anywhere;
 }
 
+.row.is-context-drop-target {
+  outline: 1px dashed var(--accent-color);
+  outline-offset: -1px;
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.task-drop-status {
+  position: fixed;
+  z-index: 120;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(320px, 45dvh);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--popover-bg);
+  color: var(--text-primary);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.18);
+  font-size: 12px;
+}
+
+.task-drop-status-icon { display: flex; flex: none; padding-top: 2px; color: var(--accent-color); }
+.task-drop-status-body { flex: 1; min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.task-drop-status-task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.task-drop-status > .icon-btn { flex: none; }
+.task-drop-status[aria-busy="true"] .task-drop-status-icon svg { animation: task-upload-spin 1s linear infinite; }
+@keyframes task-upload-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .task-drop-status[aria-busy="true"] .task-drop-status-icon svg { animation: none; }
+}
+
 /* Partner content is a separate read-only column, never an editable task row. */
 .page:has(.partner-workspace.is-connected) { max-width: 1440px; }
 .partner-workspace { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; align-items: start; }

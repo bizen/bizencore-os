@@ -3,6 +3,7 @@ import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
 import { TaskRow } from '../components/task/TaskRow';
+import { TaskContextDropProvider } from '../components/task/TaskContextDrop';
 import { LifeWorld } from '../components/task/LifeWorld';
 import { LifeWorldInspector, type LifeInspection } from '../components/task/LifeWorldInspector';
 import { TodayRecommendations } from '../components/task/TodayRecommendations';
@@ -206,6 +207,10 @@ function matchesQuery(item: Item, needle: string): boolean {
 }
 
 export function TasksPage() {
+  return <TaskContextDropProvider><TasksPageContent /></TaskContextDropProvider>;
+}
+
+function TasksPageContent() {
   const { items } = useTaskState();
   const { data: lifeData } = useLifeWorldState();
   const timeZone = useUserTimeZone();
