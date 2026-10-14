@@ -26,7 +26,7 @@ import {
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
-import { LIFE_SECTION_ID, lifeEntriesForDate, lifeParentIds, lifeSectionIndex, partitionLifeRows } from '../lib/lifeWorldModel';
+import { LIFE_SECTION_ID, lifeCompletedEntries, lifeEntriesForDate, lifeParentIds, lifeSectionIndex, partitionLifeRows } from '../lib/lifeWorldModel';
 import { collapseRows } from '../lib/collapsedRows';
 
 type ViewMode = 'all' | 'today' | 'board' | `label:${string}`;
@@ -321,6 +321,10 @@ export function TasksPage() {
     taskStore.fileCompleted();
     lifeWorldStore.fileCompleted(todayDate);
   }, [todayDate]);
+  const clearCompleted = useCallback(() => {
+    taskStore.clearCompleted();
+    lifeWorldStore.clearCompleted(todayDate);
+  }, [todayDate]);
 
   const boardColumns = useMemo(
     () => {
@@ -483,6 +487,7 @@ export function TasksPage() {
     }
     return { remaining, remainingMinutes, completed, fileable };
   }, [allRows, todayRows, focusRows, focusedLabelId, view]);
+  const canClearCompleted = stats.completed > 0 || lifeCompletedEntries(lifeData, todayDate).length > 0;
 
   const completionBlocked = useMemo(() => completionBlockedIds(items), [items]);
 
@@ -806,7 +811,7 @@ export function TasksPage() {
 
       if (event.altKey && event.code === 'KeyC') {
         event.preventDefault();
-        if (event.shiftKey) taskStore.clearCompleted();
+        if (event.shiftKey) clearCompleted();
         else fileCompleted();
         return;
       }
@@ -863,6 +868,7 @@ export function TasksPage() {
     lifeInspector,
     closeLifeInspector,
     fileCompleted,
+    clearCompleted,
   ]);
 
   const handleTitleKeyDown = (
@@ -1299,9 +1305,9 @@ export function TasksPage() {
             <button
               type="button"
               className="ghost-btn"
-              onClick={() => taskStore.clearCompleted()}
-              disabled={stats.completed === 0}
-              title="完了したタスクを削除（⌥⇧C）"
+              onClick={clearCompleted}
+              disabled={!canClearCompleted}
+              title="完了したタスクを削除。生活世界の習慣は当日分のみ非表示にし、習慣と達成履歴を残す（⌥⇧C）"
             >
               完了を削除（⌥⇧C）
             </button>

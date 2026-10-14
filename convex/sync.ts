@@ -69,7 +69,7 @@ export const lifeWorldPush = mutation({
         }, checks: {} };
         for (const check of checks) {
             const key = lifeCheckKey(check.entryId, check.date);
-            if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key) || (check.filed && !check.done)) throw new Error('Invalid life check');
+            if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key) || ((check.filed || check.cleared) && !check.done)) throw new Error('Invalid life check');
             checkIds.add(key);
             let entry = effectiveEntries.get(check.entryId);
             if (!entry) {
@@ -91,7 +91,8 @@ export const lifeWorldPush = mutation({
         for (const check of checks) {
             const existing = await ctx.db.query('lifeChecks')
                 .withIndex('by_user_entry_date', q => q.eq('userId', identity.subject).eq('entryId', check.entryId).eq('date', check.date)).unique();
-            const value = { ...check, filed: check.done && check.filed ? true : undefined };
+            const value = { ...check, filed: check.done && check.filed ? true : undefined,
+                cleared: check.done && check.cleared ? true : undefined };
             if (!existing) await ctx.db.insert('lifeChecks', { userId: identity.subject, ...value });
             else if (mergeLifeCheck(existing, check) === check) {
                 await ctx.db.patch(existing._id, value);

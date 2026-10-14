@@ -3,7 +3,7 @@ import { MAX_DEPTH, newId } from './taskModel';
 import { isDateString } from './taskDates';
 import {
   coerceLifeData, emptyLifeData, lifeCheckKey, lifeCheckForDate, lifeEntriesForDate, lifeEntryDone, mergeLifeData, restampLifeEntry,
-  lifeCanIndent, lifeCompletionBlocked, lifeParentIds, lifeSubtreeEntries, lifeTreeRows, lifeWeek,
+  lifeCanIndent, lifeCompletedEntries, lifeCompletionBlocked, lifeParentIds, lifeSubtreeEntries, lifeTreeRows, lifeWeek,
   type LifeData, type LifeEntry, type LifeRepeat,
 } from './lifeWorldModel';
 
@@ -167,11 +167,45 @@ export function createLifeWorldStore(storage?: Storage) {
         let changed = false;
         for (const entry of lifeEntriesForDate(data, date, true)) {
           const check = lifeCheckForDate(data, entry, date);
-          if (!check?.done || check.filed || !lifeEntryDone(data, entry, date) || lifeCompletionBlocked(data, entry.id)) continue;
+          if (!check?.done || check.filed || check.cleared || !lifeEntryDone(data, entry, date) || lifeCompletionBlocked(data, entry.id)) continue;
           checks[lifeCheckKey(entry.id, check.date)] = { ...check, filed: true, updatedAt: nextStamp() };
           changed = true;
         }
         return changed ? { ...data, checks } : data;
+      });
+    },
+    clearCompleted(date: string) {
+      if (!isDateString(date)) return;
+      change(data => {
+        const completed = lifeCompletedEntries(data, date);
+        if (!completed.length) return data;
+        const doomed = new Set(completed.filter(entry => entry.repeat === 'once').map(entry => entry.id));
+        const entries = { ...data.entries }, checks = { ...data.checks };
+        const parents = lifeParentIds(data);
+        const nextOrders = new Map<string | null, number>();
+        for (const entry of lifeTreeRows(data).map(row => row.entry)) {
+          const parent = parents.get(entry.id) ?? null;
+          nextOrders.set(parent, Math.max(nextOrders.get(parent) ?? 0, entry.order + 1));
+        }
+        for (const entry of completed) {
+          const now = nextStamp();
+          if (doomed.has(entry.id)) entries[entry.id] = restampLifeEntry(entry, { ...entry, deletedAt: now }, now);
+          else {
+            const check = lifeCheckForDate(data, entry, date)!;
+            checks[lifeCheckKey(entry.id, check.date)] = { ...check, cleared: true, updatedAt: now };
+          }
+        }
+        // Never delete an unfinished child or a recurring definition with its one-off parent.
+        for (const entry of lifeTreeRows(data).map(row => row.entry)) {
+          if (doomed.has(entry.id)) continue;
+          let parent = parents.get(entry.id) ?? null;
+          if (!parent || !doomed.has(parent)) continue;
+          while (parent && doomed.has(parent)) parent = parents.get(parent) ?? null;
+          const order = nextOrders.get(parent) ?? 0;
+          nextOrders.set(parent, order + 1);
+          entries[entry.id] = restampLifeEntry(entries[entry.id], { ...entries[entry.id], parentId: parent ?? undefined, order }, nextStamp());
+        }
+        return { ...data, entries, checks };
       });
     },
     move(id: string, date: string, direction: -1 | 1, includeAll = false) {

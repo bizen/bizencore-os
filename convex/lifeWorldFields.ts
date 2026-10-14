@@ -16,4 +16,5 @@ export const lifePreferenceFields = {
 export const lifeCheckFields = {
   entryId: v.string(), date: v.string(), done: v.boolean(), updatedAt: v.number(),
   filed: v.optional(v.boolean()),
+  cleared: v.optional(v.boolean()),
 };

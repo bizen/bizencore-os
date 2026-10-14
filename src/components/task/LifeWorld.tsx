@@ -221,7 +221,7 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
         event.preventDefault(); lifeWorldStore.undo();
       }
       // The page's view/search commands work here; task-delete/complete commands do not leak out.
-      if ((event.altKey && (/^Digit[1-9]$/.test(event.code) || (event.code === 'KeyC' && !event.shiftKey))) ||
+      if ((event.altKey && (/^Digit[1-9]$/.test(event.code) || event.code === 'KeyC')) ||
           (mod && (event.code === 'KeyF' || event.code === 'Slash'))) return;
       event.stopPropagation();
     }}>

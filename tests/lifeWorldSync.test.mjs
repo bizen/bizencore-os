@@ -126,6 +126,36 @@ test('recent habit history edits synchronize without changing today or independe
   assert.deepEqual(restored.checks[lifeCheckKey(habit, today)], first.checks[lifeCheckKey(habit, today)]);
 });
 
+test('completed life deletion syncs tombstones and day dismissals without deleting habits, history or another account', async () => {
+  const s = server(), a = createLifeWorldStore(storage()), b = createLifeWorldStore(storage());
+  a.setAccount('user-a'); b.setAccount('user-a');
+  const date = '2026-10-05', wish = a.add(date), habit = a.add(date); a.setRepeat(habit, 'daily');
+  a.toggle(wish, date); a.toggle(habit, date);
+  const send = async (device, remote) => lifeWorldPush._handler(s.ctx, { accountId: 'user-a', ...lifePendingChanges(device.getSnapshot().data, remote) });
+  await send(a, emptyLifeData());
+  const first = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' }); b.mergeRemote(first, 'user-a');
+  a.clearCompleted(date); await send(a, first);
+  const cleared = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' }); b.mergeRemote(cleared, 'user-a');
+  const key = lifeCheckKey(habit, date);
+  assert.ok(cleared.entries[wish].deletedAt);
+  assert.equal(cleared.entries[habit].deletedAt, undefined);
+  assert.equal(cleared.checks[key].cleared, true);
+  assert.equal(lifeTreeRows(b.getSnapshot().data, date, true).length, 0);
+  assert.deepEqual(lifeTreeRows(cleared, '2026-10-06', true).map(row => row.entry.id), [habit]);
+  assert.equal(lifeWeek(cleared, cleared.entries[habit], date).at(-1).done, true);
+  assert.deepEqual(lifePendingChanges(b.getSnapshot().data, cleared), { entries: [], checks: [] });
+  await lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [first.entries[wish]], checks: [{ ...cleared.checks[key], cleared: undefined }] });
+  const repeated = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.ok(repeated.entries[wish].deletedAt);
+  assert.equal(repeated.checks[key].cleared, true);
+  b.setHabitDayDone(habit, date, false, '2026-10-06'); await send(b, cleared);
+  const restored = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  assert.equal(restored.checks[key].cleared, undefined);
+  assert.equal(s.rows.lifeChecks.find(check => check.entryId === habit).cleared, undefined);
+  s.identify('user-b');
+  assert.deepEqual(await lifeWorldPull._handler(s.ctx, { accountId: 'user-b' }), emptyLifeData());
+});
+
 test('sync handlers isolate accounts and reject unauthorized, stale-account and foreign-entry requests', async () => {
   const s = server();
   const a = createLifeWorldStore(storage()); a.setAccount('user-a');
@@ -170,6 +200,7 @@ test('invalid batches are rejected before writing any life entries', async () =>
     { entries: [entry, { ...entry, id: 'bad', startDate: '2026-02-30' }], checks: [] },
     { entries: [{ ...entry, note: 'x'.repeat(40001) }], checks: [] },
     { entries: [entry], checks: [{ entryId: id, date: '2026-02-30', done: true, updatedAt: 1 }] },
+    { entries: [entry], checks: [{ entryId: id, date: '2026-10-01', done: false, cleared: true, updatedAt: 1 }] },
     { entries: Array.from({ length: 101 }, (_, i) => ({ ...entry, id: String(i) })), checks: [] },
     { entries: [entry], checks: [{ entryId: 'missing', date: '2026-10-01', done: true, updatedAt: 1 }] },
   ]) await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', ...invalid }));

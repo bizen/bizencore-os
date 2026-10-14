@@ -14,6 +14,93 @@ function memoryStorage() {
   return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), data };
 }
 
+test('clearing completed life tasks deletes one-offs but only hides today for recurring habits, with undo and reload', () => {
+  const storage = memoryStorage(), store = createLifeWorldStore(storage), date = '2026-10-05';
+  const wish = store.add(date), habit = store.add(date), pending = store.add(date), locked = store.add(date);
+  store.setRepeat(habit, 'daily'); store.setLocked(locked, true, date);
+  store.toggle(wish, date); store.toggle(habit, date); store.fileCompleted(date);
+  const before = store.getSnapshot().data;
+  store.clearCompleted('2026-02-30'); assert.deepEqual(store.getSnapshot().data, before);
+  store.clearCompleted(date);
+  let data = store.getSnapshot().data;
+  assert.ok(data.entries[wish].deletedAt);
+  assert.equal(data.entries[habit].deletedAt, undefined);
+  assert.equal(data.checks[model.lifeCheckKey(habit, date)].done, true);
+  assert.equal(data.checks[model.lifeCheckKey(habit, date)].cleared, true);
+  assert.deepEqual(model.lifeCompletedEntries(data, date), []);
+  assert.deepEqual(model.partitionLifeRows(data, date, true).active.map(row => row.entry.id), [pending, locked]);
+  assert.equal(model.partitionLifeRows(data, date, true).done.length, 0);
+  const saved = JSON.stringify(data); store.clearCompleted(date); store.fileCompleted(date);
+  assert.equal(JSON.stringify(store.getSnapshot().data), saved, 'repeated deletion/filing is a no-op');
+  store.undo(); data = store.getSnapshot().data;
+  assert.equal(data.entries[wish].deletedAt, undefined);
+  assert.equal(data.checks[model.lifeCheckKey(habit, date)].cleared, undefined);
+  assert.equal(model.partitionLifeRows(data, date, true).done.length, 2, 'one undo restores the entire life deletion batch');
+  store.clearCompleted(date); data = createLifeWorldStore(storage).getSnapshot().data;
+  assert.equal(model.partitionLifeRows(data, date, true).done.length, 0);
+  assert.deepEqual(model.lifeEntriesForDate(data, '2026-10-06').map(entry => entry.id), [habit, pending, locked]);
+  assert.equal(model.lifeWeek(data, data.entries[habit], '2026-10-06').at(-2).done, true, 'yesterday remains in the streak');
+  store.setHabitDayDone(habit, date, false, '2026-10-06');
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(habit, date)].cleared, undefined, 'history uncompletion clears dismissal');
+  assert.equal(model.lifeEntryDone(store.getSnapshot().data, data.entries[habit], '2026-10-06'), false);
+});
+
+test('clearing keeps unfinished descendants and recurring definitions visible instead of deleting whole subtrees', () => {
+  const store = createLifeWorldStore(memoryStorage()), date = '2026-10-05';
+  const locked = store.add(date); store.setLocked(locked, true, date);
+  const done = store.add(date, locked, true, true); store.toggle(done, date, true);
+  const parent = store.add(date), child = store.add(date, parent, true, true);
+  const habit = store.add(date, child, true); store.setRepeat(habit, 'daily');
+  store.toggle(parent, date, true); store.toggle(child, date, true);
+  store.clearCompleted(date);
+  let data = store.getSnapshot().data;
+  assert.equal(data.entries[locked].deletedAt, undefined);
+  assert.ok(data.entries[done].deletedAt, 'a completed child under a locked parent can be deleted');
+  assert.ok(data.entries[parent].deletedAt);
+  assert.equal(data.entries[child].deletedAt, undefined, 'unfinished child survives');
+  assert.equal(data.entries[child].parentId, undefined, 'child is reparented outside its deleted parent');
+  assert.equal(data.entries[habit].deletedAt, undefined);
+  assert.equal(data.entries[habit].parentId, undefined);
+  assert.equal(data.checks[model.lifeCheckKey(habit, date)].cleared, true);
+  assert.deepEqual(model.lifeEntriesForDate(data, date, true).map(entry => entry.id), [locked, child]);
+  assert.ok(model.lifeEntriesForDate(data, '2026-10-06', true).some(entry => entry.id === habit));
+  store.undo(); data = store.getSnapshot().data;
+  assert.equal(data.entries[child].parentId, parent);
+  assert.equal(data.entries[habit].parentId, parent);
+  assert.equal(data.entries[parent].deletedAt, undefined);
+});
+
+test('cleared recurring containers preserve unfinished children and locks, without clearing historical or unscheduled days', () => {
+  const store = createLifeWorldStore(memoryStorage()), date = '2026-10-05';
+  const parent = store.add(date); store.setRepeat(parent, 'daily');
+  const child = store.add(date, parent, true, true); store.setRepeat(child, 'once');
+  store.setHabitDayDone(parent, date, true, date); store.clearCompleted(date);
+  assert.deepEqual(model.partitionLifeRows(store.getSnapshot().data, date, true).active.map(row => row.entry.id), [parent, child],
+    'cleared parent stays as context for an unfinished child');
+  assert.equal(model.lifeCompletedEntries(store.getSnapshot().data, date).length, 0);
+  store.setLocked(child, true, date); store.clearCompleted(date);
+  assert.equal(store.getSnapshot().data.entries[child].deletedAt, undefined);
+  const week = store.add('2026-10-02'); store.setRepeat(week, 'weekdays'); store.toggle(week, '2026-10-02');
+  store.clearCompleted('2026-10-03');
+  assert.equal(store.getSnapshot().data.checks[model.lifeCheckKey(week, '2026-10-02')].cleared, undefined);
+  assert.equal(store.getSnapshot().data.entries[week].deletedAt, undefined);
+});
+
+test('cleared flags normalize and merge deterministically, and newer history edits can restore a day', () => {
+  const check = { entryId: 'habit', date: '2026-10-05', done: true, updatedAt: 5 };
+  const cleared = { ...check, cleared: true };
+  assert.equal(model.mergeLifeCheck(check, cleared), cleared);
+  assert.equal(model.mergeLifeCheck(cleared, check), cleared);
+  const filed = { ...check, filed: true };
+  assert.equal(model.mergeLifeCheck(cleared, filed), cleared, 'an older client cannot resurrect a cleared occurrence at the same revision');
+  assert.equal(model.mergeLifeCheck(filed, cleared), cleared);
+  const restored = { ...check, updatedAt: 6, done: false };
+  assert.equal(model.mergeLifeCheck(cleared, restored), restored);
+  const data = model.coerceLifeData({ version: 1, entries: { habit: { id: 'habit', text: '', note: '',
+    repeat: 'daily', startDate: '2026-10-01', order: 0, updatedAt: 1 } }, checks: { check: { ...cleared, done: false } } });
+  assert.equal(data.checks[model.lifeCheckKey('habit', check.date)].cleared, undefined);
+});
+
 test('habit history edits one scheduled day in the last seven days without changing descendants or other days', () => {
   const storage = memoryStorage(), store = createLifeWorldStore(storage), today = '2026-10-07';
   const habit = store.add('2026-10-01'); store.setRepeat(habit, 'daily');

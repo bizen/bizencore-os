@@ -28,6 +28,7 @@ export interface LifeCheck {
   done: boolean;
   updatedAt: number;
   filed?: boolean;
+  cleared?: boolean;
 }
 
 export interface LifeData {
@@ -82,12 +83,19 @@ export function lifeEntryDone(data: LifeData, entry: LifeEntry, date: string): b
 }
 
 export function lifeEntryFiled(data: LifeData, entry: LifeEntry, date: string): boolean {
-  return lifeEntryDone(data, entry, date) && lifeCheckForDate(data, entry, date)?.filed === true;
+  const check = lifeCheckForDate(data, entry, date);
+  return lifeEntryDone(data, entry, date) && !check?.cleared && check?.filed === true;
+}
+
+export function lifeCompletedEntries(data: LifeData, date: string): LifeEntry[] {
+  return lifeEntriesForDate(data, date, true).filter(entry => lifeEntryDone(data, entry, date) &&
+    !lifeCheckForDate(data, entry, date)?.cleared && !lifeCompletionBlocked(data, entry.id));
 }
 
 export function mergeLifeCheck(a: LifeCheck, b: LifeCheck): LifeCheck {
   if (b.updatedAt !== a.updatedAt) return b.updatedAt > a.updatedAt ? b : a;
   if (a.done !== b.done) return b.done ? b : a;
+  if (!!a.cleared !== !!b.cleared) return b.cleared ? b : a;
   return b.done && b.filed && !a.filed ? b : a;
 }
 
@@ -192,6 +200,9 @@ export function lifeTreeRows(data: LifeData, date?: string, includeUnscheduled =
   const visible = new Set<string>();
   for (const entry of Object.values(data.entries)) {
     if (entry.deletedAt || (date && entry.startDate > date)) continue;
+    // Cleared habits remain stored for their next day and seven-day history.
+    // An unfinished descendant can still include its parent as tree context.
+    if (date && !entry.locked && lifeCheckForDate(data, entry, date)?.cleared) continue;
     if (date && !includeUnscheduled && entry.repeat === 'weekdays' && !entry.locked && (weekday === 0 || weekday === 6)) continue;
     if (needle && !`${entry.text}\n${entry.note}`.toLowerCase().includes(needle)) continue;
     const ancestors: string[] = [];
@@ -287,6 +298,7 @@ function reconcileLifeChecks(entries: Record<string, LifeEntry>, checks: Record<
     if (lockedAt !== undefined && check.done && check.updatedAt >= lockedAt) {
       const pending = { ...check, done: false };
       delete pending.filed;
+      delete pending.cleared;
       result[key] = pending;
     }
   }
@@ -351,6 +363,7 @@ export function coerceLifeData(value: unknown): LifeData {
       data.checks[lifeCheckKey(c.entryId, c.date)] = {
         entryId: c.entryId, date: c.date, done: c.done, updatedAt: c.updatedAt,
         ...(c.done && c.filed === true ? { filed: true } : {}),
+        ...(c.done && c.cleared === true ? { cleared: true } : {}),
       };
     }
   }
@@ -385,7 +398,7 @@ export function lifePendingChanges(local: LifeData, remote: LifeData) {
   const entryKey = (entry: LifeEntry) => JSON.stringify([entry.id, entry.text, entry.note, entry.startDate,
     entry.repeat, entry.order, entry.updatedAt, entry.deletedAt, entry.locked === true, entry.parentId ?? null,
     LIFE_ENTRY_GROUPS.map(group => lifeEntryStamp(entry, group))]);
-  const checkKey = (check: LifeCheck) => JSON.stringify([check.entryId, check.date, check.done, check.updatedAt, check.filed === true]);
+  const checkKey = (check: LifeCheck) => JSON.stringify([check.entryId, check.date, check.done, check.updatedAt, check.filed === true, check.cleared === true]);
   return {
     ...(local.preferences && JSON.stringify(local.preferences) !== JSON.stringify(remote.preferences) ? { preferences: local.preferences } : {}),
     entries: Object.values(local.entries).filter(entry => !Object.hasOwn(remote.entries, entry.id) || entryKey(entry) !== entryKey(remote.entries[entry.id])),
