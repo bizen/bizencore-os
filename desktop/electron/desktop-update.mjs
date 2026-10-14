@@ -13,6 +13,8 @@ export function newerVersion(candidate, current) {
 export function checkedDesktopRelease(value, arch, current) {
   if (!value || value.channel !== 'production' || value.platform !== 'darwin' || value.arch !== arch ||
     value.published !== true || value.updateMethod !== 'manual' || !SEMVER.test(value.version) ||
+    value.adHocSigned !== true || value.developerIdSigned !== false || value.notarized !== false ||
+    !/^[a-f0-9]{40}$/.test(value.sourceCommit) ||
     value.pageUrl !== DESKTOP_DOWNLOAD_URL || !/^[a-f0-9]{64}$/.test(value.sha256) ||
     !Number.isSafeInteger(value.size) || value.size <= 0 || !newerVersion(value.version, current)) return null;
   return { version: value.version, pageUrl: DESKTOP_DOWNLOAD_URL, sha256: value.sha256, size: value.size };
@@ -48,8 +50,7 @@ export function createDesktopUpdateCheck({ channel, arch, version, fetchRelease,
         } finally { await reader.cancel(); }
         return latest = checkedDesktopRelease(JSON.parse(Buffer.concat(chunks).toString('utf8')), arch, version);
       } catch { return latest = null; }
-      finally { pending = null; }
-    })();
+    })().finally(() => { pending = null; });
     return pending;
   };
 }

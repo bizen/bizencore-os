@@ -77,12 +77,14 @@ export function manualSigningOptions() {
     optionsForFile: () => ({ hardenedRuntime: false, entitlements: [] }) };
 }
 
-export function releaseArtifacts({ version, arch, sha256, size, builtAt = new Date().toISOString() }) {
+export function releaseArtifacts({ version, arch, sha256, size, builtAt = new Date().toISOString(), sourceCommit }) {
   releaseVersion({ DESKTOP_RELEASE_VERSION: version });
   releaseArchitecture([`--arch=${arch}`]);
   if (!/^[a-f0-9]{64}$/.test(sha256) || !Number.isSafeInteger(size) || size <= 0 || !Number.isFinite(Date.parse(builtAt))) throw new Error('Invalid release artifact metadata');
+  if (sourceCommit !== undefined && !/^[a-f0-9]{40}$/.test(sourceCommit)) throw new Error('Invalid release source commit');
   const filename = `${profiles.production.packageName}-${version}-darwin-${arch}.zip`;
   const directory = `production/darwin/${arch}`;
-  return { filename, directory, manifest: { version, arch, filename, sha256, size, builtAt,
+  return { filename, directory, manifest: { version, arch, filename, sha256, size, builtAt, channel: 'production', platform: 'darwin', minimumMacOs: '13.0',
+    pageUrl: 'https://bizencore.com/downloads/', ...(sourceCommit ? { sourceCommit } : {}),
     adHocSigned: true, developerIdSigned: false, notarized: false, updateMethod: 'manual', published: false } };
 }

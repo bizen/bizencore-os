@@ -14,6 +14,7 @@ const arch = releaseArchitecture(args);
 const config = JSON.parse(await readFile(path.join(root, profile.stage, 'config.json'), 'utf8'));
 if (checkedRuntimeConfig(config).channel !== profile.channel) throw new Error('Packaging the wrong desktop build profile');
 const release = args.includes('--release');
+if (release && !/^[a-f0-9]{40}$/.test(config.sourceCommit ?? '')) throw new Error('Release must reference its source commit');
 const version = releaseVersion(process.env, config.version);
 if (config.arch !== arch || config.version !== version || config.release !== release) throw new Error('Packaging flags/version differ from the runtime build; rebuild it with matching flags');
 const renderer = JSON.parse(await readFile(path.join(root, profile.stage, 'renderer/desktop-build.json'), 'utf8'));
@@ -57,10 +58,13 @@ if (release) {
     for await (const chunk of createReadStream(archive)) hash.update(chunk);
     const sha256 = hash.digest('hex');
     const size = (await stat(archive)).size;
-    const artifacts = releaseArtifacts({ version, arch, sha256, size });
+    const artifacts = releaseArtifacts({ version, arch, sha256, size, sourceCommit: config.sourceCommit });
     await writeFile(path.join(directory, 'artifact.json'), `${JSON.stringify(artifacts.manifest, null, 2)}\n`);
     await writeFile(path.join(directory, 'SHA256SUMS'), `${sha256}  ${filename}\n`);
     await writeFile(path.join(directory, 'INSTALL.md'), await readFile(new URL('./INSTALL.md', import.meta.url)));
+    for (const file of ['INSTALL.ja.md', 'THIRD_PARTY_NOTICES.txt', 'THIRD_PARTY_REVIEW.json']) {
+      await writeFile(path.join(directory, file), await readFile(path.join(root, profile.stage, file)));
+    }
     console.log(`Manual-distribution ZIP and checksum prepared in ${directory}. No Developer ID signature or notarization. Nothing was published.`);
   }
 }

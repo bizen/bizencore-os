@@ -13,12 +13,19 @@ Web production stays independent of desktop candidates. This branch starts at we
 - Production 0.1.7 ZIP SHA-256 and deep/strict ad-hoc resource signature verified.
 - Installed 0.1.5 retained at a separate backup path; installed bundle is now 0.1.7.
 - Existing authentication and workspace data directories were not reset or removed.
-- Native 0.1.7 authentication restore did not finish. A macOS SecurityAgent process
-  was present; its protected dialog could not be inspected by the automation.
-  User confirmation is needed to identify any local authentication prompt.
-- Do not count 0.1.7 TOC navigation, native context drops, or normal restart as verified yet.
+- Native 0.1.7 authentication restore initially waited on macOS authentication. The owner
+  subsequently confirmed Keychain permission; account/tasks/settings restored successfully.
+- Native TOC clicks to a normal label and Life World, current-label alignment, the idle
+  launcher and independent task detail panel were verified. No agent was launched.
+- Public link attachment to the dedicated smoke subtask succeeded. Selecting two dummy
+  files through the native picker exposed a CSP defect: the file-upload `.convex.site`
+  origin was omitted. Both uploads failed before reaching the server.
+- The next candidate fixes this by allowing only its pinned deployment's file site.
+  Native file/drop acceptance must be repeated; 0.1.7 is not a publishable candidate.
 - No unrelated production task was edited, completed, deleted or handed to an agent.
-- Source tests: 337 passed. Shared Web and MCP Apps builds passed.
+- Source tests: 342 passed, including pinned-upload CSP, update notices and dependency inventory.
+  Shared Web and MCP Apps builds passed. Browser regression reproduces the old upload CSP
+  failure and verifies two sequential uploads with the fixed policy using mocked transport.
 - Lint: no errors; existing terminal-launch hook dependency warning remains.
 
 ## Update Notice
@@ -36,6 +43,20 @@ The release feed must remain unpublished until the referenced archive exists pub
 its hash/size are independently verified, and candidate acceptance has passed.
 Adding a notice to a new build does not retroactively update 0.1.7 or older applications.
 
+## Source And Distribution Preparation
+
+- Desktop/shared UI baseline committed on `desktop/release-readiness-20261015` at `de3e800`.
+- Original dirty application and LP checkouts retained; no Web production deployment or
+  main-branch merge performed.
+- Official download page prepared on a separate LP branch. Its feed is `published: false`.
+- Download tests verify published metadata and fail closed for unpublished/invalid feeds;
+  layouts checked at 1440, 390 and 320 pixels using synthetic application screenshots.
+- Japanese install/update/rollback, data/permission and public-reporting instructions prepared.
+- 226 locked dependency notices inventoried. The five missing root texts were supplemented
+  from the installed README, same-version parent package or documented official sources.
+  Asset permissions remain unconfirmed; an inventory is not a blanket legal clearance.
+- Release builds now require a clean committed checkout and bind the source commit into metadata.
+
 ## Release Gates
 
 - [ ] Complete installed-candidate authentication, TOC and context-drop acceptance.
@@ -43,7 +64,7 @@ Adding a notice to a new build does not retroactively update 0.1.7 or older appl
 - [ ] Review dependency notices and bundled art/font redistribution conditions.
 - [ ] Confirm minimum macOS support against the actual Electron runtime; the Swift helper
       deployment target alone is not a supported-OS claim.
-- [ ] Complete source commit and bind the final archive to its source commit.
+- [x] Complete source baseline commit; candidate builds require a clean checkout and record its commit.
 - [ ] Host the immutable ZIP, checksum, metadata, installation guide and release notes.
 - [ ] Verify the public download in a normal browser with quarantine retained.
 - [ ] Activate the published release feed only after acceptance and archive verification.

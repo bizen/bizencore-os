@@ -7,6 +7,7 @@ import { rebuild } from '@electron/rebuild';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { channelFromArgs, releaseProfile, runtimeConfig, checkedRendererConfig, releaseArchitecture, releaseVersion } from './release-config.mjs';
+import { dependencyNotices } from './notices.mjs';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -23,6 +24,12 @@ if (args.includes('--check')) {
   process.exit(0);
 }
 if (process.platform !== 'darwin') throw new Error('Desktop packaging currently supports macOS only');
+if (release) {
+  const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: root, encoding: 'utf8' });
+  if (dirty.trim()) throw new Error('Release builds require committed source in a clean checkout');
+  config.sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  if (!/^[a-f0-9]{40}$/.test(config.sourceCommit)) throw new Error('Release source commit is invalid');
+}
 if (args.includes('--renderer')) {
   execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', path.join(root, 'tsconfig.electron.json')], { cwd: root, stdio: 'inherit' });
   await buildVite({ configFile: path.join(root, 'vite.electron.config.ts'), mode: profile.mode });
@@ -45,6 +52,10 @@ await cp(path.join(root, profile.renderer), path.join(stage, 'renderer'), { recu
 await buildVite({ configFile: path.join(root, 'vite.mcp-app.config.ts'), mode: profile.mode, build: { outDir: path.join(stage, 'dist-mcp'), emptyOutDir: true } });
 await cp(path.join(root, 'node_modules/node-pty'), path.join(stage, 'node_modules/node-pty'), { recursive: true });
 await writeFile(path.join(stage, 'config.json'), JSON.stringify(config));
+const notices = await dependencyNotices(root);
+await writeFile(path.join(stage, 'THIRD_PARTY_NOTICES.txt'), notices.text);
+await writeFile(path.join(stage, 'THIRD_PARTY_REVIEW.json'), JSON.stringify({ count: notices.count, needsReview: notices.missing }, null, 2));
+await cp(path.join(root, 'desktop/INSTALL.ja.md'), path.join(stage, 'INSTALL.ja.md'));
 await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: profile.packageName, version, type: 'module', main: 'main.mjs', dependencies: { 'node-pty': require('node-pty/package.json').version } }));
 for (const [entry, output] of [['main.mjs', 'main.mjs'], ['preload.cjs', 'preload.cjs'], ['storage-smoke.mjs', 'storage-smoke.mjs'], ['process-guard-worker.mjs', 'process-guard-worker.mjs']]) {
   await build({ entryPoints: [path.join(root, 'desktop/electron', entry)], outfile: path.join(stage, output), bundle: true, platform: 'node', format: output.endsWith('.mjs') ? 'esm' : 'cjs', target: 'node22', external: ['electron', 'node-pty'],

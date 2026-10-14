@@ -29,6 +29,7 @@ import { checkWorkRequest, createTaskOperationGuard, runTaskProcess, taskTreeIds
 import { checkOrchestration, orchestrationPrompt, reviewOrchestration } from './orchestration.mjs';
 import { createShutdownBarrier } from './session-shutdown.mjs';
 import { createDesktopUpdateCheck, DESKTOP_DOWNLOAD_URL } from './desktop-update.mjs';
+import { desktopContentPolicy } from './content-policy.mjs';
 
 // Runtime config contains only public Vite values, never a Clerk secret key.
 const root = app.getAppPath();
@@ -536,9 +537,7 @@ function validationMenu() {
 }
 
 function csp() {
-  const clerkHost = config.clerkHost;
-  const convex = new URL(config.convexUrl).origin;
-  return `default-src 'self'; script-src 'self' https://${clerkHost} https://challenges.cloudflare.com https://*.protect.clerk.com${dev ? " 'unsafe-eval'" : ''}; connect-src 'self' https://${clerkHost} ${convex} ${convex.replace('https:', 'wss:')} https://*.protect.clerk.com:* https://clerk-telemetry.com https://*.clerk-telemetry.com${dev ? ' http://127.0.0.1:5211 ws://127.0.0.1:5211' : ''}; img-src 'self' data: blob: https://img.clerk.com https://*.clerk.com https://*.googleusercontent.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com https://*.protect.clerk.com; object-src 'none'; base-uri 'self'; form-action 'self'`;
+  return desktopContentPolicy(config, dev);
 }
 function applicationMenu() {
   app.setAboutPanelOptions({ applicationName: profile.name, applicationVersion: config.version });
