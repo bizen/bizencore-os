@@ -3,7 +3,8 @@ import { fitTextarea, useAutoGrow } from '../../lib/useAutoGrow';
 import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
 import { liveAttachments } from '../../lib/attachments';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
-import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
+import { QUEST_LABEL } from '../../lib/quests';
+import { QuestIcon } from './QuestIcon';
 import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
 import { TaskTreeGuides } from './TaskTreeGuides';
@@ -275,7 +276,7 @@ export function TaskRow(props: TaskRowProps) {
                 aria-label={item.kind ? QUEST_LABEL[item.kind] : 'クエスト種別を選ぶ'}
                 title={`${item.kind ? QUEST_LABEL[item.kind] : 'クエスト種別'}（⌥M）`}
               >
-                {item.kind ? <img src={QUEST_IMG[item.kind]} alt="" /> : <span aria-hidden>◇</span>}
+                {item.kind ? <QuestIcon kind={item.kind} /> : <span aria-hidden>◇</span>}
               </button>
 
               <button

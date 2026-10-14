@@ -37,12 +37,24 @@ const outputs = await packager({
   appVersion: version, buildVersion: version, icon,
   protocols: [{ name: profile.name, schemes: [profile.scheme] }],
   asar: { unpack: '**/node_modules/node-pty/**' },
-  extraResource: [path.join(root, profile.stage, 'auth-session.app'), path.join(root, profile.stage, 'process-guard-worker.mjs')],
+  extraResource: [
+    path.join(root, profile.stage, 'auth-session.app'),
+    path.join(root, profile.stage, 'process-guard-worker.mjs'),
+    path.join(root, profile.stage, 'THIRD_PARTY_NOTICES.txt'),
+    path.join(root, 'node_modules/electron/dist/LICENSE'),
+    path.join(root, 'node_modules/electron/dist/LICENSES.chromium.html'),
+    path.join(root, 'desktop/INSTALL.ja.md'),
+  ],
   ignore: [/^\/auth-session\.app/, /^\/process-guard-worker\.mjs$/],
   ...(profile.channel === 'production' ? { osxSign: manualSigningOptions() } : {}),
 });
 if (profile.channel === 'production') {
   for (const output of outputs) {
+    for (const file of ['THIRD_PARTY_NOTICES.txt', 'LICENSE', 'LICENSES.chromium.html', 'INSTALL.ja.md']) {
+      if ((await stat(path.join(output, `${profile.name}.app`, 'Contents/Resources', file))).size <= 0) {
+        throw new Error(`Missing distribution notice: ${file}`);
+      }
+    }
     execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', path.join(output, `${profile.name}.app`)], { stdio: 'inherit' });
   }
 }

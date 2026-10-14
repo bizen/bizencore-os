@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { channelFromArgs, releaseProfile, runtimeConfig, checkedRendererConfig, releaseArchitecture, releaseVersion } from './release-config.mjs';
 import { dependencyNotices } from './notices.mjs';
+import { excludeDistributionArtwork, verifyDistributionArtwork } from './distribution-assets.mjs';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -49,7 +50,9 @@ if (process.platform === 'darwin') {
   execFileSync('/usr/bin/xcrun', ['swiftc', ...(channel === 'production' ? ['-D', 'DESKTOP_PRODUCTION'] : []), '-target', `${arch === 'x64' ? 'x86_64' : arch}-apple-macos11.0`, path.join(root, 'desktop/electron/auth-session.swift'), '-o', path.join(helper, 'MacOS/auth-session'), '-framework', 'AppKit', '-framework', 'AuthenticationServices'], { stdio: 'inherit' });
 }
 await cp(path.join(root, profile.renderer), path.join(stage, 'renderer'), { recursive: true });
+await excludeDistributionArtwork(root, path.join(stage, 'renderer'));
 await buildVite({ configFile: path.join(root, 'vite.mcp-app.config.ts'), mode: profile.mode, build: { outDir: path.join(stage, 'dist-mcp'), emptyOutDir: true } });
+await verifyDistributionArtwork(root, path.join(stage, 'dist-mcp'));
 for (const name of ['node-pty', 'node-addon-api']) {
   const dependency = path.join(root, 'node_modules', name);
   // Rebuild against local headers; never copy another checkout's generated gyp paths.

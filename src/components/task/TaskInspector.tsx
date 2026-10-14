@@ -6,7 +6,8 @@ import type { HandoffIntent } from '../../lib/taskWorkPrompt';
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_TEXT, attachmentLabel, isUrl, liveAttachments } from '../../lib/attachments';
 import { isCloudConfigured } from '../../lib/cloudConfig';
 import { showDatePicker } from '../../lib/nativeDatePicker';
-import { QUEST_IMG, QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
+import { QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
+import { QuestIcon } from './QuestIcon';
 import { estimateInputValue, parseEstimate } from '../../lib/taskEstimate';
 import type { Item, ItemMap, TaskKind } from '../../lib/taskModel';
 import { TaskFileInput, TaskFileLink } from './TaskFileContext';
@@ -527,7 +528,7 @@ export function TaskInspector(props: TaskInspectorProps) {
                 className={`inspector-kind${item.kind === kind ? ' is-on' : ''}`}
                 onClick={() => onSetKind(item.id, kind)}
               >
-                <img src={QUEST_IMG[kind]} alt="" />
+                <QuestIcon kind={kind} />
                 {QUEST_LABEL[kind]}
               </button>
             ))}

@@ -22,10 +22,15 @@ export default defineConfig(({ mode, command }) => {
   }, generateBundle() {
     this.emitFile({ type: 'asset', fileName: 'desktop-build.json', source: JSON.stringify(config) });
   } }],
-  resolve: { alias: [{ find: /^@clerk\/clerk-react$/, replacement: fileURLToPath(new URL('./desktop/electron/clerk.tsx', import.meta.url)) }] },
+  resolve: { alias: [
+    { find: /^@clerk\/clerk-react$/, replacement: fileURLToPath(new URL('./desktop/electron/clerk.tsx', import.meta.url)) },
+    { find: './components/Mascot', replacement: fileURLToPath(new URL('./desktop/electron/Mascot.tsx', import.meta.url)) },
+    { find: './components/SplashScreen', replacement: fileURLToPath(new URL('./desktop/electron/SplashScreen.tsx', import.meta.url)) },
+  ] },
   server: { host: '127.0.0.1', port: 5211, strictPort: true },
   build: { outDir: fileURLToPath(new URL(`./${profile.renderer}`, import.meta.url)), emptyOutDir: true },
   define: {
+    'import.meta.env.VITE_DESKTOP_SAFE_ASSETS': JSON.stringify('true'),
     'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(''),
     'import.meta.env.VITE_CLERK_PUBLISHABLE_KEY': JSON.stringify(env.VITE_CLERK_PUBLISHABLE_KEY),
     'import.meta.env.VITE_CONVEX_URL': JSON.stringify(config.convexUrl),

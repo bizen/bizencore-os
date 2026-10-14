@@ -23,7 +23,8 @@ Web production stays independent of desktop candidates. This branch starts at we
 - The next candidate fixes this by allowing only its pinned deployment's file site.
   Native file/drop acceptance must be repeated; 0.1.7 is not a publishable candidate.
 - No unrelated production task was edited, completed, deleted or handed to an agent.
-- Source tests: 342 passed, including pinned-upload CSP, update notices and dependency inventory.
+- Source tests: 344 passed, including pinned-upload CSP, update notices, dependency inventory
+  and distribution artwork exclusions.
   Shared Web and MCP Apps builds passed. Browser regression reproduces the old upload CSP
   failure and verifies two sequential uploads with the fixed policy using mocked transport.
 - Lint: no errors; existing terminal-launch hook dependency warning remains.
@@ -54,7 +55,10 @@ Adding a notice to a new build does not retroactively update 0.1.7 or older appl
 - Japanese install/update/rollback, data/permission and public-reporting instructions prepared.
 - 226 locked dependency notices inventoried. The five missing root texts were supplemented
   from the installed README, same-version parent package or documented official sources.
-  Asset permissions remain unconfirmed; an inventory is not a blanket legal clearance.
+  The owner confirmed no redistribution permission for the three illustrations;
+  desktop builds exclude them and use licensed Lucide icons or brand-only UI instead.
+  The desktop brand icon was regenerated from the repository's documented `bc` generator.
+  Electron/Chromium notices are explicitly included as readable app resources.
 - Release builds now require a clean committed checkout and bind the source commit into metadata.
 
 ## Release Gates

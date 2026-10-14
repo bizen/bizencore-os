@@ -3,16 +3,25 @@
 Public release remains gated on this review. Dependency licensing does not grant rights
 to project images. Do not infer permission just because an asset is in the repository.
 
-## Pending Owner Confirmation
+## Excluded From Desktop Distribution
 
-- `src/assets/cirno.png`: source artist, permission/license and required attribution
-  for redistributing this specific illustration are not documented.
-- `public/quests/mainquest.png` and `public/quests/tanomigoto.png`: source and
-  redistribution/attribution conditions need to be documented.
-- Desktop and home-screen logo icons: confirm ownership of the generated design.
+- The owner confirmed no redistribution permission for `src/assets/cirno.png`,
+  `public/quests/mainquest.png` and `public/quests/tanomigoto.png` on 2026-10-15.
+- Desktop builds use a brand-only splash, no mascot, and Lucide Flag/HandHelping
+  quest icons. Web artwork is unchanged. The source images are not shipped in ZIPs.
+- The staged renderer removes copied public quest images and rejects matching
+  original image hashes even if renamed. The embedded MCP app is also inspected.
 
-Do not remove or replace the user's chosen artwork without agreement. Until permission
-is established, keep public binaries and the latest-release feed unpublished.
+## Generated Brand Icon
+
+- The desktop icon was rebuilt directly from `public/icons/icon-512.png`, whose
+  repository-owned generator is `scripts/generate-app-icons.mjs`: white `bc`
+  letterforms on Midnight Black, using Instrument Serif from the pinned Google Fonts
+  source documented in `public/icons/README.md`. No third-party illustration is used.
+- Lucide icon license text is included in the dependency notices.
+
+Keep public binaries and the latest-release feed unpublished until the updated
+installed candidate has passed acceptance. This inventory is not a blanket legal clearance.
 
 ## Fonts And Dependencies
 

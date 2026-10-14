@@ -549,6 +549,7 @@ function applicationMenu() {
         detail: '更新する際は、作業を終えるかエージェントを停止し、アプリを完全に終了してください。新しいZIPのチェックサムを確認し、旧版をバックアップしてから同じ場所へ入れ替えます。\n\nアカウントの保存データは削除しません。再起動したペインは未起動のままです。問題があれば、終了後に旧版へ戻してください。\n\nAppleの公証は受けていません。更新版でもmacOSが個別の起動許可を求める場合があります。自動インストールや作業中の強制終了は行いません。',
         buttons: ['閉じる', '配布ページを開く'], noLink: true,
       }).then(result => { if (result.response === 1) return shell.openExternal(DESKTOP_DOWNLOAD_URL); }).catch(() => {}) },
+      { label: '第三者ライセンス', click: () => shell.showItemInFolder(path.join(process.resourcesPath, 'THIRD_PARTY_NOTICES.txt')) },
       { type: 'separator' }, { role: 'services' },
       { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
       { type: 'separator' }, { role: 'quit' },
