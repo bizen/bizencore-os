@@ -50,7 +50,12 @@ if (process.platform === 'darwin') {
 }
 await cp(path.join(root, profile.renderer), path.join(stage, 'renderer'), { recursive: true });
 await buildVite({ configFile: path.join(root, 'vite.mcp-app.config.ts'), mode: profile.mode, build: { outDir: path.join(stage, 'dist-mcp'), emptyOutDir: true } });
-await cp(path.join(root, 'node_modules/node-pty'), path.join(stage, 'node_modules/node-pty'), { recursive: true });
+for (const name of ['node-pty', 'node-addon-api']) {
+  const dependency = path.join(root, 'node_modules', name);
+  // Rebuild against local headers; never copy another checkout's generated gyp paths.
+  await cp(dependency, path.join(stage, 'node_modules', name), { recursive: true,
+    filter: source => path.relative(dependency, source).split(path.sep)[0] !== 'build' });
+}
 await writeFile(path.join(stage, 'config.json'), JSON.stringify(config));
 const notices = await dependencyNotices(root);
 await writeFile(path.join(stage, 'THIRD_PARTY_NOTICES.txt'), notices.text);
