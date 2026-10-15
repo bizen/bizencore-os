@@ -196,8 +196,8 @@ Server-side session revocation acceptance remains a separate disclosed gap.
   revealing task data or starting a CLI; no cached token bypass is introduced.
 - 357 unit tests pass, including a genuinely blocked child-process test, token storage
   compatibility/mutation races, account/environment storage boundaries and process cleanup.
-  Browser authentication regression passes. Existing real-account tests are not replaced by
-  synthetic results; signed-in restart/quit acceptance of this candidate is still required.
+  Browser authentication regression passes. Synthetic results are not substituted for
+  real-account evidence; signed-in candidate acceptance is recorded below.
 - The owner approved 0.1.11's Keychain prompt and its signed-in task list was observed.
   Its normal Command-Q shutdown left no desktop process before the next installation.
 - 0.1.12 archive source `38fb941` and SHA-256
@@ -223,7 +223,7 @@ Server-side session revocation acceptance remains a separate disclosed gap.
   were observed. The owner subsequently reported approving both 0.1.12 and 0.1.13;
   only the currently installed 0.1.13 was inspected. Its signed-in production task list,
   previous workspace folder, one unstarted pane and dark theme were visibly restored.
-  Do not claim signed-in restart or a new CLI work cycle passed on 0.1.13.
+  Signed-in restart and a new CLI work cycle were subsequently verified as recorded below.
   Nothing was deployed, uploaded or publicly enabled.
 - Subsequent CUA Command-Q/native-menu Quit attempts did not establish main-process
   termination: PID 26435 remained with the task window accessible and no stop-agent
@@ -234,3 +234,27 @@ Server-side session revocation acceptance remains a separate disclosed gap.
   A separate synthetic real-Electron run using the same lifecycle module and an idle
   hidden window reached approved before-quit, close and will-quit and exited 0 without
   timeout; this is isolation evidence, not packaged signed-in acceptance.
+- The owner then reported normal menu Quit succeeded. Independent process inventory
+  confirmed no production desktop main/auth/guard remained. Reopening the same installed
+  0.1.13 restored the signed-in list without another owner authentication action,
+  columns layout at width 46, the previous workspace folder and one unstarted Claude pane.
+  Earlier CUA Quit failures are not a reproducible product shutdown defect and are not
+  counted as successful exits; the manual exit plus inventory is separate positive evidence.
+- Dedicated sample `0cdb8eee-d2b3-423e-8613-86849452b87a` was created under installed
+  acceptance, assigned to the existing pane in execution mode, and explicitly launched.
+  Native select menus required keyboard navigation and the confirmation dialog required
+  screenshot-grounded coordinates; no product source was changed to bypass either.
+  Real Claude Code fetched the current task with desktop MCP `work_on_task`, used Read
+  only on `claude-readonly.txt`, and called `record_task_progress` and `complete_task`.
+  Independent MCP read confirmed done=true and completed_by_client=Claude Code.
+  The original 45 bytes matched exactly, SHA-256
+  `69dbcc98c7fd75e414d4e12c702c3930ba1022bd6c82ea937efff760db709db1`;
+  inode 252535280, mtime/ctime 1791906594434.796 were unchanged before/after.
+  No real tasks, other files, permissions or global CLI configuration were modified.
+- Claude completed its final response and exited normally via `/exit`. Subsequent CUA
+  Command-Q succeeded and process inventory again showed no production main/auth/guard.
+  Reopening 0.1.13 again restored authentication without further owner action, the same
+  layout/folder, the sample's completed assignment, and no running CLI/stop-agent control.
+  This verifies the agreed one-pane startup/work/progress/normal-exit/restart cycle on
+  this Mac. Codex's prior native acceptance remains prior-version evidence, not a new
+  Codex cycle on 0.1.13. Separate-account/Mac and real server revocation remain untested.
