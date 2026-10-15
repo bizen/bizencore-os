@@ -210,3 +210,16 @@ Server-side session revocation acceptance remains a separate disclosed gap.
   The 0.1.13 fix fails closed on missing/relative/unresolvable parent paths. A real Electron
   run of the bundled fixed worker with an unauthorized Node parent exited 2 without
   timing out or accessing storage. Packaged-candidate acceptance remains required.
+- 0.1.13 archive source `bcde500a100d868a0f97437315d591fcde66ea62`, SHA-256
+  `782841773adc21936d384a17d51fe0b2a9d629d40c747bbacfc26710f7bf56c3`,
+  147012558 bytes. Metadata, ZIP checksum, deep/strict resource signature and nonempty
+  runtime/license/install notices passed; no Developer ID signature or notarization.
+  Packaged standalone-worker rejection exited 2 with no IPC messages or error output.
+- Privately installed 0.1.13 at the fixed Applications path after normal Command-Q of
+  0.1.12; the installer verified no desktop main/auth/guard remained before replacement.
+  Backup: `bizencore-backups/1792058983772-0.1.12/bizencore terminal.app`.
+  Repeated executable launch exited 0 and preserved the original main PID: one main,
+  one authentication helper, one process guard. Version/title and responsive pending UI
+  were observed. Owner Keychain approval for this new build is pending; do not claim
+  signed-in restoration, signed-in restart or a new CLI work cycle passed on 0.1.13.
+  Nothing was deployed, uploaded or publicly enabled.
