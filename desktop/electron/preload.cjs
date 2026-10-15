@@ -2,7 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 const { exposeClerkBridge } = require('@clerk/electron/preload');
 
 exposeClerkBridge();
-const invoke = (name, ...args) => ipcRenderer.invoke(`bizencore:${name}`, ...args);
+const invoke = (name, ...args) => ipcRenderer.invoke(`bizencore:${name}`, ...args).catch(error => {
+  throw new Error(String(error?.message ?? error).replace(/^Error invoking remote method 'bizencore:[a-z-]+': (?:Error: )?/, ''));
+});
 const subscribe = (name, callback) => {
   const listener = (_event, ...args) => callback(...args);
   ipcRenderer.on(name, listener);

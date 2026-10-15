@@ -113,7 +113,9 @@ test('renderer build descriptors bind the selected deployment and version and pr
       const { config } = await loadConfigFromFile({ command: 'build', mode: profiles[channel].mode }, file, undefined, 'silent');
       const plugin = config.plugins.flat().find(plugin => plugin.name === 'desktop-build-profile');
       const html = plugin.transformIndexHtml('<html><head><title>fixture preview</title></head></html>');
-      assert.ok(html.includes(`<title>${profiles[channel].name}</title>`));
+      assert.ok(html.includes(`<title>${profiles[channel].name} 1.2.3</title>`));
+      assert.equal(JSON.parse(config.define['import.meta.env.VITE_DESKTOP_APP_VERSION']), '1.2.3');
+      assert.equal(JSON.parse(config.define['import.meta.env.VITE_DESKTOP_APP_CHANNEL']), channel);
       assert.ok(!html.includes('fixture preview'));
       let artifact;
       plugin.generateBundle.call({ emitFile: value => { artifact = value; } });

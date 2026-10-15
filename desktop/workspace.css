@@ -120,6 +120,7 @@ body { overflow: hidden; }
 .agents-collapsed .agent-settings { position: absolute; right: 56px; top: 110px; width: 280px; z-index: 20; max-height: calc(100% - 120px); background: var(--bg-color); border: 1px solid var(--hairline); }
 .agents-collapsed .agent-toolbar > div { flex-direction: column; }
 .agent-error { margin: 0; padding: 8px 12px; color: var(--danger-soft); font-size: 12px; overflow-wrap: anywhere; }
+.brand .brand-version { margin-left: 10px; font: 11px var(--font-mono); color: var(--text-secondary); letter-spacing: 0; white-space: nowrap; }
 .desktop-workspace.is-expanded { grid-template-columns: minmax(0, 1fr); }
 .desktop-workspace.is-expanded .desktop-task-column, .desktop-workspace.is-expanded .desktop-task-divider { display: none; }
 .desktop-workspace.is-expanded.has-inspector { grid-template-columns: var(--inspector-width) 6px minmax(280px, 1fr); }

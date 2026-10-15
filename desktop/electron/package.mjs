@@ -35,6 +35,7 @@ const outputs = await packager({
   name: profile.name, appBundleId: profile.bundleId,
   platform: 'darwin', arch, overwrite: true, prune: false,
   appVersion: version, buildVersion: version, icon,
+  extendInfo: { CFBundleDisplayName: `${profile.name} ${version}` },
   protocols: [{ name: profile.name, schemes: [profile.scheme] }],
   asar: { unpack: '**/node_modules/node-pty/**' },
   extraResource: [

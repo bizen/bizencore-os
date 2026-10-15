@@ -18,7 +18,7 @@ export default defineConfig(({ mode, command }) => {
   envDir: root,
   publicDir: fileURLToPath(new URL('./public', import.meta.url)),
   plugins: [react(), { name: 'desktop-build-profile', transformIndexHtml(html) {
-    return html.replace(/<title>[^<]*<\/title>/, `<title>${profile.name}</title>`);
+    return html.replace(/<title>[^<]*<\/title>/, `<title>${profile.name} ${config.version}</title>`);
   }, generateBundle() {
     this.emitFile({ type: 'asset', fileName: 'desktop-build.json', source: JSON.stringify(config) });
   } }],
@@ -31,6 +31,8 @@ export default defineConfig(({ mode, command }) => {
   build: { outDir: fileURLToPath(new URL(`./${profile.renderer}`, import.meta.url)), emptyOutDir: true },
   define: {
     'import.meta.env.VITE_DESKTOP_SAFE_ASSETS': JSON.stringify('true'),
+    'import.meta.env.VITE_DESKTOP_APP_VERSION': JSON.stringify(config.version),
+    'import.meta.env.VITE_DESKTOP_APP_CHANNEL': JSON.stringify(channel),
     'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(''),
     'import.meta.env.VITE_CLERK_PUBLISHABLE_KEY': JSON.stringify(env.VITE_CLERK_PUBLISHABLE_KEY),
     'import.meta.env.VITE_CONVEX_URL': JSON.stringify(config.convexUrl),

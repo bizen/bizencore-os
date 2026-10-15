@@ -2,8 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, net, Notification,
 import Store from 'electron-store';
 import { createClerkBridge } from '@clerk/electron';
 import * as pty from 'node-pty';
-import { access, realpath, stat, readFile } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { stat, readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -12,7 +11,8 @@ import { AccessState, checkedGrant, convexEndpoint, paneId, terminalSize, tokenC
 import { checkedRuntimeConfig } from './release-config.mjs';
 import { createAuthStorage } from './auth-storage.mjs';
 import { agentLaunchArgs, allocateAgentSession } from './agent-launch.mjs';
-import { diagnoseAgents } from './agent-diagnostics.mjs';
+import { diagnoseAgents, resolveAgentExecutable } from './agent-diagnostics.mjs';
+import { checkWorkFolder, agentLaunchFailure } from './launch-preflight.mjs';
 import { createConversationRegistry } from './conversation-registry.mjs';
 import { captureOwnedCodexProcessSession } from './conversations.mjs';
 import { attachDesktopLifecycle, restoreWindowBounds } from './lifecycle.mjs';
@@ -154,14 +154,7 @@ function command(name, handler, authenticated = true) {
   });
 }
 async function agentPath(agent) {
-  if (agent !== 'claude' && agent !== 'codex') throw new Error('Unsupported agent');
-  const dirs = [...(process.env.PATH ?? '').split(path.delimiter), path.join(homedir(), '.local/bin'), path.join(homedir(), '.bun/bin'), '/opt/homebrew/bin', '/usr/local/bin'];
-  const candidates = dirs.filter(Boolean).map(dir => path.join(dir, agent));
-  if (agent === 'codex') candidates.push('/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex');
-  for (const candidate of candidates) {
-    try { await access(candidate, constants.X_OK); if ((await stat(candidate)).isFile()) return candidate; } catch { /* Try next install location. */ }
-  }
-  return null;
+  return resolveAgentExecutable(agent);
 }
 async function stopAgentsAndWait() {
   lock();
@@ -249,8 +242,7 @@ command('agent-diagnostics', async event => {
 });
 command('conversations', async (event, agent, cwd) => {
   const generation = accessState.generation;
-  if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) throw new Error('Invalid work folder');
-  const folder = await realpath(cwd);
+  const folder = await checkWorkFolder(cwd, { writable: false });
   sameAccess(event, generation);
   const result = await conversations.list(agent, folder);
   sameAccess(event, generation);
@@ -278,8 +270,7 @@ command('task-run', async (event, input) => {
     validateAccess: () => sameAccess(event, generation), launchGuard, signal: operation.controller.signal,
   });
   try {
-    if (!path.isAbsolute(request.cwd)) throw Error('作業フォルダを選択してください');
-    const folder = await realpath(request.cwd);
+    const folder = await checkWorkFolder(request.cwd, { writable: request.mode !== 'decompose' });
     if (!(await stat(folder)).isDirectory() || folder === path.parse(folder).root || folder === homedir()) throw Error('専用の作業フォルダを選択してください');
     const detail = await desktopMcp.readTask(request.taskId, operation.controller.signal);
     check();
@@ -354,9 +345,7 @@ command('start', async (event, args) => {
     if (pending.controller.signal.aborted || pendingStarts.get(id) !== pending) throw Error('エージェントの起動をキャンセルしました');
   };
   try {
-  if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) throw new Error('Invalid work folder');
-  const folder = await realpath(cwd);
-  if (!(await stat(folder)).isDirectory()) throw new Error('作業フォルダを選択してください');
+  const folder = await checkWorkFolder(cwd);
   let workIds;
   if (work) {
     if (folder === path.parse(folder).root || folder === homedir()) throw Error('専用の作業フォルダを選択してください');
@@ -384,7 +373,7 @@ command('start', async (event, args) => {
   }
   const executable = await agentPath(agent);
   checkLaunch();
-  if (!executable) throw new Error('エージェントが見つかりません');
+  if (!executable) throw agentLaunchFailure(agent, { code: 'ENOENT' });
   let capability;
   let childEnv = { ...process.env, ELECTRON_RUN_AS_NODE: undefined, TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: 'en_US.UTF-8',
     PATH: `${homedir()}/.local/bin:${homedir()}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` };
@@ -405,7 +394,7 @@ command('start', async (event, args) => {
   try { terminal = pty.spawn(executable, launchArgs, {
     name: 'xterm-256color', cols, rows, cwd: folder, encoding: null,
     env: childEnv,
-  }); } catch (error) { desktopMcp.revoke(capability.token); throw error; }
+  }); } catch (error) { desktopMcp.revoke(capability.token); throw agentLaunchFailure(agent, error); }
   let processIdentity;
   try {
     const rows = processSnapshot();
@@ -544,6 +533,8 @@ function applicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: profile.name, submenu: [
       { role: 'about' },
+      { label: `バージョン ${config.version}${profile.channel === 'preview' ? '（開発版）' : ''}`, enabled: false },
+      { label: 'このアプリをFinderで表示', click: () => shell.showItemInFolder(app.isPackaged ? path.dirname(path.dirname(path.dirname(root))) : root) },
       { label: '手動更新の案内', click: () => void dialog.showMessageBox(window, {
         type: 'info', title: '手動更新', message: `${profile.name} ${config.version}`,
         detail: '更新する際は、作業を終えるかエージェントを停止し、アプリを完全に終了してください。新しいZIPのチェックサムを確認し、旧版をバックアップしてから同じ場所へ入れ替えます。\n\nアカウントの保存データは削除しません。再起動したペインは未起動のままです。問題があれば、終了後に旧版へ戻してください。\n\nAppleの公証は受けていません。更新版でもmacOSが個別の起動許可を求める場合があります。自動インストールや作業中の強制終了は行いません。',
@@ -574,7 +565,7 @@ async function createWindow() {
   });
   window = new BrowserWindow({
     ...restoreWindowBounds(windowPreferences.get('bounds'), screen.getAllDisplays().map(display => display.workArea)), minWidth: 900, minHeight: 600,
-    title: profile.name, backgroundColor: '#0a0b0c',
+    title: `${profile.name} ${config.version}${profile.channel === 'preview' ? ' (Preview)' : ''}`, backgroundColor: '#0a0b0c',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 20 } } : {}),
     webPreferences: { preload: path.join(root, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true,
       additionalArguments: validation ? ['--bizencore-validation'] : [] },
