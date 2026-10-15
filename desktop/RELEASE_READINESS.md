@@ -177,7 +177,7 @@ The owner excluded separate-Mac and separate-account native verification from th
 release's acceptance gates. These are disclosed untested cases, not passed tests.
 Server-side session revocation acceptance remains a separate disclosed gap.
 
-## Candidate Freeze And Authentication Stability (0.1.12)
+## Candidate Freeze And Authentication Stability (0.1.13)
 
 - Freeze new features while stabilizing authentication, one-candidate acceptance and
   unpublished distribution preparation. No public deployment or feed activation is authorized.
@@ -194,7 +194,19 @@ Server-side session revocation acceptance remains a separate disclosed gap.
 - Pending-auth UI explains long OS approval/network waits without declaring a pending
   sign-in failed after 15 seconds. Native server authorization is still mandatory before
   revealing task data or starting a CLI; no cached token bypass is introduced.
-- 356 unit tests pass, including a genuinely blocked child-process test, token storage
+- 357 unit tests pass, including a genuinely blocked child-process test, token storage
   compatibility/mutation races, account/environment storage boundaries and process cleanup.
   Browser authentication regression passes. Existing real-account tests are not replaced by
   synthetic results; signed-in restart/quit acceptance of this candidate is still required.
+- The owner approved 0.1.11's Keychain prompt and its signed-in task list was observed.
+  Its normal Command-Q shutdown left no desktop process before the next installation.
+- 0.1.12 archive source `38fb941` and SHA-256
+  `c7651459238881f7ea19a03486d6caec562131cdc62a2941ca48d53d3fd514b2`
+  passed metadata/resource-signature/notices checks and was privately installed with
+  0.1.11 backed up. Pending-auth UI stayed responsive; Command-Q removed main,
+  auth helper and guard without force-terminating main. Signed-in restore was not verified.
+- An extra packaged standalone-worker rejection test failed: an unavailable parent path
+  could throw before app-ready and leave an Electron error dialog. Do not publish 0.1.12.
+  The 0.1.13 fix fails closed on missing/relative/unresolvable parent paths. A real Electron
+  run of the bundled fixed worker with an unauthorized Node parent exited 2 without
+  timing out or accessing storage. Packaged-candidate acceptance remains required.

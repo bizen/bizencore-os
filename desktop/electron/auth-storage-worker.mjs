@@ -1,14 +1,13 @@
 import { app } from 'electron';
-import { readFile, realpath } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { checkedRuntimeConfig } from './release-config.mjs';
 import { createAuthStorage } from './auth-storage.mjs';
 import { serveAuthStorage } from './auth-storage-channel.mjs';
+import { isAuthStorageParent } from './auth-storage-parent.mjs';
 
 // This mode must be a direct child of this application, never a standalone token reader.
-const parentExecutable = process.send && process.connected ? execFileSync('/bin/ps', ['-p', String(process.ppid), '-o', 'comm='], { encoding: 'utf8', timeout: 2000 }).trim() : '';
-if (!parentExecutable || await realpath(parentExecutable) !== await realpath(process.execPath)) app.exit(2);
+if (!isAuthStorageParent({ connected: process.connected, canSend: typeof process.send === 'function', parentPid: process.ppid, executable: process.execPath })) app.exit(2);
 else {
   const config = JSON.parse(await readFile(path.join(app.getAppPath(), 'config.json'), 'utf8'));
   const profile = checkedRuntimeConfig(config);
