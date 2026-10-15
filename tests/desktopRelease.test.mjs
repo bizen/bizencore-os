@@ -3,6 +3,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { build } from 'esbuild';
+import { readFile } from 'node:fs/promises';
 import { loadConfigFromFile } from 'vite';
 import { profiles, releaseProfile, channelFromArgs, runtimeConfig, checkedRuntimeConfig, checkedRendererConfig,
   releaseArchitecture, releaseVersion, validAuthHost, desktopMcpSite, releaseArtifacts, manualSigningOptions } from '../desktop/electron/release-config.mjs';
@@ -12,6 +13,14 @@ import { trustedRenderer } from '../desktop/electron/policy.mjs';
 const fixtureEnv = channel => ({
   VITE_CLERK_PUBLISHABLE_KEY: `pk_${channel === 'production' ? 'live' : 'test'}_${Buffer.from(`${profiles[channel].clerkHost}$`).toString('base64')}`,
   VITE_CONVEX_URL: profiles[channel].convexUrl,
+});
+
+test('native window titles retain the version after renderer title updates', async () => {
+  const source = await readFile(new URL('../desktop/electron/main.mjs', import.meta.url), 'utf8');
+  assert.match(source, /const windowTitle = .*config\.version/);
+  assert.match(source, /title: windowTitle/);
+  assert.match(source, /window\.setTitle\(windowTitle\)/);
+  assert.doesNotMatch(source, /window\.setTitle\(profile\.name\)/);
 });
 
 test('profiles isolate identity, schemes, storage and build outputs', () => {

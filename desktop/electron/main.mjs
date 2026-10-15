@@ -35,6 +35,7 @@ import { desktopContentPolicy } from './content-policy.mjs';
 const root = app.getAppPath();
 const config = JSON.parse(await readFile(path.join(root, 'config.json'), 'utf8'));
 const profile = checkedRuntimeConfig(config);
+const windowTitle = `${profile.name} ${config.version}${profile.channel === 'preview' ? ' (Preview)' : ''}`;
 const checkDesktopUpdate = createDesktopUpdateCheck({ channel: profile.channel, arch: config.arch,
   version: config.version, fetchRelease: (url, options) => net.fetch(url, options) });
 const scheme = profile.scheme;
@@ -565,12 +566,12 @@ async function createWindow() {
   });
   window = new BrowserWindow({
     ...restoreWindowBounds(windowPreferences.get('bounds'), screen.getAllDisplays().map(display => display.workArea)), minWidth: 900, minHeight: 600,
-    title: `${profile.name} ${config.version}${profile.channel === 'preview' ? ' (Preview)' : ''}`, backgroundColor: '#0a0b0c',
+    title: windowTitle, backgroundColor: '#0a0b0c',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 20 } } : {}),
     webPreferences: { preload: path.join(root, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true,
       additionalArguments: validation ? ['--bizencore-validation'] : [] },
   });
-  window.webContents.on('page-title-updated', event => { event.preventDefault(); window.setTitle(profile.name); });
+  window.webContents.on('page-title-updated', event => { event.preventDefault(); window.setTitle(windowTitle); });
   window.webContents.on('will-navigate', (event, url) => {
     if (!trustedRenderer(url, dev)) {
       event.preventDefault();
