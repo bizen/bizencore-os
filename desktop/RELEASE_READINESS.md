@@ -220,6 +220,17 @@ Server-side session revocation acceptance remains a separate disclosed gap.
   Backup: `bizencore-backups/1792058983772-0.1.12/bizencore terminal.app`.
   Repeated executable launch exited 0 and preserved the original main PID: one main,
   one authentication helper, one process guard. Version/title and responsive pending UI
-  were observed. Owner Keychain approval for this new build is pending; do not claim
-  signed-in restoration, signed-in restart or a new CLI work cycle passed on 0.1.13.
+  were observed. The owner subsequently reported approving both 0.1.12 and 0.1.13;
+  only the currently installed 0.1.13 was inspected. Its signed-in production task list,
+  previous workspace folder, one unstarted pane and dark theme were visibly restored.
+  Do not claim signed-in restart or a new CLI work cycle passed on 0.1.13.
   Nothing was deployed, uploaded or publicly enabled.
+- Subsequent CUA Command-Q/native-menu Quit attempts did not establish main-process
+  termination: PID 26435 remained with the task window accessible and no stop-agent
+  control. A thread sample showed an AppKit event loop, not a blocking native Keychain
+  call. Some CUA actions reported changed state, so neither an automation targeting
+  issue nor a product shutdown defect has been ruled out. No forced termination or
+  authentication deletion was used. The owner was asked for one manual menu Quit.
+  A separate synthetic real-Electron run using the same lifecycle module and an idle
+  hidden window reached approved before-quit, close and will-quit and exited 0 without
+  timeout; this is isolation evidence, not packaged signed-in acceptance.
