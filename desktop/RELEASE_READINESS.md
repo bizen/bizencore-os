@@ -74,6 +74,29 @@ Web production stays independent of desktop candidates. This branch starts at we
 - Native missing-CLI acceptance remains open: both CLIs are installed on this Mac, and the
   successful unit/browser fixtures do not silently substitute for that production UI case.
 
+## Desktop Split Layout (0.1.10 Private Candidate)
+
+- Outer task/terminal layout supports columns or rows. Rows place tasks above terminals,
+  with the independent inspector beside the upper task area. Terminal expansion keeps
+  an open inspector in a separate column; zero agents collapse to a bottom toolbar.
+- Direction and independent width/height ratios are scoped to account/environment.
+  Older workspace data defaults to columns without losing pane assignments or folders.
+  Direction changes preserve mounted terminals and never launch or stop a CLI.
+- 348 unit tests, Electron type check, Web/MCP builds and existing desktop/auth/shared-task/
+  orchestration browser suites pass. Lint has no errors and one pre-existing hook warning.
+  Browser tests cover pointer/keyboard resizing, short/narrow windows, non-overlapping
+  details, live input/output and native resize calls, terminal-node continuity and restart
+  persistence without auto-start. Native IPC is mocked in these browser tests.
+- Candidate source: `a4612b1d5a2aeeb9a39aa2bfaf6d8fc621e1821e`.
+  ZIP SHA-256: `415b81093cec9b75d0a333e57b08adbc8c2224080463c61de9cd16b3677bb721`.
+  Packaging, archive checksum and deep/strict ad-hoc signature checks pass; `published: false`.
+- Installed locally after normal exit with no active agents. 0.1.9 candidate.2 was retained
+  in the versioned backup directory; the existing Desktop latest-app symlink stays valid.
+  0.1.10 launches and shows the version. Authentication restore currently fails; the owner
+  was asked to handle any Keychain prompt. Auth data/security settings were not cleared
+  or changed. Native split-layout acceptance is pending authentication, not claimed passed.
+- No Web production deployment, public archive/feed activation or real task execution.
+
 ## Update Notice
 
 The desktop checks only `https://bizencore.com/downloads/desktop/latest.json`, without
