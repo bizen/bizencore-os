@@ -27,8 +27,12 @@ Web production stays independent of desktop candidates. This branch starts at we
   both local originals. The public link and two files remained after a normal
   Command-Q (main process absent) and relaunch, with no agent automatically started.
   Native menu update guidance displays version 0.1.8 and the manual-update limits.
-  Automated native link dragging did not produce an observable success, so actual
-  Finder-to-row acceptance remains pending owner assistance; it is not marked passed.
+  Automated native link dragging did not produce an observable success. The owner
+  then performed the dedicated Finder-to-row file drop and confirmed success. MCP
+  independently returned a new attachment ID for `attachment-one.txt` (44 bytes),
+  and its downloaded bytes exactly matched the original. Native file-drop acceptance
+  is passed with owner operation plus independent server verification, not attributed
+  to the unsuccessful automated drag.
   Version 0.1.7 is not a publishable candidate.
 - No unrelated production task was edited, completed, deleted or handed to an agent.
 - Source tests: 344 passed, including pinned-upload CSP, update notices, dependency inventory
@@ -77,7 +81,7 @@ Adding a notice to a new build does not retroactively update 0.1.7 or older appl
 
 ## Release Gates
 
-- [ ] Complete installed-candidate authentication, TOC and context-drop acceptance.
+- [x] Complete installed-candidate authentication, TOC and context-drop acceptance.
 - [ ] Verify the updated notice in the installed next candidate, not only a browser fixture.
 - [x] Inventory dependency/runtime notices and exclude the three owner-confirmed unlicensed illustrations.
 - [x] Confirm declared minimum macOS 13 against Electron 44 and the packaged app's
