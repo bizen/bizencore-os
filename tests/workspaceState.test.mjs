@@ -28,6 +28,21 @@ test('layout is backward compatible and an empty workspace never restores agent 
   assert.equal(normalizeWorkspace({ ...state(), panes: [], expanded: true }).expanded, false);
 });
 
+test('outer split direction defaults to columns and keeps independent horizontal and vertical ratios', () => {
+  const legacy = normalizeWorkspace(state());
+  assert.equal(legacy.orientation, 'columns');
+  assert.equal(legacy.height, 50);
+  const saved = normalizeWorkspace({ ...state(), orientation: 'rows', height: 64 });
+  assert.equal(saved.orientation, 'rows');
+  assert.equal(saved.height, 64);
+  assert.equal(saved.width, 50);
+  assert.equal(normalizeWorkspace({ ...state(), orientation: 'invalid', height: NaN }).orientation, 'columns');
+  assert.equal(normalizeWorkspace({ ...state(), height: Infinity }).height, 50);
+  assert.equal(normalizeWorkspace({ ...state(), height: 0 }).height, 30);
+  assert.equal(normalizeWorkspace({ ...state(), height: 100 }).height, 70);
+  assert.equal(normalizeWorkspace({ ...state(), panes: [], orientation: 'rows', height: 60 }).orientation, 'rows');
+});
+
 test('a specific resume session and label survive storage without requesting a launch', () => {
   const saved = normalizeWorkspace({ ...state(), panes: [{ ...state().panes[0], labelId: 'label-one', resumeSessionId: taskId, launchRequested: true }] });
   assert.equal(saved.panes[0].resumeSessionId, taskId);
@@ -92,9 +107,11 @@ test('workspace storage is scoped by account and environment and survives unavai
   globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
   t.after(() => { if (previous === undefined) delete globalThis.localStorage; else globalThis.localStorage = previous; });
   const key = workspaceKey('first', 'dev');
-  assert.equal(writeWorkspace(key, { ...state(), lastCwd: '/test/recent-project' }), true);
+  assert.equal(writeWorkspace(key, { ...state(), orientation: 'rows', height: 62, lastCwd: '/test/recent-project' }), true);
   assert.equal(readWorkspace(key).panes[0].cwd, '/test/project');
   assert.equal(readWorkspace(key).lastCwd, '/test/recent-project');
+  assert.equal(readWorkspace(key).orientation, 'rows');
+  assert.equal(readWorkspace(key).height, 62);
   assert.equal(readWorkspace(workspaceKey('second', 'dev')), null);
   assert.equal(readWorkspace(workspaceKey('first', 'other')), null);
   values.set(key, 'corrupted');

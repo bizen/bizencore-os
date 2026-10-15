@@ -139,6 +139,24 @@ body { overflow: hidden; }
 .agents-setup .agent-launcher-stage { display: flex; flex: 1; padding: 24px; }
 .agents-setup .agent-launcher { max-height: none; padding: 0; margin: auto; border-bottom: 0; overflow: visible; }
 .agents-setup .agent-grid { display: none; }
+/* Keep the same mounted task, inspector and terminal hosts in either direction. */
+.desktop-workspace[data-orientation='rows'] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--task-height-fraction)) 6px minmax(0, var(--agent-height-fraction)); }
+.desktop-workspace[data-orientation='rows'] > .desktop-task-column { grid-column: 1; grid-row: 1; }
+.desktop-workspace[data-orientation='rows'] > .desktop-task-divider { grid-column: 1 / -1; grid-row: 2; cursor: row-resize; }
+.desktop-workspace[data-orientation='rows'] > .desktop-agents { grid-column: 1 / -1; grid-row: 3; position: relative; }
+.desktop-workspace[data-orientation='rows'].has-inspector { grid-template-columns: minmax(264px, 1fr) 6px var(--inspector-width); }
+.desktop-workspace[data-orientation='rows'] > .desktop-inspector { grid-column: 3; grid-row: 1; border-left: 0; }
+.desktop-workspace[data-orientation='rows'] > .desktop-inspector-divider { grid-column: 2; grid-row: 1; }
+.desktop-workspace[data-orientation='rows'].agents-collapsed { grid-template-rows: minmax(0, 1fr) 0 var(--workspace-toolbar-height); }
+.desktop-workspace[data-orientation='rows'].agents-collapsed .agent-toolbar { flex-direction: row; justify-content: space-between; height: var(--workspace-toolbar-height); padding: 0 12px; gap: 10px; border-top: 1px solid var(--hairline); }
+.desktop-workspace[data-orientation='rows'].agents-collapsed .agent-toolbar > div { flex-direction: row; }
+.desktop-workspace[data-orientation='rows'].agents-collapsed .agent-toolbar-name > span { display: inline; }
+.desktop-workspace[data-orientation='rows'].agents-collapsed .agent-settings { top: auto; bottom: 100%; right: 12px; max-height: calc(100dvh - 130px); }
+.desktop-workspace[data-orientation='rows'].is-expanded { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.desktop-workspace[data-orientation='rows'].is-expanded > .desktop-agents { grid-column: 1; grid-row: 1; }
+.desktop-workspace[data-orientation='rows'].is-expanded.has-inspector { grid-template-columns: var(--inspector-width) 6px minmax(280px, 1fr); }
+.desktop-workspace[data-orientation='rows'].is-expanded.has-inspector > .desktop-inspector { grid-column: 1; }
+.desktop-workspace[data-orientation='rows'].is-expanded.has-inspector > .desktop-agents { grid-column: 3; }
 .agent-launcher { flex: none; width: 100%; max-width: 360px; max-height: 100%; overflow: auto; padding: 12px; margin-inline: auto; display: grid; gap: 8px; border-bottom: 1px solid var(--hairline); }
 .agent-launcher-head { display: flex; align-items: center; justify-content: space-between; }
 .agent-launcher h2 { margin: 0; font-size: 13px; font-weight: 500; }

@@ -2,7 +2,7 @@ import type { AgentId } from './bridge';
 import type { PaneAssignment } from '../src/lib/desktopHandoff';
 
 export type SavedPane = { id: string; agent: AgentId; cwd: string; assignment?: PaneAssignment; resumeSessionId?: string; labelId?: string };
-export type WorkspaceState = { version: 1; panes: SavedPane[]; width: number; inspectorWidth: number; expanded: boolean; layout: 'grid' | 'tabs'; lastCwd?: string };
+export type WorkspaceState = { version: 1; panes: SavedPane[]; width: number; height: number; orientation: 'columns' | 'rows'; inspectorWidth: number; expanded: boolean; layout: 'grid' | 'tabs'; lastCwd?: string };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const bounded = (value: unknown, min: number, max: number, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
@@ -32,7 +32,7 @@ export function normalizeWorkspace(value: unknown): WorkspaceState | null {
     panes.push(pane);
   }
   if (value.panes.length > 0 && panes.length === 0) return null;
-  return { version: 1, panes, width: bounded(value.width, 30, 65, 46), inspectorWidth: bounded(value.inspectorWidth, 280, 460, 340), expanded: panes.length > 0 && value.expanded === true, layout: value.layout === 'tabs' ? 'tabs' : 'grid', lastCwd: folderPath(value.lastCwd === undefined ? panes.at(-1)?.cwd : value.lastCwd) };
+  return { version: 1, panes, width: bounded(value.width, 30, 65, 46), height: bounded(value.height, 30, 70, 50), orientation: value.orientation === 'rows' ? 'rows' : 'columns', inspectorWidth: bounded(value.inspectorWidth, 280, 460, 340), expanded: panes.length > 0 && value.expanded === true, layout: value.layout === 'tabs' ? 'tabs' : 'grid', lastCwd: folderPath(value.lastCwd === undefined ? panes.at(-1)?.cwd : value.lastCwd) };
 }
 
 export function readWorkspace(key: string): WorkspaceState | null {

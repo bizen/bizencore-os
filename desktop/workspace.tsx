@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bot, Columns2, ExternalLink, FolderOpen, Link2, ListTodo, Maximize2, Minimize2, Minus, PanelsTopLeft, Play, Plus, RotateCcw, Search, Settings2, Square, Tag, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bot, Columns2, ExternalLink, FolderOpen, Link2, ListTodo, Maximize2, Minimize2, Minus, PanelsTopLeft, Play, Plus, RotateCcw, Rows2, Search, Settings2, Square, Tag, X } from 'lucide-react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -407,19 +407,22 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(restored?.expanded ?? false);
   const showTasks = useCallback(() => setExpanded(false), []);
   const [width, setWidth] = useState(restored?.width ?? 46);
+  const [height, setHeight] = useState(restored?.height ?? 50);
+  const [orientation, setOrientation] = useState<WorkspaceState['orientation']>(restored?.orientation ?? 'columns');
+  const stacked = orientation === 'rows';
   const [setupWidth, setSetupWidth] = useState(400);
   const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null);
   const [headerHost, setHeaderHost] = useState<HTMLDivElement | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorWidth, setInspectorWidth] = useState(restored?.inspectorWidth ?? 340);
   const [storageError, setStorageError] = useState(false);
-  const snapshot = useRef<WorkspaceState>({ version: 1, panes, width, inspectorWidth, expanded, layout, lastCwd });
-  useEffect(() => { snapshot.current = { version: 1, panes, width, inspectorWidth, expanded, layout, lastCwd }; }, [panes, width, inspectorWidth, expanded, layout, lastCwd]);
+  const snapshot = useRef<WorkspaceState>({ version: 1, panes, width, height, orientation, inspectorWidth, expanded, layout, lastCwd });
+  useEffect(() => { snapshot.current = { version: 1, panes, width, height, orientation, inspectorWidth, expanded, layout, lastCwd }; }, [panes, width, height, orientation, inspectorWidth, expanded, layout, lastCwd]);
   useEffect(() => {
     if (!storageKey) return;
     const timer = setTimeout(() => setStorageError(!writeWorkspace(storageKey, snapshot.current)), 150);
     return () => clearTimeout(timer);
-  }, [storageKey, panes, width, inspectorWidth, expanded, layout, lastCwd]);
+  }, [storageKey, panes, width, height, orientation, inspectorWidth, expanded, layout, lastCwd]);
   useEffect(() => {
     if (!storageKey) return;
     const flush = () => { writeWorkspace(storageKey, snapshot.current); };
@@ -431,9 +434,9 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
   const container = useRef<HTMLDivElement>(null);
   const taskContainer = useRef<HTMLDivElement>(null);
   const taskScroller = useRef<HTMLDivElement>(null);
-  const maxInspectorWidth = Math.min(460, Math.max(280, workspaceWidth - (collapsed ? 326 : 556)));
+  const maxInspectorWidth = Math.min(460, Math.max(280, workspaceWidth - (stacked ? 270 : collapsed ? 326 : 556)));
   const visibleInspectorWidth = Math.min(inspectorWidth, maxInspectorWidth);
-  const resizingSetup = Boolean(draft && !panes.length && !inspectorOpen);
+  const resizingSetup = Boolean(!stacked && draft && !panes.length && !inspectorOpen);
   const maxSetupWidth = Math.max(280, workspaceWidth - 356);
   const visibleSetupWidth = Math.min(setupWidth, maxSetupWidth);
   const showInspector = useCallback((open: boolean) => {
@@ -535,17 +538,20 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
   } : null}><DesktopInspectorContext.Provider value={{ host: inspectorHost, open: inspectorOpen, setOpen: showInspector, registerTaskOpener, openTask: taskOpener ?? undefined }}><DesktopHeaderContext.Provider value={{ host: headerHost, showTasks }}>
   <div className="desktop-shell">
   <div className="desktop-header" ref={setHeaderHost} />
-  <div ref={container} className={`desktop-workspace${expanded && (panes.length || toolsOpen) ? ' is-expanded' : ''}${inspectorOpen ? ' has-inspector' : ''}${collapsed ? ' agents-collapsed' : ''}${draft && !panes.length ? ' agents-setup' : ''}`} style={{
+  <div ref={container} data-orientation={orientation} className={`desktop-workspace${expanded && (panes.length || toolsOpen) ? ' is-expanded' : ''}${inspectorOpen ? ' has-inspector' : ''}${collapsed ? ' agents-collapsed' : ''}${draft && !panes.length ? ' agents-setup' : ''}`} style={{
     '--task-fraction': `${width}fr`, '--agent-fraction': `${100 - width}fr`, '--inspector-width': `${visibleInspectorWidth}px`,
+    '--task-height-fraction': `${height}fr`, '--agent-height-fraction': `${100 - height}fr`,
     '--setup-width': `${visibleSetupWidth}px`,
   } as React.CSSProperties}>
     <div ref={taskContainer} className={`desktop-task-column${taskScroll ? ' has-scroll-rail' : ''}`}>
       <div ref={taskScroller} id="desktop-task-scroll-content" className={`desktop-tasks${compactTasks ? ' is-compact' : ''}`}>{children}</div>
       {taskScroll ? <TaskScrollRail container={taskScroller} controls="desktop-task-scroll-content" /> : null}
     </div>
-    <div role="separator" aria-label={resizingSetup ? 'エージェント選択画面の幅' : 'タスク画面の幅'} aria-orientation="vertical" aria-valuemin={resizingSetup ? 280 : 30} aria-valuemax={resizingSetup ? maxSetupWidth : 65} aria-valuenow={resizingSetup ? visibleSetupWidth : width} tabIndex={0}
+    <div role="separator" aria-label={stacked ? 'タスク画面の高さ' : resizingSetup ? 'エージェント選択画面の幅' : 'タスク画面の幅'} aria-orientation={stacked ? 'horizontal' : 'vertical'} aria-valuemin={resizingSetup ? 280 : 30} aria-valuemax={stacked ? 70 : resizingSetup ? maxSetupWidth : 65} aria-valuenow={stacked ? height : resizingSetup ? visibleSetupWidth : width} tabIndex={0}
       className="desktop-divider desktop-task-divider" onKeyDown={e => {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (stacked && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          e.preventDefault(); setHeight(value => Math.max(30, Math.min(70, value + (e.key === 'ArrowUp' ? -2 : 2))));
+        } else if (!stacked && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
           e.preventDefault();
           if (resizingSetup) setSetupWidth(Math.max(280, Math.min(maxSetupWidth, visibleSetupWidth + (e.key === 'ArrowLeft' ? 16 : -16))));
           else setWidth(value => Math.max(30, Math.min(65, value + (e.key === 'ArrowLeft' ? -2 : 2))));
@@ -555,26 +561,32 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
       }} onPointerMove={e => {
         if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
         const rect = container.current!.getBoundingClientRect();
+        if (stacked) {
+          setHeight(Math.max(30, Math.min(70, (e.clientY - rect.top) / Math.max(1, rect.height - 6) * 100)));
+          return;
+        }
         if (resizingSetup) {
           setSetupWidth(Math.max(280, Math.min(maxSetupWidth, rect.right - e.clientX - 6)));
           return;
         }
-        const availableWidth = rect.width - (inspectorOpen ? visibleInspectorWidth + 12 : 6);
+        const availableWidth = Math.max(1, rect.width - (inspectorOpen ? visibleInspectorWidth + 12 : 6));
         setWidth(Math.max(30, Math.min(65, (e.clientX - rect.left) / availableWidth * 100)));
       }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />
     <div className="desktop-inspector" ref={setInspectorHost} hidden={!inspectorOpen} />
     <div role="separator" aria-label="詳細パネルの幅" aria-orientation="vertical" aria-valuemin={280} aria-valuemax={maxInspectorWidth} aria-valuenow={visibleInspectorWidth} tabIndex={0}
       hidden={!inspectorOpen} className="desktop-divider desktop-inspector-divider" onKeyDown={e => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-          e.preventDefault(); setInspectorWidth(Math.max(280, Math.min(maxInspectorWidth, visibleInspectorWidth + (e.key === 'ArrowLeft' ? -16 : 16))));
+          e.preventDefault(); setInspectorWidth(Math.max(280, Math.min(maxInspectorWidth, visibleInspectorWidth + (e.key === 'ArrowLeft' ? -16 : 16) * (stacked && !expanded ? -1 : 1))));
         }
       }} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => {
         if (!e.currentTarget.hasPointerCapture(e.pointerId) || !inspectorHost) return;
-        setInspectorWidth(Math.max(280, Math.min(maxInspectorWidth, e.clientX - inspectorHost.getBoundingClientRect().left)));
+        const inspectorRect = inspectorHost.getBoundingClientRect();
+        setInspectorWidth(Math.max(280, Math.min(maxInspectorWidth, stacked && !expanded ? inspectorRect.right - e.clientX : e.clientX - inspectorRect.left)));
       }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />
     <aside className="desktop-agents" aria-label="エージェント" onKeyDown={event => event.stopPropagation()}>
       <header className="agent-toolbar"><span className="agent-toolbar-name"><Bot size={16} /><span>agents <small>{toolsBusy ? 1 : panes.length}/8</small></span></span>
         <div>
+          <button type="button" className="icon-btn" title={stacked ? '左右分割に切り替え' : '上下分割に切り替え'} aria-label={stacked ? '左右分割に切り替え' : '上下分割に切り替え'} onClick={() => setOrientation(stacked ? 'columns' : 'rows')}>{stacked ? <Columns2 size={16} /> : <Rows2 size={16} />}</button>
           {bridge.taskToolsSupported ? <button type="button" className="icon-btn" title="オーケストレーション・タスクベース分解" aria-label="作業ツールを開く" aria-expanded={toolsOpen} onClick={() => { setToolsOpen(value => !value); setDraft(null); setExpanded(false); }}><ListTodo size={16} /></button> : null}
           <button type="button" className="icon-btn" title="ターミナル設定" aria-label="ターミナル設定" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(value => !value)}><Settings2 size={16} /></button>
           {panes.length || toolsOpen ? <button type="button" className="icon-btn" title={expanded ? 'タスク画面を表示' : 'エージェント画面を拡大'} aria-label="エージェント画面を拡大・縮小" aria-pressed={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button> : null}

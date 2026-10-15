@@ -138,6 +138,21 @@ try {
   await initialSettings.getByRole('button', { name: '診断を更新', exact: true }).click();
   await initialSettings.getByText('/mock/claude', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'ターミナル設定', exact: true }).click();
+  await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+  assert.equal(await page.locator('.desktop-agents').evaluate(element => element.getBoundingClientRect().height), 54, 'empty stacked agents collapse to a bottom toolbar');
+  await page.getByRole('button', { name: 'ターミナル設定', exact: true }).click();
+  assert.ok(await initialSettings.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return rect.top >= 56 && rect.bottom <= innerHeight && rect.right <= innerWidth;
+  }), 'collapsed stacked settings open above the bottom toolbar inside the window');
+  await page.getByRole('button', { name: 'ターミナル設定', exact: true }).click();
+  await page.getByRole('button', { name: 'エージェントを追加', exact: true }).click();
+  assert.ok(await page.locator('.agent-launcher').evaluate(element => {
+    const form = element.getBoundingClientRect(), agents = element.closest('.desktop-agents').getBoundingClientRect();
+    return form.width <= 360 && Math.abs((form.left + form.right - agents.left - agents.right) / 2) <= 1 && form.top >= agents.top + 54;
+  }), 'stacked launcher remains compact and centered in the bottom region');
+  await page.getByRole('button', { name: '起動設定を閉じる', exact: true }).click();
+  await page.getByRole('button', { name: '左右分割に切り替え', exact: true }).click();
   await page.locator('.desktop-tasks .app-shell').evaluate(element => {
     const filler = document.createElement('div');
     filler.id = 'scroll-test-filler'; filler.style.height = '4000px'; element.appendChild(filler);
@@ -476,6 +491,65 @@ try {
   await launcher.getByRole('button', { name: '起動する', exact: true }).click();
   await page.locator('.agent-status-running').nth(1).waitFor();
   const lifecycleCalls = await page.evaluate(() => window.__desktopTest.calls.filter(call => ['desktop_start', 'desktop_stop'].includes(call.command)).length);
+  {
+    const previousResizeCount = await page.evaluate(() => window.__desktopTest.calls.filter(call => call.command === 'desktop_resize').length);
+    const horizontalRatio = await page.getByRole('separator', { name: 'タスク画面の幅', exact: true }).getAttribute('aria-valuenow');
+    await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+    const verticalSplitter = page.getByRole('separator', { name: 'タスク画面の高さ', exact: true });
+    assert.equal(await verticalSplitter.getAttribute('aria-orientation'), 'horizontal');
+    await verticalSplitter.press('ArrowDown');
+    assert.equal(await verticalSplitter.getAttribute('aria-valuenow'), '52');
+    for (let i = 0; i < 12; i++) await verticalSplitter.press('ArrowDown');
+    assert.equal(await verticalSplitter.getAttribute('aria-valuenow'), '70');
+    for (let i = 0; i < 24; i++) await verticalSplitter.press('ArrowUp');
+    assert.equal(await verticalSplitter.getAttribute('aria-valuenow'), '30');
+    const handle = await verticalSplitter.boundingBox();
+    const area = await page.locator('.desktop-workspace').boundingBox();
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2, area.y + (area.height - 6) * .5, { steps: 8 });
+    await page.mouse.up();
+    assert.ok(Math.abs(Number(await verticalSplitter.getAttribute('aria-valuenow')) - 50) < 1, 'vertical divider follows pointer Y');
+    await page.locator('.row--task').first().getByRole('button', { name: '詳細を開く', exact: true }).click();
+    await inspector.waitFor();
+    const detailsSplitter = page.getByRole('separator', { name: '詳細パネルの幅', exact: true });
+    const detailsWidth = Number(await detailsSplitter.getAttribute('aria-valuenow'));
+    await detailsSplitter.press('ArrowLeft');
+    assert.equal(Number(await detailsSplitter.getAttribute('aria-valuenow')), Math.min(460, detailsWidth + 16), 'top-row inspector grows to the left from the right edge');
+    await detailsSplitter.press('ArrowRight');
+    for (const viewport of [{ width: 1380, height: 900 }, { width: 900, height: 600 }]) {
+      await page.setViewportSize(viewport);
+      await page.waitForFunction(() => {
+        const tasks = document.querySelector('.desktop-task-column').getBoundingClientRect();
+        const details = document.querySelector('.desktop-inspector').getBoundingClientRect();
+        const agents = document.querySelector('.desktop-agents').getBoundingClientRect();
+        return tasks.right <= details.left && tasks.top === details.top && tasks.bottom === details.bottom &&
+          tasks.bottom < agents.top && agents.left === 0 && Math.abs(agents.right - innerWidth) < 1 &&
+          Math.abs(agents.bottom - innerHeight) < 1 && document.documentElement.scrollWidth <= innerWidth;
+      });
+      await page.screenshot({ path: `/private/tmp/bizencore-desktop-stacked-${viewport.width}.png` });
+    }
+    await page.setViewportSize({ width: 1380, height: 900 });
+    await page.getByRole('button', { name: 'エージェント画面を拡大・縮小', exact: true }).click();
+    assert.equal(await page.locator('.desktop-tasks').isVisible(), false);
+    assert.ok(await inspector.isVisible(), 'expansion keeps the inspector as an independent column');
+    assert.ok(await page.evaluate(() => document.querySelector('.desktop-inspector').getBoundingClientRect().right <= document.querySelector('.desktop-agents').getBoundingClientRect().left));
+    await page.getByRole('button', { name: 'エージェント画面を拡大・縮小', exact: true }).click();
+    await inspector.getByRole('button', { name: '閉じる（Esc）', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.__firstPaneNode === document.querySelector('.agent-pane')), true, 'orientation never replaces the terminal node');
+    await pane.locator('.xterm-helper-textarea').press('z');
+    await page.waitForFunction(() => window.__desktopTest.calls.some(call => call.command === 'desktop_write' && call.data === 'z'));
+    await page.waitForFunction(count => window.__desktopTest.calls.filter(call => call.command === 'desktop_resize').length > count, previousResizeCount);
+    await page.evaluate(id => window.__desktopTest.channels.get(id.replace('pane-', '')).onmessage({ kind: 'data', streamId: 'fixture-stream', sequence: 3, bytes: Array.from(new TextEncoder().encode('layout switched, output continues\r\n')) }), firstId);
+    await page.waitForFunction(() => window.__desktopTest.terminals[0].buffer.active.getLine(window.__desktopTest.terminals[0].buffer.active.cursorY - 1)?.translateToString(true).includes('output continues'));
+    assert.equal(await page.evaluate(() => window.__desktopTest.calls.filter(call => ['desktop_start', 'desktop_stop'].includes(call.command)).length), lifecycleCalls, 'orientation and inspector changes never restart or stop agents');
+    const verticalRatio = await verticalSplitter.getAttribute('aria-valuenow');
+    await page.getByRole('button', { name: '左右分割に切り替え', exact: true }).click();
+    assert.equal(await page.getByRole('separator', { name: 'タスク画面の幅', exact: true }).getAttribute('aria-valuenow'), horizontalRatio);
+    await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+    assert.equal(await verticalSplitter.getAttribute('aria-valuenow'), verticalRatio, 'each direction retains its own split ratio');
+    await page.getByRole('button', { name: '左右分割に切り替え', exact: true }).click();
+  }
   await page.getByRole('button', { name: 'タブ表示', exact: true }).click();
   assert.equal(await page.locator('.agent-pane:visible').count(), 1);
   await page.evaluate(id => window.__desktopTest.focusPane(id.replace('pane-', '')), firstId);
@@ -602,6 +676,19 @@ try {
   assert.equal(await page.locator('.desktop-tasks').isVisible(), false);
   await page.locator('.desktop-header').getByRole('link', { name: 'tasks', exact: true }).click();
   assert.equal(await page.locator('.desktop-tasks').isVisible(), true, 'global navigation restores the task column after agent expansion');
+  await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+  await page.getByRole('separator', { name: 'タスク画面の高さ', exact: true }).press('ArrowDown');
+  await page.waitForFunction(() => {
+    const key = Object.keys(localStorage).find(key => key.startsWith('bizencore.desktop.workspace.v1:') && !key.endsWith('.task-tools.v1'));
+    const saved = key && JSON.parse(localStorage.getItem(key));
+    return saved?.orientation === 'rows' && saved.height > 50 && saved.width === 65;
+  });
+  await page.reload();
+  await page.locator('.splash-root').waitFor({ state: 'detached' });
+  await page.locator('.desktop-workspace[data-orientation="rows"]').waitFor();
+  assert.ok(Number(await page.getByRole('separator', { name: 'タスク画面の高さ', exact: true }).getAttribute('aria-valuenow')) > 50, 'restart restores the chosen orientation and vertical split');
+  assert.equal(await page.locator('.agent-pane').count(), 8);
+  assert.equal(await page.evaluate(() => window.__desktopTest.calls.filter(call => call.command === 'desktop_start').length), 0, 'restoring the workspace never auto-starts saved agents');
   assert.deepEqual(errors, []);
   console.log('Passed: Electron workspace layout, centered 2x2 launcher, setup help, font/search/web links, specific session resume without handoff, verified completion notification and pane focus, terminal continuity and eight-pane limit (mock native IPC).');
 } finally { await browser.close(); }
