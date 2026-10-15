@@ -494,9 +494,17 @@ try {
   {
     const previousResizeCount = await page.evaluate(() => window.__desktopTest.calls.filter(call => call.command === 'desktop_resize').length);
     const horizontalRatio = await page.getByRole('separator', { name: 'タスク画面の幅', exact: true }).getAttribute('aria-valuenow');
+    assert.ok(await page.getByRole('separator', { name: 'タスク画面の幅', exact: true }).evaluate(element => {
+      const handle = element.getBoundingClientRect(), line = getComputedStyle(element, '::before');
+      return handle.width === 6 && line.width === '1px' && getComputedStyle(element).backgroundColor === 'rgba(0, 0, 0, 0)';
+    }), 'column splitter has a 1px visible line and retains its 6px drag target');
     await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
     const verticalSplitter = page.getByRole('separator', { name: 'タスク画面の高さ', exact: true });
     assert.equal(await verticalSplitter.getAttribute('aria-orientation'), 'horizontal');
+    assert.ok(await verticalSplitter.evaluate(element => {
+      const handle = element.getBoundingClientRect(), line = getComputedStyle(element, '::before');
+      return handle.height === 6 && line.height === '1px' && getComputedStyle(element).backgroundColor === 'rgba(0, 0, 0, 0)';
+    }), 'row splitter has a 1px visible line and retains its 6px drag target');
     await verticalSplitter.press('ArrowDown');
     assert.equal(await verticalSplitter.getAttribute('aria-valuenow'), '52');
     for (let i = 0; i < 12; i++) await verticalSplitter.press('ArrowDown');

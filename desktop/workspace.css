@@ -58,8 +58,10 @@ body { overflow: hidden; }
 .desktop-tasks.is-compact :is(.row--task, .life-row) .row-meta { display: grid; grid-column: 3; grid-row: 1; grid-template-columns: 28px; gap: 0; padding-top: 0; }
 .desktop-tasks.is-compact :is(.row--task, .life-row) .row-meta > :not(.meta-inspect) { display: none; }
 .desktop-tasks.is-compact :is(.row--task, .life-row) .meta-inspect { display: grid; width: 28px; height: 28px; opacity: 0.75; }
-.desktop-divider { background: var(--hairline); cursor: col-resize; touch-action: none; }
-.desktop-divider:hover, .desktop-divider:focus-visible { background: var(--accent-color); outline: none; }
+.desktop-divider { position: relative; background: transparent; cursor: col-resize; touch-action: none; }
+.desktop-divider::before { content: ''; position: absolute; inset: 0 auto 0 50%; width: 1px; background: var(--control-border, var(--hairline)); pointer-events: none; }
+.desktop-divider:hover::before, .desktop-divider:focus-visible::before { background: var(--accent-color); }
+.desktop-divider:focus-visible { outline: none; }
 .desktop-agents { display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size; background: var(--bg-color); color: var(--text-primary); }
 .agent-toolbar { display: flex; align-items: center; justify-content: space-between; height: var(--workspace-toolbar-height); padding: 0 12px; flex: none; border-bottom: 1px solid var(--hairline); font-size: 14px; }
 .agent-toolbar > span, .agent-toolbar > div { display: flex; align-items: center; gap: 10px; }
@@ -75,7 +77,7 @@ body { overflow: hidden; }
 .agent-grid[data-count='1'] .agent-pane, .agent-grid.is-single .agent-pane { height: 100%; }
 .agent-grid[data-count='1'] .agent-pane.is-idle, .agent-grid.is-single .agent-pane.is-idle { height: auto; align-self: start; }
 .agent-pane-head { display: flex; align-items: center; gap: 6px; min-height: 42px; padding: 4px 8px; flex: none; }
-.agent-pane-head select { max-width: 124px; min-width: 85px; padding: 4px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; }
+.agent-pane-head select { max-width: 124px; min-width: 85px; padding: 4px; border: 1px solid var(--control-border, var(--border-color)); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; }
 .agent-assignment { padding: 6px 10px 10px; border-bottom: 1px solid var(--hairline); flex: none; }
 .agent-assignment > div { display: flex; align-items: flex-start; gap: 8px; }
 .agent-assignment-title { flex: 1; min-width: 0; border: 0; padding: 0; background: none; color: inherit; text-align: left; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; cursor: pointer; }
@@ -84,7 +86,7 @@ body { overflow: hidden; }
 .agent-assignment small { color: var(--text-secondary); font-size: 11px; }
 .agent-assignment .icon-btn { width: 22px; height: 22px; flex: none; }
 .agent-task-picker { padding: 10px; display: grid; gap: 8px; border-bottom: 1px solid var(--hairline); }
-.agent-task-picker select, .desktop-inspector-handoff select { width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; }
+.agent-task-picker select, .desktop-inspector-handoff select { width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--control-border, var(--border-color)); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; }
 .agent-assignment-actions { display: flex; align-items: center; gap: 8px; }
 .agent-assignment-actions .ghost-btn { display: inline-flex; align-items: center; gap: 6px; }
 .desktop-inspector-handoff { display: grid; gap: 8px; margin: 10px 0; }
@@ -98,7 +100,7 @@ body { overflow: hidden; }
 .agent-terminal-tools { display: flex; justify-content: flex-end; padding: 0 8px; flex: none; }
 .agent-terminal-tools .icon-btn { width: 24px; height: 24px; }
 .agent-terminal-search { display: flex; align-items: center; gap: 4px; flex: none; padding: 4px 8px; }
-.agent-terminal-search input, .agent-resume-picker select { min-width: 0; flex: 1; padding: 5px 7px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font: inherit; font-size: 12px; }
+.agent-terminal-search input, .agent-resume-picker select { min-width: 0; flex: 1; padding: 5px 7px; border: 1px solid var(--control-border, var(--border-color)); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font: inherit; font-size: 12px; }
 .agent-terminal-search small { color: var(--text-secondary); font: 11px var(--font-mono); min-width: 24px; }
 .agent-terminal-search .icon-btn, .agent-resume-picker .icon-btn { width: 24px; height: 24px; flex: none; }
 .agent-resume-picker { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px 8px 8px; flex: none; }
@@ -143,6 +145,7 @@ body { overflow: hidden; }
 .desktop-workspace[data-orientation='rows'] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--task-height-fraction)) 6px minmax(0, var(--agent-height-fraction)); }
 .desktop-workspace[data-orientation='rows'] > .desktop-task-column { grid-column: 1; grid-row: 1; }
 .desktop-workspace[data-orientation='rows'] > .desktop-task-divider { grid-column: 1 / -1; grid-row: 2; cursor: row-resize; }
+.desktop-workspace[data-orientation='rows'] > .desktop-task-divider::before { inset: 50% 0 auto; width: auto; height: 1px; }
 .desktop-workspace[data-orientation='rows'] > .desktop-agents { grid-column: 1 / -1; grid-row: 3; position: relative; }
 .desktop-workspace[data-orientation='rows'].has-inspector { grid-template-columns: minmax(264px, 1fr) 6px var(--inspector-width); }
 .desktop-workspace[data-orientation='rows'] > .desktop-inspector { grid-column: 3; grid-row: 1; border-left: 0; }
@@ -214,7 +217,7 @@ body { overflow: hidden; }
 .task-tools-head, .task-tools-running, .task-tools-selection-actions { display: flex; align-items: center; gap: 8px; }
 .task-tools-head h2 { margin: 0; font-size: 15px; flex: 1; }
 .task-tools-head button { flex: 0 0 auto; }
-.task-tools input, .task-tools textarea, .task-tools select { color: var(--text-primary); background: var(--bg-color); border: 1px solid var(--hairline); border-radius: 4px; padding: 6px 8px; font: inherit; min-width: 0; }
+.task-tools input, .task-tools textarea, .task-tools select { color: var(--text-primary); background: var(--bg-color); border: 1px solid var(--control-border, var(--hairline)); border-radius: 4px; padding: 6px 8px; font: inherit; min-width: 0; }
 .task-tools input[type=checkbox] { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--accent-color); }
 .task-tools textarea { width: 100%; min-height: 64px; resize: vertical; }
 .task-tools-folder { align-self: flex-start; max-width: 100%; }

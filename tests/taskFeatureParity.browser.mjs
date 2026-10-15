@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
+const luminance = color => color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => {
+  const channel = value / 255;
+  return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+}).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
 const { outputFiles } = await build({
   stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
     import { createRoot } from 'react-dom/client';
@@ -55,6 +60,33 @@ try {
     await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: html }));
     await page.goto('https://parity.test/' + (desktop ? '?desktop' : ''));
     await page.locator('.splash-root').waitFor({ state: 'detached' });
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'white'; });
+    const backgrounds = await page.evaluate(() => {
+      const css = getComputedStyle(document.documentElement);
+      return [css.getPropertyValue('--bg-color'), css.getPropertyValue('--card-bg')].map(color => {
+        const element = document.createElement('span'); element.style.color = color; document.body.append(element);
+        const resolved = getComputedStyle(element).color; element.remove(); return resolved;
+      });
+    });
+    for (const selector of ['.row--task .check:not(.is-checked)', '.life-row .check:not(.is-checked)', '.ghost-btn:not(:disabled)']) {
+      const border = await page.locator(selector).first().evaluate(element => getComputedStyle(element).borderTopColor);
+      assert.ok(backgrounds.every(background => contrast(border, background) >= 3), `${desktop ? 'desktop' : 'web'} ${selector} has a visible white-theme outline`);
+    }
+    await page.locator('.row--task .meta-inspect').nth(1).click();
+    const contrastInspector = page.getByRole('dialog', { name: 'タスクの詳細', exact: true });
+    await contrastInspector.waitFor();
+    const fieldBorders = await contrastInspector.locator('.inspector-note').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderTopColor));
+    assert.ok(fieldBorders.every(border => backgrounds.every(background => contrast(border, background) >= 3)), 'white-theme memo, completion criteria and context fields have visible outlines');
+    const todayColor = await contrastInspector.locator('.meta-today:not(.is-on)').evaluate(element => getComputedStyle(element).color);
+    assert.ok(backgrounds.every(background => contrast(todayColor, background) >= 4.5), 'inactive Today text is legible without resembling the selected state');
+    await page.screenshot({ path: `/private/tmp/bizencore-white-contrast-${desktop ? 'desktop' : 'web'}.png` });
+    await contrastInspector.getByRole('button', { name: '閉じる（Esc）', exact: true }).click();
+    for (const [theme, color] of [['black', 'rgb(52, 56, 60)'], ['original', 'rgb(45, 55, 72)']]) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.waitForFunction(color => getComputedStyle(document.querySelector('.row--task .check:not(.is-checked)')).borderTopColor === color, color);
+      assert.equal(await page.locator('.row--task .check:not(.is-checked)').first().evaluate(element => getComputedStyle(element).borderTopColor), color, 'dark themes retain their original checkbox colors');
+    }
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'black'; });
     const index = page.getByRole('navigation', { name: 'ラベルの目次', exact: true });
     const scroller = desktop ? page.locator('.desktop-tasks') : page.locator('html');
     const scrollTop = () => scroller.evaluate(element => element.scrollTop);

@@ -92,10 +92,25 @@ Web production stays independent of desktop candidates. This branch starts at we
   Packaging, archive checksum and deep/strict ad-hoc signature checks pass; `published: false`.
 - Installed locally after normal exit with no active agents. 0.1.9 candidate.2 was retained
   in the versioned backup directory; the existing Desktop latest-app symlink stays valid.
-  0.1.10 launches and shows the version. Authentication restore currently fails; the owner
-  was asked to handle any Keychain prompt. Auth data/security settings were not cleared
-  or changed. Native split-layout acceptance is pending authentication, not claimed passed.
+  After owner Keychain permission, 0.1.10 restored the production task list. Native columns/
+  rows switching, keyboard adjustment (50 to 52), pointer adjustment (52 to 48.37562),
+  top-row independent details and zero-agent bottom-toolbar collapse were observed.
+  No agent was launched and no task content edited. A subsequent normal quit/restart
+  again stopped at authentication, so native restart-layout acceptance remains pending.
+  Auth data/security settings were not cleared or changed.
 - No Web production deployment, public archive/feed activation or real task execution.
+
+## White Theme And Splitter Refinement (0.1.11)
+
+- White-theme interactive outlines use a dedicated control token rather than the pale
+  structural divider color. Normal and Life World checkboxes, memo/completion/context
+  fields and outlined buttons are checked at >=3:1 against both page and card backgrounds;
+  inactive Today text at >=4.5:1. Dark checkbox colors and completion styling are retained.
+- Workspace splitters paint a 1px pseudo-element inside the existing transparent 6px
+  hit target, including horizontal/vertical directions and the independent inspector.
+  Hover/focus colors affect only the thin line, without changing workspace dimensions.
+- Browser assertions cover painted-line dimensions, retained pointer and keyboard resizing,
+  and shared Web/desktop contrast. Synthetic screenshots are used, not private task data.
 
 ## Update Notice
 
