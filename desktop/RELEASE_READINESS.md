@@ -111,6 +111,19 @@ Web production stays independent of desktop candidates. This branch starts at we
   Hover/focus colors affect only the thin line, without changing workspace dimensions.
 - Browser assertions cover painted-line dimensions, retained pointer and keyboard resizing,
   and shared Web/desktop contrast. Synthetic screenshots are used, not private task data.
+- 348 unit tests, Web/MCP builds, normal and MCP-mode desktop browser suites and shared
+  task/contrast regression pass. Lint has no errors and the same existing hook warning.
+- Private 0.1.11 source: `611bb6f8486069d12da604302a940d94d54be9e5`.
+  ZIP SHA-256: `733a3b7d709789fa1276fbb1b5c13cc2b0d58880972f2858c3b33aff21984381`.
+  Archive checksum and deep/strict ad-hoc signature checks pass; `published: false`.
+  Installed at the stable local app path with 0.1.10 retained in a versioned backup.
+  Native startup/version confirmed; final signed-in white-theme inspection awaits owner
+  Keychain permission. No auth data, operating-system protection or public feed changed.
+- Before updating, a separately running backup 0.1.8 had one unstarted pane and was quit
+  normally. The 0.1.10 authentication-screen process did not respond to UI Quit or SIGTERM;
+  only that verified executable/PID was force-stopped with no agents running. This is not
+  counted as a successful normal-shutdown/restart acceptance. Avoid running old and new
+  production-profile copies simultaneously; their concurrent storage behavior is not verified.
 
 ## Update Notice
 
