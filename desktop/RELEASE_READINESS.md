@@ -11,7 +11,8 @@ Web production stays independent of desktop candidates. This branch starts at we
 ## Verification On 2026-10-15
 
 - Production 0.1.7 ZIP SHA-256 and deep/strict ad-hoc resource signature verified.
-- Installed 0.1.5 and 0.1.7 retained at separate backup paths; installed bundle is now 0.1.8.
+- Installed older versions are retained at separate backup paths; installed bundle is now
+  0.1.9 candidate.2. The 0.1.8 acceptance results below remain version-specific evidence.
 - Existing authentication and workspace data directories were not reset or removed.
 - Native 0.1.7 authentication restore initially waited on macOS authentication. The owner
   subsequently confirmed Keychain permission; account/tasks/settings restored successfully.
@@ -35,13 +36,43 @@ Web production stays independent of desktop candidates. This branch starts at we
   to the unsuccessful automated drag.
   Version 0.1.7 is not a publishable candidate.
 - No unrelated production task was edited, completed, deleted or handed to an agent.
-- Source tests: 344 passed, including pinned-upload CSP, update notices, dependency inventory
+- Source tests: 347 passed, including pinned-upload CSP, update notices, dependency inventory
   and distribution artwork exclusions.
   Shared Web and MCP Apps builds passed. Browser regression reproduces the old upload CSP
   failure and verifies two sequential uploads with the fixed policy using mocked transport.
-- Source lint (excluding generated Electron stages): no errors; existing terminal-launch
-  hook dependency warning remains. The root lint command also scans bundled dependency
-  comments in `.electron-build-production`, causing four unknown-rule errors after packaging.
+- Root lint: no errors; existing terminal-launch hook dependency warning remains.
+  Generated Electron stages/output are now excluded rather than linting bundled dependency comments.
+
+## Launch Readiness And Version Identification
+
+- Candidate 0.1.9 source `2cda245` is tagged locally as `desktop-v0.1.9-candidate.2`.
+  Its ZIP SHA-256 is `f2f160d9996d43d0fb3edd7507bd07d085acbdcd4a93e3ec7914db66702e8048`.
+  Strict ad-hoc signature and checksum were checked before installation; the previous
+  installed copies and unpublished candidate.1 archive were retained, not overwritten.
+- The desktop header, splash, native window title and native menu show 0.1.9.
+  Renderer title changes no longer reset the native window to an unversioned name.
+  Preview builds are labeled separately. Web branding is unchanged.
+- `/Users/yuitotakizawa/Desktop/bizencore terminal 最新版.app` is a symbolic link to the
+  stable installed bundle at `/Users/yuitotakizawa/Applications/bizencore terminal.app`.
+  Build outputs and backups are not alternate daily launch targets. An older translocated
+  copy was also running; it was normally quit with no agents active before installation.
+- Startup resolves executables through the same routine used for diagnostics. Missing or
+  failed diagnostics block UI launch and show installation/authentication links plus retry.
+  Folder existence/type/access checks run before normal CLI spawn/MCP capability issuance.
+- Unit tests exercise real missing/non-executable fixture paths and inaccessible directories.
+  Browser tests verify missing/failed CLI guidance, disabled launch, retry, recoverable folder
+  errors and version labels at 900/1380 widths. These use mock IPC, not production UI evidence.
+- Installed 0.1.9 authentication restored after owner Keychain permission. For native folder
+  acceptance, an empty dedicated folder was selected with no task assignment, then its mode
+  was temporarily set to 000. Start displayed the Japanese access/choose-another-folder error
+  and left the pane unstarted. Mode was restored to its original 700 and the empty pane closed.
+  No existing CLI permissions, actual task content or operating-system protections changed.
+- A separate, stronger macOS sandbox was attempted to hide only the installed Claude binary
+  from one app run. That run did not stay alive, so it is NOT a passed native missing-CLI test.
+  No renderer sandbox was disabled to make it run. Normal unrestricted launch was restored;
+  both actual installed CLI paths/versions were detected again and no agents were started.
+- Native missing-CLI acceptance remains open: both CLIs are installed on this Mac, and the
+  successful unit/browser fixtures do not silently substitute for that production UI case.
 
 ## Update Notice
 
