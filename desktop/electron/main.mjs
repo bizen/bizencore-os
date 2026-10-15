@@ -4,12 +4,14 @@ import { createClerkBridge } from '@clerk/electron';
 import * as pty from 'node-pty';
 import { stat, readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AccessState, checkedGrant, convexEndpoint, paneId, terminalSize, tokenClaims, trustedRenderer as acceptsRenderer } from './policy.mjs';
 import { checkedRuntimeConfig } from './release-config.mjs';
-import { createAuthStorage } from './auth-storage.mjs';
+import { createAuthStorageChannel } from './auth-storage-channel.mjs';
+import { claimDesktopInstance } from './single-instance.mjs';
 import { agentLaunchArgs, allocateAgentSession } from './agent-launch.mjs';
 import { diagnoseAgents, resolveAgentExecutable } from './agent-diagnostics.mjs';
 import { checkWorkFolder, agentLaunchFailure } from './launch-preflight.mjs';
@@ -46,17 +48,30 @@ if (profile.channel === 'production' && process.argv.includes('--dev')) throw ne
 const dev = profile.channel === 'preview' && !app.isPackaged && process.argv.includes('--dev');
 app.setName(profile.name);
 app.setPath('userData', path.join(app.getPath('appData'), profile.userData));
+let window;
+if (!claimDesktopInstance(app, () => window)) app.exit(0);
+let processGuard;
+const authStorage = createAuthStorageChannel({
+  start: () => {
+    const env = { ...process.env };
+    for (const key of ['ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS', 'ELECTRON_NO_ASAR']) delete env[key];
+    return spawn(process.execPath, [...(app.isPackaged ? [] : [root]), '--auth-storage-worker'], { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  },
+  register: child => {
+    if (!processGuard) throw Error('Authentication process guard unavailable');
+    return processGuard.register(child.pid);
+  },
+});
 const clerk = createClerkBridge({
   renderer: { scheme, host: 'renderer' },
-  storage: createAuthStorage(app.getPath('userData'), config.clerkHost),
+  manageSingleInstanceLock: false,
+  storage: authStorage,
 });
-let window;
 const sessions = new Map();
 const pendingStarts = new Map();
 const orchestrations = new Map();
 const stopping = new Set();
 const shutdowns = createShutdownBarrier();
-let processGuard;
 const accessState = new AccessState();
 let sessionToken;
 let desktopMcp;
@@ -614,7 +629,7 @@ const watchdog = setInterval(() => { if (accessState.expired()) { validation?.lo
 watchdog.unref();
 app.on('before-quit', () => {
   if (lifecycle && !lifecycle.canExit()) return;
-  nativeAuth?.cancel(); lock(); processGuard?.close(); clerk.cleanup();
+  nativeAuth?.cancel(); lock(); void authStorage.close(); processGuard?.close(); clerk.cleanup();
   void desktopMcp?.close().catch(() => {});
 });
 if (clerk.isPrimaryInstance) app.whenReady().then(async () => {

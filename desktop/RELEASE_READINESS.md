@@ -173,5 +173,28 @@ Adding a notice to a new build does not retroactively update 0.1.7 or older appl
 - [ ] Verify the public download in a normal browser with quarantine retained.
 - [ ] Activate the published release feed only after acceptance and archive verification.
 
-No second Mac is available. Fresh-machine, separate-account and server-side session
-revocation acceptance remain disclosed gaps, not silently marked complete.
+The owner excluded separate-Mac and separate-account native verification from this
+release's acceptance gates. These are disclosed untested cases, not passed tests.
+Server-side session revocation acceptance remains a separate disclosed gap.
+
+## Candidate Freeze And Authentication Stability (0.1.12)
+
+- Freeze new features while stabilizing authentication, one-candidate acceptance and
+  unpublished distribution preparation. No public deployment or feed activation is authorized.
+- Claim Electron's profile-scoped single-instance lock before opening Clerk storage on macOS
+  as well as other platforms. Repeated launches activate the existing window. Legacy builds
+  do not implement this gate and must not be run alongside the new production profile.
+- Keep Clerk's pinned encrypted token adapter, file path and permissions. Run it in a
+  dedicated owned Electron helper over private IPC; never forward tokens to stdout/stderr,
+  CLI arguments, public logs or a plaintext fallback. The helper verifies its direct parent's
+  executable before reading token storage and uses no browser window or browser profile.
+- Register the helper with the existing process guard before dispatching storage requests.
+  Bound startup, storage waits and payload sizes; serialize mutations and reject replayed
+  request IDs. Quit/timeout kills only the owned helper, including a blocking native wait.
+- Pending-auth UI explains long OS approval/network waits without declaring a pending
+  sign-in failed after 15 seconds. Native server authorization is still mandatory before
+  revealing task data or starting a CLI; no cached token bypass is introduced.
+- 356 unit tests pass, including a genuinely blocked child-process test, token storage
+  compatibility/mutation races, account/environment storage boundaries and process cleanup.
+  Browser authentication regression passes. Existing real-account tests are not replaced by
+  synthetic results; signed-in restart/quit acceptance of this candidate is still required.

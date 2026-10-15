@@ -18,7 +18,7 @@ function PendingAuth() {
     return () => window.clearTimeout(timer);
   }, []);
   return <AuthScreen>{timedOut ? <>
-    <p role="alert">ログインを確認できませんでした。</p><ReloadButton />
+    <p role="status">ログインの確認に時間がかかっています。macOSのキーチェーン確認が出ていれば、このアプリについて許可してください。確認画面がなければ、通信を確認して再読み込みしてください。</p><ReloadButton />
   </> : <p className="desktop-auth-status" role="status"><LoaderCircle size={18} aria-hidden />ログインを確認しています...</p>}</AuthScreen>;
 }
 

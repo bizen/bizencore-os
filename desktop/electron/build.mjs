@@ -64,8 +64,9 @@ const notices = await dependencyNotices(root);
 await writeFile(path.join(stage, 'THIRD_PARTY_NOTICES.txt'), notices.text);
 await writeFile(path.join(stage, 'THIRD_PARTY_REVIEW.json'), JSON.stringify({ count: notices.count, needsReview: notices.missing }, null, 2));
 await cp(path.join(root, 'desktop/INSTALL.ja.md'), path.join(stage, 'INSTALL.ja.md'));
-await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: profile.packageName, version, type: 'module', main: 'main.mjs', dependencies: { 'node-pty': require('node-pty/package.json').version } }));
-for (const [entry, output] of [['main.mjs', 'main.mjs'], ['preload.cjs', 'preload.cjs'], ['storage-smoke.mjs', 'storage-smoke.mjs'], ['process-guard-worker.mjs', 'process-guard-worker.mjs']]) {
+await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: profile.packageName, version, type: 'module', main: 'bootstrap.mjs', dependencies: { 'node-pty': require('node-pty/package.json').version } }));
+await cp(path.join(root, 'desktop/electron/bootstrap.mjs'), path.join(stage, 'bootstrap.mjs'));
+for (const [entry, output] of [['main.mjs', 'main.mjs'], ['preload.cjs', 'preload.cjs'], ['auth-storage-worker.mjs', 'auth-storage-worker.mjs'], ['storage-smoke.mjs', 'storage-smoke.mjs'], ['process-guard-worker.mjs', 'process-guard-worker.mjs']]) {
   await build({ entryPoints: [path.join(root, 'desktop/electron', entry)], outfile: path.join(stage, output), bundle: true, platform: 'node', format: output.endsWith('.mjs') ? 'esm' : 'cjs', target: 'node22', external: ['electron', 'node-pty'],
     ...(output.endsWith('.mjs') ? { banner: { js: "import { createRequire as createRuntimeRequire } from 'node:module'; const require = createRuntimeRequire(import.meta.url);" } } : {}),
   });

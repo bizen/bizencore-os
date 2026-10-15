@@ -107,11 +107,16 @@ try {
   await page.getByRole('alert').waitFor();
   await noWorkspace();
   assert.deepEqual(await page.evaluate(() => window.__authTest.calls), []);
+  await page.clock.install();
   await page.goto('http://127.0.0.1/');
   await page.getByRole('status').waitFor();
   assert.equal(await page.locator('.desktop-auth .brand-power').textContent(), '2');
   await noWorkspace();
   assert.deepEqual(await page.evaluate(() => window.__authTest.calls), []);
+  await page.clock.fastForward(16000);
+  await page.getByText('ログインの確認に時間がかかっています。', { exact: false }).waitFor();
+  assert.equal(await page.getByRole('alert').count(), 0, 'a pending Keychain approval is not falsely declared a failed login');
+  await noWorkspace();
   await page.evaluate(() => window.__authTest.update({ isLoaded: true }));
   await page.getByRole('heading', { name: 'Sign in to bizencore' }).waitFor();
   {
