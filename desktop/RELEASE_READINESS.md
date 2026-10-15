@@ -11,7 +11,7 @@ Web production stays independent of desktop candidates. This branch starts at we
 ## Verification On 2026-10-15
 
 - Production 0.1.7 ZIP SHA-256 and deep/strict ad-hoc resource signature verified.
-- Installed 0.1.5 retained at a separate backup path; installed bundle is now 0.1.7.
+- Installed 0.1.5 and 0.1.7 retained at separate backup paths; installed bundle is now 0.1.8.
 - Existing authentication and workspace data directories were not reset or removed.
 - Native 0.1.7 authentication restore initially waited on macOS authentication. The owner
   subsequently confirmed Keychain permission; account/tasks/settings restored successfully.
@@ -20,14 +20,24 @@ Web production stays independent of desktop candidates. This branch starts at we
 - Public link attachment to the dedicated smoke subtask succeeded. Selecting two dummy
   files through the native picker exposed a CSP defect: the file-upload `.convex.site`
   origin was omitted. Both uploads failed before reaching the server.
-- The next candidate fixes this by allowing only its pinned deployment's file site.
-  Native file/drop acceptance must be repeated; 0.1.7 is not a publishable candidate.
+- Candidate 0.1.8 fixes this by allowing only its pinned deployment's file site.
+  The owner granted Keychain access after installation and authentication restored.
+  The native multi-file picker successfully attached two dedicated dummy files. MCP
+  returned both filenames and 44-byte sizes; independent downloads exactly matched
+  both local originals. The public link and two files remained after a normal
+  Command-Q (main process absent) and relaunch, with no agent automatically started.
+  Native menu update guidance displays version 0.1.8 and the manual-update limits.
+  Automated native link dragging did not produce an observable success, so actual
+  Finder-to-row acceptance remains pending owner assistance; it is not marked passed.
+  Version 0.1.7 is not a publishable candidate.
 - No unrelated production task was edited, completed, deleted or handed to an agent.
 - Source tests: 344 passed, including pinned-upload CSP, update notices, dependency inventory
   and distribution artwork exclusions.
   Shared Web and MCP Apps builds passed. Browser regression reproduces the old upload CSP
   failure and verifies two sequential uploads with the fixed policy using mocked transport.
-- Lint: no errors; existing terminal-launch hook dependency warning remains.
+- Source lint (excluding generated Electron stages): no errors; existing terminal-launch
+  hook dependency warning remains. The root lint command also scans bundled dependency
+  comments in `.electron-build-production`, causing four unknown-rule errors after packaging.
 
 ## Update Notice
 
@@ -58,16 +68,20 @@ Adding a notice to a new build does not retroactively update 0.1.7 or older appl
   The owner confirmed no redistribution permission for the three illustrations;
   desktop builds exclude them and use licensed Lucide icons or brand-only UI instead.
   The desktop brand icon was regenerated from the repository's documented `bc` generator.
-  Electron/Chromium notices are explicitly included as readable app resources.
+  Electron/Chromium notices are explicitly included as readable app resources; their
+  presence in the final ZIP was verified.
 - Release builds now require a clean committed checkout and bind the source commit into metadata.
+- Private local tag `desktop-v0.1.8-candidate.2` binds candidate source `8c095b9`.
+  ZIP SHA-256: `bbcce556992ba265b2aee18ccca86e937832abd9189430e1e97dd98365c86e89`.
+  The earlier never-published candidate is retained under `out-electron/rejected`.
 
 ## Release Gates
 
 - [ ] Complete installed-candidate authentication, TOC and context-drop acceptance.
 - [ ] Verify the updated notice in the installed next candidate, not only a browser fixture.
-- [ ] Review dependency notices and bundled art/font redistribution conditions.
-- [ ] Confirm minimum macOS support against the actual Electron runtime; the Swift helper
-      deployment target alone is not a supported-OS claim.
+- [x] Inventory dependency/runtime notices and exclude the three owner-confirmed unlicensed illustrations.
+- [x] Confirm declared minimum macOS 13 against Electron 44 and the packaged app's
+      LSMinimumSystemVersion (not a claim that every supported OS version was tested).
 - [x] Complete source baseline commit; candidate builds require a clean checkout and record its commit.
 - [ ] Host the immutable ZIP, checksum, metadata, installation guide and release notes.
 - [ ] Verify the public download in a normal browser with quarantine retained.
