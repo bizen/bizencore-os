@@ -1,5 +1,43 @@
 # Desktop Release Readiness
 
+## Private 0.1.15 Installed Acceptance (2026-10-16)
+
+- Built from clean source `b940ad6e6c47ae7a7c77c1e099fd5f6f563db2bd`, local tag
+  `desktop-v0.1.15-candidate.1`, renderer/native build ID
+  `fb177914-02c1-47d5-b64e-50863a965718`. The 147015541-byte ZIP has SHA-256
+  `9a95c2ca1b954cd1d941274e4ead6c23f9b492ee46bbd38849d3ba99fc0cc277`.
+  The extracted archive passed deep/strict ad-hoc signature, pinned production
+  profile/build metadata, notice and excluded-artwork checks before installation.
+- Installed at the existing stable app path and preserved its latest shortcut.
+  Old 0.1.14 is intact under `bizencore-backups/1792143355872-0.1.14/`.
+  No authentication/settings data was deleted, no OS protection was disabled.
+- After the owner allowed Keychain access, the revoked saved session reached the
+  ordinary sign-in form, not the workspace. The owner completed Google sign-in,
+  and the task list, ordered account focus tabs, folder and pane layout returned.
+  The first capture during authentication was blank while a later AX tree had
+  workspace content; this was not counted as visual proof. After the owner
+  finished and UI control was reacquired, screenshots showed the rendered UI.
+- Launched this installed binary with `--validate-missing-cli`. Both Claude Code
+  and Codex showed missing-CLI explanations, official install/auth links and a
+  disabled launch control. Switching agents and refreshing diagnostics preserved
+  the restriction. An independent process-tree check found no agent children.
+  Normal resolver checks still found both existing executables. This is packaged
+  main-process fault-injection acceptance, not an actual uninstall, a clean Mac,
+  or an OS permission test. Existing folder-permission acceptance is recorded below.
+- Returned the test pane to Claude, closed diagnostics, and normally quit the
+  validation invocation. The first menu attempt did not exit; after confirming
+  the menu selection, PID 68375 disappeared. Relaunched without any validation
+  argument: the title no longer identifies validation, saved login restored
+  without another sign-in, Claude 2.1.301 and Codex 0.163.0 were detected and
+  launch became available. No CLI automatically restarted.
+- 374 unit tests pass, lint has zero errors and the pre-existing hook warning;
+  production renderer/native packaging and both desktop/task-tools browser suites
+  pass. Frame width is 2px in ordinary and orchestration regression assertions.
+- Still not publicly published: official download/feed activation and its final
+  acceptance remain. Clawd permission is unresolved, retained by owner decision.
+  Separate-Mac/account tests remain explicitly excluded, not passed. No exact
+  revocation-latency or old-capability replay measurement is claimed.
+
 ## 0.1.15 Source Preparation (2026-10-16)
 
 - Agent and orchestration frames now have a 2px border, retaining the existing
