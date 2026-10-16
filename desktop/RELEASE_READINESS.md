@@ -1,6 +1,29 @@
 # Desktop Release Readiness
 
-## Current Source Freeze (2026-10-16)
+## Backend Live, Next Desktop Candidate Pending (2026-10-16)
+
+- Backend source `65c3c2b8e7a085381934f55d228352979f412eee` was deployed to
+  `https://good-chinchilla-15.convex.cloud` with the existing locked Convex 1.37.0
+  CLI and pushed to Web `main`. No schema, indexes, environment variables or auth
+  settings were changed, and no real account task was edited for verification.
+- Before/after production function specs differ only by the new desktop-only
+  `POST /desktop-mcp/complete-scoped` route and optional string-array
+  `allowedTaskIds` argument on `mcpTasks:complete`. All other function signatures
+  are unchanged. Live unauthenticated calls to scoped/legacy desktop completion
+  and ordinary MCP completion return 401; `/mcp/complete-scoped` stays absent (404).
+- The backend-only branch has 172 passing unit tests and zero lint errors; codegen,
+  TypeScript and production dry-run checks pass. The desktop branch incorporates
+  the production commit and passes 373 tests, including the added HTTP authentication,
+  trusted-account attribution and legacy compatibility regression.
+- Git integration rebuilt the unchanged Web UI. Vercel deployment
+  `dpl_BLhvvnJ7F1TdiniwvH5Vcsh3ZR1Q` is Ready at
+  `https://chrct-hevxf4wws-bizencore.vercel.app`, aliased to app.bizencore.com.
+- This completes backend preparation only. Installed 0.1.13 still uses its previous
+  completion path; it does not retroactively gain scoped completion. Package and
+  accept a matching new desktop candidate next. No desktop binary, version, tag,
+  archive, installed app or desktop update feed was changed in this step.
+
+## Source Freeze (2026-10-16)
 
 - Source-only consolidation on `desktop/release-readiness-20261015`:
   `f251534` records the four review fixes; `fe6d2f0` records task/terminal frames,
@@ -11,7 +34,8 @@
 - Final documentation is recorded by the enclosing commit. This is not a new
   binary release: no version/tag has been assigned to these changes, and the
   installed 0.1.13, existing candidate tags, archives and rollback copies remain
-  unchanged. Nothing was pushed, deployed, installed or publicly activated.
+  unchanged. At that source-freeze step, nothing was pushed, deployed, installed
+  or publicly activated; the subsequent backend deployment is recorded above.
 - Integrated checks: 372 unit tests pass; Web/MCP Apps and the preview desktop
   renderer build; Convex type check and an in-memory native-main bundle pass.
   Production configuration validation passes without creating a package.
