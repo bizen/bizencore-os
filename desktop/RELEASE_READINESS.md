@@ -1,5 +1,62 @@
 # Desktop Release Readiness
 
+## Private 0.1.14 Candidate Acceptance (2026-10-16)
+
+- Built from clean source `7ee5c10aed103232a208f22da4c495c42427fd6c`, tagged
+  locally as `desktop-v0.1.14-candidate.1`. Renderer/native build ID
+  `7fd8b819-47a1-471f-9d30-6f00a4dbfadf` and the pinned production Clerk/Convex
+  profile match inside the archive. ZIP size is 147015371 bytes; SHA-256 is
+  `cbb155221be75208d97110650471210fcbe422928286e30455c886f29ada3cd0`.
+  Deep/strict ad-hoc signing, bundled notices and excluded-artwork checks pass.
+  No Developer ID signature or notarization, publication or feed activation.
+- Installed from the extracted ZIP at the existing stable app path. Installed
+  0.1.13 was moved intact to
+  `/Users/yuitotakizawa/Applications/bizencore-backups/1792127121934-0.1.13/`;
+  the Desktop latest-app symlink and authentication/settings data were preserved.
+  A separate idle legacy backup copy was found running before installation.
+  After normal quit and SIGTERM did not stop that old copy, only its verified
+  app process (with no CLI children) was stopped. This is not successful normal
+  quit evidence for that legacy copy.
+- The owner granted 0.1.14 Keychain access. Production authentication restored,
+  including account-synced focus tabs. Native pane UI shows Clawd and one rounded
+  metadata/terminal frame. On the dedicated Claude sample, header completion and
+  undo synchronized to the server with user attribution; the detail button opened
+  the independent inspector without an overlay. The sample was restored to
+  unfinished before handing it to the actual CLI.
+- Claude Code sample `316b0f53-8d6c-4fa0-a16d-03c98b53686c` completed a normal
+  assigned-pane cycle: fresh MCP task read, read-only fixture verification,
+  progress and completion. Independent MCP read returned done=true and
+  completed_by_client=Claude Code; the pane showed the shared cyan check/amber
+  dot. The CLI finished its response and exited through `/exit`.
+- Codex sample `62ca8fe5-6647-44ec-8f28-3da74985b7b8` completed through the
+  interactive orchestration terminal. Only that sample was selected, assigned to
+  Codex, with manual next-task confirmation. Two tool permission prompts were
+  approved once for that sample, not with session-wide or permanent permission.
+  Fresh MCP read, fixture verification, progress, completion and re-read passed.
+  Independent MCP read returned done=true and completed_by_client=Codex.
+  Production Convex logged HTTP 200 for POST /desktop-mcp/complete-scoped,
+  request ID `78c6d04606fe5fd3`, execution
+  `fe9aa472-5bb8-41fe-a10a-50a15262fda9`. The manual completion-confirmation
+  control stopped the CLI and displayed completed status. No next task started.
+- Both pre-existing fixture files retained exact hashes, sizes, inodes, mtime
+  and ctime: Codex 44 bytes, SHA-256
+  `0d8aaa08aa18ea33faf0cee52a1bd01fc8ace33e2c1d43b13fdc33dc06349b34`;
+  Claude 45 bytes, SHA-256
+  `69dbcc98c7fd75e414d4e12c702c3930ba1022bd6c82ea937efff760db709db1`.
+  Only dedicated acceptance samples were intentionally changed, not real work.
+- Native menu Quit stopped the installed app and owned workers, verified with
+  an empty process query. Earlier CUA keyboard/menu attempts did not prove exit
+  and are not counted. Reopening the same 0.1.14 restored authentication without
+  another sign-in, focus order, columns ratio 47.9486, fixture folder and the
+  completed Claude assignment. No CLI automatically restarted.
+- All 373 source unit tests pass in the normal local test environment. The first
+  sandboxed attempt failed on localhost listen and shared Vite cache permissions;
+  those failures were not treated as application test failures or passing tests.
+- Remaining: actual server-side session revocation, installed missing-CLI case,
+  public download/feed acceptance and asset distribution review including Clawd.
+  Separate-Mac/account testing stays excluded by the owner. These are not silently
+  marked passed; the desktop parent and installation acceptance task remain open.
+
 ## Backend Live, Next Desktop Candidate Pending (2026-10-16)
 
 - Backend source `65c3c2b8e7a085381934f55d228352979f412eee` was deployed to
