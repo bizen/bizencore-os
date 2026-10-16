@@ -2802,11 +2802,15 @@ body {
   gap: 1.1rem;
   padding: 1.1rem 1.25rem 1.5rem;
   overflow-y: auto;
-  scrollbar-gutter: stable;
+  scrollbar-width: none;
   background: var(--popover-bg);
   border-left: 1px solid var(--border-color);
   box-shadow: -24px 0 48px var(--inspector-shadow);
   animation: inspector-in 0.18s ease-out;
+}
+
+.inspector::-webkit-scrollbar {
+  display: none;
 }
 
 .inspector > * {
