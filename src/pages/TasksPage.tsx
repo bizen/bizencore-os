@@ -30,6 +30,8 @@ import { taskStore, useTaskState } from '../lib/taskStore';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
 import { LIFE_SECTION_ID, lifeCompletedEntries, lifeEntriesForDate, lifeParentIds, lifeSectionIndex, partitionLifeRows } from '../lib/lifeWorldModel';
 import { collapseRows } from '../lib/collapsedRows';
+import { FocusedLabelsProvider } from '../components/FocusedLabelsProvider';
+import { useFocusedLabels } from '../lib/focusedLabelsContext';
 
 type ViewMode = 'all' | 'today' | 'board' | `label:${string}`;
 
@@ -82,21 +84,9 @@ function loadShelfOpen(): boolean {
   }
 }
 const VIEW_KEY = 'chrct.tasks.view';
-const FOCUSED_LABELS_KEY = 'chrct.tasks.focusedLabels';
 
 function labelView(id: string): ViewMode {
   return `label:${id}`;
-}
-
-function loadFocusedLabels(): string[] {
-  try {
-    const saved = JSON.parse(localStorage.getItem(FOCUSED_LABELS_KEY) ?? '[]') as unknown;
-    return Array.isArray(saved)
-      ? [...new Set(saved.filter((id): id is string => typeof id === 'string' && id.length > 0))]
-      : [];
-  } catch {
-    return [];
-  }
 }
 
 /** 最後に見ていた表示を開き直しても保つ */
@@ -208,7 +198,7 @@ function matchesQuery(item: Item, needle: string): boolean {
 }
 
 export function TasksPage() {
-  return <TaskContextDropProvider><TasksPageContent /></TaskContextDropProvider>;
+  return <FocusedLabelsProvider><TaskContextDropProvider><TasksPageContent /></TaskContextDropProvider></FocusedLabelsProvider>;
 }
 
 function TasksPageContent() {
@@ -219,7 +209,7 @@ function TasksPageContent() {
   const { todayDate, todayTime } = useTodayClock(timeZone);
 
   const [selectedView, setView] = useState<ViewMode>(loadView);
-  const [focusedLabelIds, setFocusedLabelIds] = useState(loadFocusedLabels);
+  const { ids: focusedLabelIds, change: changeLabelFocus, error: focusSaveError } = useFocusedLabels();
   const selectedLabelId = selectedView.startsWith('label:') ? selectedView.slice(6) : null;
   const selectedLabel = selectedLabelId ? items[selectedLabelId] : undefined;
   const view: ViewMode = selectedLabelId && (
@@ -426,14 +416,6 @@ function TasksPageContent() {
       // 保存できなくても表示には困らない
     }
   }, [selectedView]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(FOCUSED_LABELS_KEY, JSON.stringify(focusedLabelIds));
-    } catch {
-      // 保存できなくても表示には困らない
-    }
-  }, [focusedLabelIds]);
 
   useEffect(() => {
     const nav = viewSwitchRef.current;
@@ -705,12 +687,12 @@ function TasksPageContent() {
 
   const toggleLabelFocus = useCallback((id: string) => {
     if (focusedLabelIds.includes(id)) {
-      setFocusedLabelIds((current) => current.filter((focusedId) => focusedId !== id));
+      changeLabelFocus(id, false);
       if (view === labelView(id)) setViewMode('all');
     } else {
-      setFocusedLabelIds((current) => [...current, id]);
+      changeLabelFocus(id, true);
     }
-  }, [focusedLabelIds, setViewMode, view]);
+  }, [focusedLabelIds, changeLabelFocus, setViewMode, view]);
 
   /** board の列の下から、そのラベルにタスクを足す（ラベルなしの列はルートの末尾へ） */
   const addTaskToColumn = useCallback(
@@ -1212,6 +1194,7 @@ function TasksPageContent() {
           ?
         </button>
       </div>
+      {focusSaveError ? <p className="focus-sync-error" role="alert">{focusSaveError}</p> : null}
       <PartnerWorkspace enabled={view === 'all'} side={partnerSide} onSideChange={setPartnerSide}>
       <div className={`tasks-layout${indexLabels.length > 0 ? ' has-index' : ''}`}>
         {indexLabels.length > 0 ? (

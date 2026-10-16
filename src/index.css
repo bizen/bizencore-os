@@ -777,6 +777,8 @@ body {
 
 /* ---------- Tasks ---------- */
 
+.focus-sync-error { color: var(--text-secondary); font-size: 12px; margin: 8px 0; }
+
 .tasks-toolbar {
   position: sticky;
   top: var(--toolbar-sticky-top);
@@ -1116,15 +1118,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.3rem;
-  height: 1.3rem;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1.5px solid var(--control-border, var(--border-color));
+  border-radius: 7px;
   color: var(--text-secondary);
 }
 
 .row--locked .row-title { font-weight: 500; }
-.row-lock-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.3rem; height: 1.3rem; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.row-lock-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .row-lock-toggle:hover { background: rgba(var(--accent-rgb), 0.09); color: var(--text-primary); }
-.row-lock-toggle:hover .row-lock-mark { color: inherit; }
+.row-lock-toggle:hover .row-lock-mark { color: inherit; border-color: var(--text-secondary); }
 .row-lock-toggle:focus-visible { outline: 1px solid var(--accent-color); outline-offset: 3px; }
 .row-lock-count { position: absolute; top: -7px; right: -4px; min-width: 12px; height: 12px; padding: 0 2px; border-radius: 3px; background: var(--bg-color); color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.56rem; line-height: 12px; white-space: nowrap; pointer-events: none; }
 .check:disabled { cursor: not-allowed; opacity: 0.45; }
