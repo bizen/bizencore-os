@@ -56,6 +56,7 @@ export default defineSchema({
 
     userPreferences: defineTable({
         userId: v.string(),
+        focusedLabelIds: v.optional(v.array(v.string())),
         timeZone: v.string(),
         automatic: v.boolean(),
         updatedAt: v.number(),

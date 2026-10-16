@@ -117,6 +117,14 @@ try {
       await page.setViewportSize({ width, height: 960 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${theme}/${width}: no horizontal overflow`);
       for (const container of [parent, lifeRow(life.root)]) {
+        const lock = await container.locator('.row-lock-mark').evaluate(el => {
+          const box = el.getBoundingClientRect(), icon = el.querySelector('svg').getBoundingClientRect(), style = getComputedStyle(el);
+          return { width: box.width, height: box.height, border: parseFloat(style.borderTopWidth), radius: style.borderRadius,
+            centered: Math.abs(box.x + box.width / 2 - icon.x - icon.width / 2) < 1 && Math.abs(box.y + box.height / 2 - icon.y - icon.height / 2) < 1 };
+        });
+        assert.equal(lock.width, 20); assert.equal(lock.height, 20);
+        assert.ok(lock.border >= 1); assert.equal(lock.radius, '7px');
+        assert.equal(lock.centered, true, `${theme}/${width}: lock is centered inside the checkbox frame`);
         const bounds = await container.evaluate(el => {
           const badge = el.querySelector('.row-lock-count').getBoundingClientRect(), title = el.querySelector('.row-title').getBoundingClientRect();
           return { badgeRight: badge.right, titleLeft: title.left };

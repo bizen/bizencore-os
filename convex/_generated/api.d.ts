@@ -12,6 +12,7 @@ import type * as accountAccess from "../accountAccess.js";
 import type * as accountDeletion from "../accountDeletion.js";
 import type * as countStocks from "../countStocks.js";
 import type * as fileCleanup from "../fileCleanup.js";
+import type * as focusedLabels from "../focusedLabels.js";
 import type * as http from "../http.js";
 import type * as lifeWorldFields from "../lifeWorldFields.js";
 import type * as mcpTasks from "../mcpTasks.js";
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   accountDeletion: typeof accountDeletion;
   countStocks: typeof countStocks;
   fileCleanup: typeof fileCleanup;
+  focusedLabels: typeof focusedLabels;
   http: typeof http;
   lifeWorldFields: typeof lifeWorldFields;
   mcpTasks: typeof mcpTasks;
