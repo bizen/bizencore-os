@@ -1,5 +1,31 @@
 # Desktop Release Readiness
 
+## Current Source Freeze (2026-10-16)
+
+- Source-only consolidation on `desktop/release-readiness-20261015`:
+  `f251534` records the four review fixes; `fe6d2f0` records task/terminal frames,
+  shared completion controls, independent details and provider/Clawd identifiers.
+  `8d704bb` merges Web production `139b47d`, including account-scoped focus tabs
+  and framed lock marks. The merge preserves all 37 previously changed files
+  byte-for-byte and with the same file permissions; no focus migration was lost.
+- Final documentation is recorded by the enclosing commit. This is not a new
+  binary release: no version/tag has been assigned to these changes, and the
+  installed 0.1.13, existing candidate tags, archives and rollback copies remain
+  unchanged. Nothing was pushed, deployed, installed or publicly activated.
+- Integrated checks: 372 unit tests pass; Web/MCP Apps and the preview desktop
+  renderer build; Convex type check and an in-memory native-main bundle pass.
+  Production configuration validation passes without creating a package.
+  Desktop, orchestration/decomposition, authentication, account-focus and shared
+  Web/desktop feature browser suites pass with synthetic accounts/IPC only.
+  Lint has zero errors and the pre-existing terminal-launch hook warning.
+- The next steps remain separate: deploy the scoped-completion backend before a
+  matching desktop build, assign a unique release version, package and accept that
+  actual candidate on this Mac, then finish asset review and public download/feed
+  verification. In particular, Clawd is a simplified character rendering, not an
+  official SVG or a blanket distribution-rights clearance; see ASSET_REVIEW.md.
+  Real server-side session revocation remains unverified. Separate-Mac/account
+  checks remain excluded by the owner, not silently marked as passed.
+
 ## Scope
 
 Initial distribution targets macOS on Apple Silicon (arm64), through the company website.
