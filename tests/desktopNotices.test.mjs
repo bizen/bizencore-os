@@ -13,6 +13,10 @@ test('dependency notices preserve license text and report unresolved package not
   assert.ok(notices.text.includes('Copyright (c) 2023 Svix'));
   assert.ok(notices.text.includes('Nick Fitzgerald'));
   assert.ok(notices.text.includes('Selected option: CC0-1.0'));
+  assert.ok(notices.text.includes('OpenAI and the OpenAI Blossom are trademarks of OpenAI'));
+  assert.ok(notices.text.includes('Claude is a trademark of Anthropic'));
+  assert.ok(notices.text.includes('https://developers.openai.com/'));
+  assert.ok(notices.text.includes('https://claude.com/'));
   assert.ok(!notices.text.includes('sk_live_'));
   assert.ok(!notices.text.includes('clerk-tokens.json'));
 });

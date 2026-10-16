@@ -138,7 +138,7 @@ export function TaskTools({ storageKey, available, cwd: lastCwd, busy, intent, h
         } catch (failure) { setError(message(failure)); }
       }}><Play size={15} />{mode === 'execute' ? '確認して開始' : '分担案を作成'}</button>
     </> : <div className="task-tools-running" role="status"><span>{entries.filter(entry => entry.state === 'completed').length}/{entries.length}件{mode === 'execute' ? '完了' : '提案済み'}</span><button type="button" className="icon-btn" title="このタスク後に一時停止" aria-label="このタスク後に一時停止" onClick={() => { halt.current = 'pause'; }}><Pause size={16} /></button><button type="button" className="icon-btn" title="実行を停止" aria-label="実行を停止" onClick={() => { halt.current = 'stop'; if (terminalJobRef.current) terminalJobRef.current.controller.abort(); else if (requestId.current) void bridge.taskStop(requestId.current).catch(failure => setError(message(failure))); }}><Square size={15} /></button></div>}
-    {mode === 'execute' ? <OrchestrationTerminal job={terminalJob} fontSize={fontSize} /> : null}
+    {mode === 'execute' ? <OrchestrationTerminal job={terminalJob} fontSize={fontSize} onOpenTask={onOpenTask} /> : null}
     {entries.length ? <div className="task-tools-results">{entries.map(entry => <article key={entry.taskId}>
       <button type="button" className="agent-assignment-title" onClick={() => onOpenTask?.(entry.taskId)}>{items[entry.taskId]?.text || entry.taskId}</button><small>{names[entry.agent]} · {mode === 'decompose' && entry.state === 'completed' ? '提案済み' : states[entry.state]}</small>
       {entry.result ? <p>{entry.result.summary}</p> : null}{entry.error ? <p className="agent-error" role="alert">{entry.error}</p> : null}

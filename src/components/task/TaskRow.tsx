@@ -10,45 +10,7 @@ import { LabelColorPicker } from './LabelColorPicker';
 import { TaskTreeGuides } from './TaskTreeGuides';
 import { TaskLockMark } from './TaskLockMark';
 import { useTaskContextDrop } from '../../lib/taskContextDropReact';
-
-/**
- * チェックマークは線を描き込みたいので、アイコンフォントではなく path を直接持つ。
- * fill / mark / ring の3層で、押し込み・描き込み・広がる輪をそれぞれ担当する。
- */
-function CheckBox({
-  done,
-  completedByAi,
-  bursting,
-  todayNumber,
-  onToggle,
-  blocked,
-}: {
-  done: boolean;
-  completedByAi: boolean;
-  bursting: boolean;
-  todayNumber?: number;
-  onToggle: () => void;
-  blocked: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className={`check${done ? ' is-checked' : ''}${completedByAi ? ' is-ai-checked' : ''}${bursting ? ' is-bursting' : ''}`}
-      onClick={onToggle}
-      tabIndex={-1}
-      aria-pressed={done}
-      disabled={!done && blocked}
-      aria-label={done ? (completedByAi ? 'AIが完了・未完了に戻す' : '未完了に戻す') : '完了にする'}
-      title={!done && blocked ? 'ロック中の子タスクがあるため完了できません' : '⌘Enter'}
-    >
-      <span className="check-fill" aria-hidden />
-      <svg className="check-mark" viewBox="0 0 16 16" aria-hidden>
-        <path d="M3.4 8.3 L6.5 11.4 L12.6 4.7" />
-      </svg>
-      {!done && todayNumber ? <span className="check-num">{todayNumber}</span> : null}
-    </button>
-  );
-}
+import { TaskCheckBox } from './TaskCheckBox';
 
 export interface TaskRowProps {
   item: Item;
@@ -182,7 +144,7 @@ export function TaskRow(props: TaskRowProps) {
             <TaskLockMark text={item.text} hasChildren={hasChildren} collapsed={collapsed} hiddenCount={hiddenCount}
               onToggle={onToggleCollapse ? () => onToggleCollapse(item.id) : undefined} />
           ) : (
-            <CheckBox
+            <TaskCheckBox
               done={item.done}
               completedByAi={item.done && item.completedBy === 'ai'}
               bursting={burstIndex !== undefined}

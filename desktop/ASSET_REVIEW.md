@@ -25,6 +25,20 @@ installed candidate has passed acceptance. This inventory is not a blanket legal
 
 ## Fonts And Dependencies
 
+- Agent identification graphics in `desktop/AgentLogo.tsx` use the unchanged
+  OpenAI Blossom path served on https://developers.openai.com/ (retrieved
+  2026-10-16), in black/white only. Claude Code uses a simplified pixel rendering
+  of its Clawd character, not the Claude star logo or an official SVG export.
+  The reference is the Claude Code welcome-screen character; product source:
+  https://github.com/anthropics/claude-code . Its orange and dark eyes stay visible
+  in light and dark themes. No third-party fan illustration is bundled.
+  These are small identifiers beside the actual CLI names, not bizencore branding
+  or an endorsement claim. OpenAI marks belong to OpenAI; Claude marks belong to
+  Anthropic; the Clawd character is associated with Anthropic. OpenAI usage
+  guidance: https://openai.com/brand/ . Availability of
+  artwork is not a blanket redistribution license or a partnership approval.
+  Distribution notices include ownership and provenance for these symbols.
+
 - Shared UI fonts are requested from Google Fonts; do not claim they are bundled or
   fully offline. If they become bundled, include the exact supplied license files.
 - `dependencyNotices()` inventories the locked dependency graph, copies supplied

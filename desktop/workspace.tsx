@@ -23,6 +23,8 @@ import { TaskScrollRail } from '../src/components/TaskScrollRail';
 import { defaultUiPrefs, readUiPrefs, uiPrefsKey, writeUiPrefs, type UiPrefs } from './ui-prefs';
 import { completedAssignments } from './task-notifications';
 import { TaskTools, type ToolsIntent } from './TaskTools';
+import { AgentTaskAssignment } from './AgentTaskAssignment';
+import { AgentLogo } from './AgentLogo';
 
 type Pane = { id: string; agent: bridge.AgentId; cwd: string; assignment?: PaneAssignment; labelId?: string; resumeSessionId?: string; busy?: boolean; sentAt?: number; launchRequested?: boolean };
 const newPane = (cwd = ''): Pane => ({ id: crypto.randomUUID(), agent: 'claude', cwd });
@@ -47,7 +49,7 @@ function AgentSetup({ diagnostic }: { diagnostic: bridge.AgentDiagnostic }) {
     event.preventDefault(); void bridge.openExternal(url).catch(failure => setError(message(failure)));
   }}>{title}<ExternalLink size={12} aria-hidden /></a>;
   return <div className="agent-setup-diagnostic">
-    <strong>{diagnostic.name}</strong><small title={diagnostic.path ?? ''}>{diagnostic.path ?? '見つかりません'}{diagnostic.version ? ` · ${diagnostic.version}` : ''}</small>
+    <strong className="agent-identity"><AgentLogo agent={diagnostic.id} />{diagnostic.name}</strong><small title={diagnostic.path ?? ''}>{diagnostic.path ?? '見つかりません'}{diagnostic.version ? ` · ${diagnostic.version}` : ''}</small>
     {!diagnostic.path ? <p role="alert">{diagnostic.name}が見つかりません。インストール後に診断を更新してください。</p> : diagnostic.problem ? <p role="alert">{diagnostic.problem}。インストール先を確認し、診断を更新してください。</p> : null}
     <div>{link('インストール', claude ? 'https://code.claude.com/docs/en/setup' : 'https://developers.openai.com/codex/cli')}{link('認証', claude ? 'https://code.claude.com/docs/en/authentication' : 'https://developers.openai.com/codex/auth')}</div>
     <code>{claude ? 'curl -fsSL https://claude.ai/install.sh | bash' : 'npm install -g @openai/codex'}</code>
@@ -111,7 +113,7 @@ function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch,
     <div className="agent-launcher-head"><h2>エージェントを起動</h2><button type="button" className="icon-btn" title="閉じる" aria-label="起動設定を閉じる" onClick={onClose}><X size={15} /></button></div>
     <div className="agent-launcher-grid">
     <label className="agent-launcher-field" title={agent === 'claude' ? 'Claude Code' : 'Codex'}>
-      <Bot size={20} aria-hidden /><span className="agent-launcher-field-name">エージェント</span>
+      <AgentLogo agent={agent} size={18} /><span className="agent-launcher-field-name">エージェント</span>
       <small>{agent === 'claude' ? 'Claude Code' : 'Codex'}</small>
       <select autoFocus aria-label="起動するエージェント" value={agent} onChange={event => setAgent(event.target.value as bridge.AgentId)}>
       <option value="claude">Claude Code</option><option value="codex">Codex</option>
@@ -191,7 +193,7 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
   const busy = status === 'starting' || status === 'running' || status === 'stopping';
   const executable = available.find(agent => agent.id === pane.agent);
   const assigned = pane.assignment ? items[pane.assignment.taskId] : undefined;
-  const task = isLive(assigned) ? assigned : undefined;
+  const task = isLive(assigned) && assigned.type === 'task' ? assigned : undefined;
   const canLaunch = pane.resumeSessionId ? resumeReady : !pane.assignment || Boolean(task && task.type === 'task' && !task.done && !task.filed);
   const children = task ? Object.values(items).filter(item => isLive(item) && item.type === 'task' && item.parentId === task.id) : [];
   const releaseGpu = () => {
@@ -329,9 +331,10 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
 
   return <section id={`pane-${pane.id}`} tabIndex={-1} className={`agent-pane${status === 'idle' ? ' is-idle' : ''}`} hidden={hidden} onFocusCapture={onSelect} onPointerDown={onSelect} aria-label={`${executable?.name ?? pane.agent}ペイン`}>
     <header className="agent-pane-head">
+      <div className="agent-identity"><AgentLogo agent={pane.agent} />
       <select aria-label="エージェント" value={pane.agent} disabled={busy} onChange={e => { setResumeReady(false); update({ ...pane, agent: e.target.value as bridge.AgentId, resumeSessionId: undefined }); }}>
         <option value="claude">Claude Code</option><option value="codex">Codex</option>
-      </select>
+      </select></div>
       <span className={`agent-status agent-status-${status}`} title={{ idle: '未起動', starting: '起動中', running: '実行中', stopping: '停止中', exited: '終了' }[status]} />
       <button type="button" className="icon-btn" disabled={busy} title={pane.cwd || '作業フォルダを選択'} aria-label="作業フォルダを選択" onClick={async () => {
         try { const cwd = await bridge.folder(); if (cwd && typeof cwd === 'string' && cwd !== pane.cwd) { setResumeReady(false); update({ ...pane, cwd, resumeSessionId: undefined }); } }
@@ -349,10 +352,9 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
     </header>
     {!busy ? <ResumePicker pane={pane} update={update} onReady={setResumeReady} /> : null}
     {pickerOpen && !busy ? <TaskAssignmentPicker pane={pane} items={items} onAssign={value => assign(pane.id, value)} onClose={() => setPickerOpen(false)} /> : null}
-    {pane.assignment ? <div className="agent-assignment">
-      <div><button type="button" className="agent-assignment-title" disabled={!task || !inspector?.openTask} title="担当タスクの詳細を開く" aria-label="担当タスクの詳細を開く" onClick={() => task && inspector?.openTask?.(task.id)}>{task?.text || 'タスクが見つかりません'}</button><button type="button" className="icon-btn" disabled={busy} title="担当タスクを外す" aria-label="担当タスクを外す" onClick={() => update({ ...pane, assignment: undefined, sentAt: undefined })}><X size={13} /></button></div>
-      <small>{pane.assignment.intent === 'consult' ? '検討' : '実行'} · {pane.assignment.mode === 'mcp' ? 'MCP' : '内容のみ'} · {task?.done ? '完了' : task?.locked ? '常設' : pane.sentAt ? '送信済み' : '未送信'}{children.length ? ` · サブタスク ${children.filter(item => item.done).length}/${children.length}` : ''}</small>
-    </div> : null}
+    {pane.assignment ? <AgentTaskAssignment taskId={pane.assignment.taskId} items={items} onOpenTask={inspector?.openTask}
+      onRemove={() => update({ ...pane, assignment: undefined, sentAt: undefined })} removeDisabled={busy}
+      summary={`${pane.assignment.intent === 'consult' ? '検討' : '実行'} · ${pane.assignment.mode === 'mcp' ? 'MCP' : '内容のみ'} · ${task?.done ? '完了' : task?.locked ? '常設' : pane.sentAt ? '送信済み' : '未送信'}${children.length ? ` · サブタスク ${children.filter(item => item.done).length}/${children.length}` : ''}`} /> : null}
     {executable && (!executable.path || executable.problem) ? <AgentSetup diagnostic={executable} /> : null}
     {error ? <p role="alert" className="agent-error">{error}</p> : null}
     {status !== 'idle' ? <div className="agent-terminal-tools"><button type="button" className="icon-btn" title="ターミナルを検索" aria-label="ターミナルを検索" aria-expanded={searchOpen} onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}><Search size={14} /></button></div> : null}
@@ -611,7 +613,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
           const target = event.key === 'Home' ? 0 : event.key === 'End' ? panes.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + panes.length) % panes.length;
           setActiveId(panes[target].id); if (zoomId) setZoomId(panes[target].id);
           document.getElementById(`pane-tab-${panes[target].id}`)?.focus();
-        }}>{index + 1}<span className={pane.busy ? 'is-running' : ''} /></button>)}</div>
+        }}><AgentLogo agent={pane.agent} size={12} />{index + 1}<span className={pane.busy ? 'is-running' : ''} /></button>)}</div>
         <div role="group" aria-label="ペインの順序"><button type="button" className="icon-btn" title="選択ペインを前へ" aria-label="選択ペインを前へ" disabled={selectedId === panes[0]?.id} onClick={() => moveSelected(-1)}><ArrowLeft size={14} /></button><button type="button" className="icon-btn" title="選択ペインを後ろへ" aria-label="選択ペインを後ろへ" disabled={selectedId === panes.at(-1)?.id} onClick={() => moveSelected(1)}><ArrowRight size={14} /></button></div>
       </div> : null}
       {!bridge.nativeDesktop ? <p className="agent-error" role="status">エージェントの起動はデスクトップアプリで利用できます。</p> : null}

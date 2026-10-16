@@ -8,6 +8,9 @@ import '@xterm/xterm/css/xterm.css';
 import * as bridge from './bridge';
 import { readTerminalTheme } from './terminal-theme';
 import type { WorkReply, WorkRequest } from '../src/lib/taskTools';
+import { useTaskState } from '../src/lib/taskStore';
+import { AgentTaskAssignment } from './AgentTaskAssignment';
+import { AgentLogo } from './AgentLogo';
 
 export type TerminalJob = {
   request: WorkRequest; title: string; automatic: boolean; controller: AbortController;
@@ -15,7 +18,8 @@ export type TerminalJob = {
 };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function OrchestrationTerminal({ job, fontSize = 13 }: { job: TerminalJob | null; fontSize?: number }) {
+export function OrchestrationTerminal({ job, fontSize = 13, onOpenTask }: { job: TerminalJob | null; fontSize?: number; onOpenTask?: (id: string) => void }) {
+  const { items } = useTaskState();
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -32,7 +36,9 @@ export function OrchestrationTerminal({ job, fontSize = 13 }: { job: TerminalJob
   const [checking, setChecking] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [title, setTitle] = useState('');
+  const [agent, setAgent] = useState<bridge.AgentId>('claude');
+  const title = agent === 'codex' ? 'Codex' : 'Claude Code';
+  const [taskId, setTaskId] = useState<string | null>(null);
   useEffect(() => { current.current = job; }, [job]);
 
   useEffect(() => {
@@ -123,7 +129,7 @@ export function OrchestrationTerminal({ job, fontSize = 13 }: { job: TerminalJob
     if (run.controller.signal.aborted) { abort(); return cleanup; }
     void (async () => {
       setStarted(true); setHold(false); setError(''); setStatus('起動中');
-      setTitle(`${run.request.agent === 'codex' ? 'Codex' : 'Claude Code'} · ${run.title}`);
+      setAgent(run.request.agent); setTaskId(run.request.taskId);
       fit.current?.fit();
       const terminal = term.current!;
       const plainTitle = Array.from(run.title, char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? ' ' : char).join('');
@@ -152,8 +158,9 @@ export function OrchestrationTerminal({ job, fontSize = 13 }: { job: TerminalJob
   }, [job, advance]);
 
   return <section className="orchestration-terminal" hidden={!started && !job} aria-label="オーケストレーションのターミナル">
-    <header><span title={title}>{title}</span><small role="status">{status}{job?.automatic && hold ? ' · 自動移行を保留' : ''}</small>
+    <header><span className="agent-identity" title={title}><AgentLogo agent={agent} />{title}</span><small role="status">{status}{job?.automatic && hold ? ' · 自動移行を保留' : ''}</small>
       <button type="button" className="icon-btn" title="ターミナル内を検索" aria-label="ターミナル内を検索" onClick={() => setSearchOpen(value => !value)}><Search size={14} /></button></header>
+    {taskId ? <AgentTaskAssignment taskId={taskId} items={items} onOpenTask={onOpenTask} /> : null}
     {searchOpen ? <div className="agent-search"><input autoFocus type="search" aria-label="オーケストレーションの出力を検索" value={query} onChange={event => { setQuery(event.target.value); if (event.target.value) search.current?.findNext(event.target.value); else search.current?.clearDecorations(); }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) search.current?.findNext(query); if (event.key === 'Escape') { setSearchOpen(false); term.current?.focus(); } }} /><button type="button" className="icon-btn" title="検索を閉じる" aria-label="検索を閉じる" onClick={() => { setSearchOpen(false); search.current?.clearDecorations(); term.current?.focus(); }}><X size={14} /></button></div> : null}
     <div ref={host} className="orchestration-terminal-host" />
     {error ? <p className="agent-error" role="alert">{error}</p> : null}

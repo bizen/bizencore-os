@@ -62,6 +62,7 @@ export async function dependencyNotices(root) {
   return {
     count: visited.size, missing,
     text: 'bizencore terminal - Third-party notices\n\nGenerated from the locked installed dependency graph. Some listed dependencies may not be bundled.\nElectron/Chromium notices are also included with the Electron application runtime.\nThis inventory does not establish redistribution rights for images, fonts or other project assets.\n\n' +
+      'Agent identification marks\nOpenAI and the OpenAI Blossom are trademarks of OpenAI. Claude is a trademark of Anthropic. The Claude Code identifier is a simplified pixel rendering of the Clawd character associated with Anthropic, not an official logo export. These graphics identify the selected third-party CLI; no endorsement or partnership is implied.\nOpenAI symbol source: https://developers.openai.com/\nOpenAI mark usage: https://openai.com/brand/\nClaude product: https://claude.com/\nClaude Code reference: https://github.com/anthropics/claude-code\n\n' +
       sections.sort((a, b) => a.name.localeCompare(b.name)).map(section => section.text).join('\n\n' + '='.repeat(72) + '\n\n') + '\n',
   };
 }

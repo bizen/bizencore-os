@@ -15,6 +15,7 @@ const { outputFiles } = await build({
     import { Terminal } from '@xterm/xterm';
     window.__desktopTest = { calls: [], channels: new Map(), folder: '/smoke/project' };
     const fixture = window.__desktopTest;
+    fixture.store = taskStore;
     fixture.terminals = [];
     const openTerminal = Terminal.prototype.open;
     Terminal.prototype.open = function(host) {
@@ -351,7 +352,10 @@ try {
   }
   assert.equal(await launcher.getByRole('button', { name: '起動する', exact: true }).isEnabled(), false);
   await launcher.getByRole('button', { name: '作業フォルダを選択', exact: true }).click();
+  assert.equal(await launcher.locator('.agent-logo[data-character="clawd"]').count(), 1, 'launcher identifies Claude Code with Clawd, not the star logo');
   await launcher.getByRole('combobox', { name: '起動するエージェント', exact: true }).selectOption('codex');
+  await launcher.locator('.agent-logo[data-agent="codex"]').waitFor();
+  assert.equal(await launcher.locator('.agent-logo[data-agent="claude"]').count(), 0, 'changing the agent changes the launcher symbol too');
   {
     await launcher.getByRole('combobox', { name: 'ラベル', exact: true }).selectOption('desktop-label');
     await launcher.getByRole('combobox', { name: '担当タスク', exact: true }).selectOption('370b6a1f-e4be-4e60-8bb8-8295a4f77e04');
@@ -372,6 +376,8 @@ try {
   await launcher.getByRole('button', { name: '起動する', exact: true }).click();
   const pane = page.locator('.agent-pane').first();
   await pane.locator('.agent-status-running').waitFor();
+  assert.equal(await pane.locator('.agent-pane-head .agent-logo[data-agent="codex"]').count(), 1);
+  assert.equal(await page.getByRole('tablist', { name: 'エージェントペイン', exact: true }).locator('.agent-logo[data-agent="codex"]').count(), 1, 'pane tabs retain the provider symbol beside their number');
   await page.getByRole('button', { name: 'ターミナル設定', exact: true }).click();
   const settings = page.getByRole('region', { name: 'ターミナル設定', exact: true });
   assert.equal(await settings.getByText('ターミナルの文字サイズ', { exact: true }).isVisible(), true);
@@ -475,6 +481,58 @@ try {
     await page.keyboard.press('Escape');
     await inspector.waitFor({ state: 'detached' });
     assert.ok(await pane.getByRole('button', { name: '担当タスクの詳細を開く', exact: true }).evaluate(element => element === document.activeElement), 'closing details restores the agent-side origin');
+    const assignment = pane.locator('.agent-assignment');
+    const starts = await page.evaluate(() => window.__desktopTest.calls.filter(call => ['desktop_start', 'desktop_stop'].includes(call.command)).length);
+    const assignedId = '370b6a1f-e4be-4e60-8bb8-8295a4f77e04';
+    await assignment.getByRole('button', { name: '完了にする', exact: true }).press('Space');
+    await assignment.getByRole('button', { name: '未完了に戻す', exact: true }).waitFor();
+    assert.equal(await page.evaluate(id => window.__desktopTest.store.getState().items[id].completedBy, assignedId), 'user', 'pane completion uses the same user-attributed task store');
+    assert.equal(await page.locator(`[data-row-id="${assignedId}"] .check`).getAttribute('aria-pressed'), 'true', 'task list reflects pane completion');
+    await assignment.getByRole('button', { name: '未完了に戻す', exact: true }).click();
+    assert.equal(await page.locator(`[data-row-id="${assignedId}"] .check`).getAttribute('aria-pressed'), 'false');
+    await page.locator(`[data-row-id="${assignedId}"] .check`).click();
+    await assignment.getByRole('button', { name: '未完了に戻す', exact: true }).waitFor();
+    await assignment.getByRole('button', { name: '未完了に戻す', exact: true }).click();
+    await page.evaluate(id => window.__desktopTest.store.setLocked(id, true), assignedId);
+    await assignment.getByRole('img', { name: 'ロック中・完了不可' }).waitFor();
+    assert.equal(await assignment.locator('.check').count(), 0, 'locked assignments never show a completion control');
+    await page.evaluate(id => window.__desktopTest.store.setLocked(id, false), assignedId);
+    const childId = await page.evaluate(id => {
+      const store = window.__desktopTest.store;
+      const child = store.insertAfter(id, { asChild: true });
+      store.setText(child, 'Locked child fixture'); store.setLocked(child, true);
+      return child;
+    }, assignedId);
+    assert.equal(await assignment.getByRole('button', { name: '完了にする', exact: true }).isDisabled(), true, 'locked descendants block pane completion too');
+    await page.evaluate(id => window.__desktopTest.store.remove(id), childId);
+    assert.equal(await assignment.getByRole('button', { name: '完了にする', exact: true }).isEnabled(), true);
+    const originalTitle = await page.evaluate(id => window.__desktopTest.store.getState().items[id].text, assignedId);
+    await page.evaluate(id => window.__desktopTest.store.setText(id, '長い担当タスク名でも全文を折り返して、チェック枠と詳細ボタンが隠れないようにする。'.repeat(4)), assignedId);
+    await page.setViewportSize({ width: 900, height: 900 });
+    assert.ok(await assignment.evaluate(element => {
+      const title = element.querySelector('.agent-assignment-title');
+      return title.scrollWidth <= title.clientWidth && title.scrollHeight <= title.clientHeight + 1
+        && [...element.querySelector('div').children].every(child => child.getBoundingClientRect().right <= element.getBoundingClientRect().right);
+    }), 'long Japanese titles wrap in narrow panes without hiding completion or detail controls');
+    await page.setViewportSize({ width: 1380, height: 900 });
+    await page.evaluate(({ id, text }) => window.__desktopTest.store.setText(id, text), { id: assignedId, text: originalTitle });
+    for (const theme of ['white', 'original', 'black']) {
+      await page.mouse.move(0, 0);
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      const checkColors = await page.evaluate(async id => {
+        const checks = [document.querySelector('.agent-assignment .check'), document.querySelector(`[data-row-id="${id}"] .check`)];
+        checks.forEach(element => getComputedStyle(element).borderColor);
+        for (const element of checks) for (const animation of element.getAnimations()) await animation.finished;
+        return checks.map(element => getComputedStyle(element).borderColor);
+      }, assignedId);
+      assert.equal(await pane.evaluate(element => getComputedStyle(element).borderRadius), '8px');
+      assert.equal(await pane.locator('.agent-pane-head .agent-logo').evaluate(element => getComputedStyle(element).color), theme === 'white' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)', 'OpenAI stays monochrome and visible in every theme');
+      assert.ok(await pane.locator('.agent-logo path').first().evaluate(element => { const box = element.getBBox(); return box.width > 0 && box.height > 0; }), 'bundled provider paths render without an external image request');
+      assert.equal(await assignment.evaluate(element => getComputedStyle(element).borderBottomWidth), '0px', 'no dividing rule separates task information from its terminal');
+      assert.equal(checkColors[0], checkColors[1], 'pane and task-list checkboxes share theme colors');
+      await pane.screenshot({ path: `/private/tmp/bizencore-agent-task-frame-${theme}.png` });
+    }
+    assert.equal(await page.evaluate(() => window.__desktopTest.calls.filter(call => ['desktop_start', 'desktop_stop'].includes(call.command)).length), starts, 'checking tasks and opening details never stop or relaunch the CLI');
   }
   const firstId = await pane.getAttribute('id');
   await page.evaluate(() => { window.__firstPaneNode = document.querySelector('.agent-pane'); });
@@ -490,6 +548,9 @@ try {
   await launcher.getByRole('button', { name: '作業フォルダを選択', exact: true }).click();
   await launcher.getByRole('button', { name: '起動する', exact: true }).click();
   await page.locator('.agent-status-running').nth(1).waitFor();
+  assert.equal(await page.locator('.agent-pane').nth(1).locator('.agent-pane-head .agent-logo[data-agent="claude"]').count(), 1);
+  assert.equal(await page.locator('.agent-pane').nth(1).locator('.agent-logo[data-character="clawd"] path').count(), 2, 'Clawd has a pixel silhouette and separate dark eyes');
+  assert.equal(await page.locator('.agent-pane').nth(1).locator('.agent-logo').first().evaluate(element => getComputedStyle(element).color), 'rgb(217, 119, 87)', 'Claude keeps the supplied symbol color');
   const lifecycleCalls = await page.evaluate(() => window.__desktopTest.calls.filter(call => ['desktop_start', 'desktop_stop'].includes(call.command)).length);
   {
     const previousResizeCount = await page.evaluate(() => window.__desktopTest.calls.filter(call => call.command === 'desktop_resize').length);
@@ -634,6 +695,7 @@ try {
     await page.evaluate(() => window.__desktopTest.progress());
     await pane.getByText('Updated task from sync', { exact: true }).waitFor();
     assert.match(await pane.locator('.agent-assignment').textContent(), /完了/);
+    assert.equal(await pane.locator('.agent-assignment .check.is-ai-checked').count(), 1, 'AI completion retains the shared amber indicator');
     await page.waitForFunction(() => window.__desktopTest.calls.filter(call => call.command === 'notify').length === 1);
     assert.equal(await page.evaluate(() => window.__desktopTest.calls.find(call => call.command === 'notify').paneId), firstId.replace('pane-', ''));
     await pane.getByRole('button', { name: 'エージェントを停止', exact: true }).click();

@@ -47,7 +47,7 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
     function Harness() {
       const [fontSize, setFontSize] = useState(13);
       useEffect(() => { fixture.setFontSize = setFontSize; }, []);
-      return <TaskTools storageKey="fixture.task-tools" fontSize={fontSize} available={[{ id:'codex', name:'Codex', path:'/mock/codex', version:'1' }, { id:'claude', name:'Claude Code', path:'/mock/claude', version:'1' }]} cwd="/fixture/project" busy={false} intent={{ mode:'execute',ids:[],serial:0 }} hidden={false} onClose={()=>{}} onCwd={()=>{}} onBusy={()=>{}} />;
+      return <TaskTools storageKey="fixture.task-tools" fontSize={fontSize} available={[{ id:'codex', name:'Codex', path:'/mock/codex', version:'1' }, { id:'claude', name:'Claude Code', path:'/mock/claude', version:'1' }]} cwd="/fixture/project" busy={false} intent={{ mode:'execute',ids:[],serial:0 }} hidden={false} onClose={()=>{}} onCwd={()=>{}} onBusy={()=>{}} onOpenTask={id => { fixture.openedTask = id; }} />;
     }
     createRoot(document.getElementById('root')).render(<Harness />);
   })();
@@ -81,6 +81,17 @@ try {
   await panel.getByRole('button', { name: '確認して開始', exact: true }).click();
   await page.waitForFunction(() => window.__tools.calls.length === 1);
   assert.equal(await panel.getByRole('region', { name: 'オーケストレーションのターミナル' }).isVisible(), true);
+  const terminal = panel.getByRole('region', { name: 'オーケストレーションのターミナル' });
+  assert.equal(await terminal.locator('header .agent-logo[data-agent="codex"]').count(), 1, 'orchestration identifies the running provider with its logo');
+  await terminal.getByRole('button', { name: '担当タスクの詳細を開く', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__tools.openedTask), 'a', 'orchestration details open the currently assigned task');
+  await terminal.getByRole('button', { name: '完了にする', exact: true }).click();
+  assert.equal(await terminal.getByRole('button', { name: '未完了に戻す', exact: true }).getAttribute('aria-pressed'), 'true');
+  await terminal.getByRole('button', { name: '未完了に戻す', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__tools.stopped.length), 0, 'manual task checks do not terminate the CLI');
+  assert.equal(await page.evaluate(() => window.__tools.calls.length), 1, 'manual task checks do not launch or advance orchestration');
+  assert.equal(await terminal.evaluate(element => getComputedStyle(element).borderRadius), '8px');
+  assert.equal(await terminal.locator('.orchestration-terminal-host').evaluate(element => getComputedStyle(element).borderWidth), '0px', 'task information and CLI share a single outer frame');
   await page.waitForFunction(() => document.querySelector('.xterm-accessibility-tree')?.textContent.includes('LIVE CLI: a'));
   const rowHeight = await page.locator('.xterm-accessibility-tree > div').first().evaluate(node => node.getBoundingClientRect().height);
   await page.evaluate(() => window.__tools.setFontSize(18));
@@ -92,6 +103,7 @@ try {
   assert.equal(await page.evaluate(() => window.__tools.calls.length), 1, 'manual mode does not silently advance');
   await panel.getByRole('button', { name: '完了を確認して次へ', exact: true }).click();
   await page.waitForFunction(() => window.__tools.calls.length === 2);
+  await terminal.locator('header .agent-logo[data-agent="claude"]').waitFor();
   await panel.getByRole('button', { name: '完了を確認して次へ', exact: true }).click();
   await page.waitForFunction(() => window.__tools.calls.length === 3);
   await panel.getByRole('button', { name: '完了を確認して次へ', exact: true }).click();
