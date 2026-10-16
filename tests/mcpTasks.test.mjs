@@ -94,6 +94,32 @@ test('MCP exposes lock state and rejects direct or ancestor completion before an
   assert.equal(JSON.parse(row.payload).done, true);
 });
 
+test('scoped completion checks the current subtree atomically before any writes', async () => {
+  const { ctx, rows } = memoryContext();
+  const parent = await add._handler(ctx, { userId: 'user-1', text: 'Parent' });
+  const child = await add._handler(ctx, { userId: 'user-1', text: 'Approved child', parentId: parent.id });
+  await complete._handler(ctx, { userId: 'user-1', taskId: child.id });
+  const snapshot = await get._handler(ctx, { userId: 'user-1', taskId: parent.id });
+  const allowedTaskIds = [snapshot.task.id, ...snapshot.task.subtasks.map(task => task.id)];
+  const concurrent = await add._handler(ctx, { userId: 'user-1', text: 'Added after preflight', parentId: parent.id });
+  const before = JSON.stringify(rows.syncItems);
+  await assert.rejects(complete._handler(ctx, { userId: 'user-1', taskId: parent.id, allowedTaskIds }), /scope|範囲/);
+  assert.equal(JSON.stringify(rows.syncItems), before);
+  const expandedScope = [...allowedTaskIds, concurrent.id];
+  await assert.rejects(complete._handler(ctx, { userId: 'user-1', taskId: parent.id, allowedTaskIds: expandedScope }), /unfinished|未完了/);
+  assert.equal(JSON.stringify(rows.syncItems), before);
+  for (const ids of [[], [child.id], Array(501).fill(parent.id)]) {
+    await assert.rejects(complete._handler(ctx, { userId: 'user-1', taskId: concurrent.id, allowedTaskIds: ids }));
+  }
+  assert.equal(JSON.stringify(rows.syncItems), before);
+  await complete._handler(ctx, { userId: 'user-1', taskId: concurrent.id, allowedTaskIds: [concurrent.id], clientName: 'Codex' });
+  await complete._handler(ctx, { userId: 'user-1', taskId: parent.id, allowedTaskIds: expandedScope, clientName: 'Codex' });
+  assert.ok(rows.syncItems.every(row => JSON.parse(row.payload).done));
+  const done = JSON.stringify(rows.syncItems);
+  await assert.rejects(complete._handler(ctx, { userId: 'user-1', taskId: parent.id, done: false, allowedTaskIds: expandedScope }));
+  assert.equal(JSON.stringify(rows.syncItems), done);
+});
+
 function memoryContext() {
   const rows = { accountDeletions: [], syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
   let nextId = 0;

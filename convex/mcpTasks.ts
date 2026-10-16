@@ -691,8 +691,8 @@ export const add = internalMutation({
 });
 
 export const complete = internalMutation({
-    args: { userId: v.string(), taskId: v.string(), done: v.optional(v.boolean()), clientName: v.optional(v.string()) },
-    handler: async (ctx, { userId, taskId, done, clientName }) => {
+    args: { userId: v.string(), taskId: v.string(), done: v.optional(v.boolean()), clientName: v.optional(v.string()), allowedTaskIds: v.optional(v.array(v.string())) },
+    handler: async (ctx, { userId, taskId, done, clientName, allowedTaskIds }) => {
         const items = await loadItems(ctx, userId);
         const target = items.find((i) => i.id === taskId);
         if (!target || target.type !== "task") throw new ConvexError("task not found");
@@ -702,6 +702,16 @@ export const complete = internalMutation({
 
         // 子タスクも一緒に。クライアントの toggleDone と揃える
         const subtree = subtreeOf(items, target.id);
+        // Scoped desktop completion must validate the live tree in this transaction.
+        if (allowedTaskIds !== undefined) {
+            const allowed = new Set(allowedTaskIds);
+            if (!next || !allowed.size || allowedTaskIds.length > 500 || subtree.some(item => !allowed.has(item.id))) {
+                throw new ConvexError("task subtree is outside the approved completion scope");
+            }
+            if (subtree.some(item => item.id !== taskId && item.type === "task" && !item.done)) {
+                throw new ConvexError("complete unfinished descendants first");
+            }
+        }
         if (next && subtree.some((item) => item.type === "task" && item.locked)) {
             throw new ConvexError("task or descendant is locked; unlock it in the detail panel before completing it");
         }

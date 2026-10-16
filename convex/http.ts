@@ -281,6 +281,21 @@ mcpRoute({
     ),
 });
 
+http.route({
+    path: "/desktop-mcp/complete-scoped",
+    method: "POST",
+    handler: route((ctx, body) => {
+        if (!Array.isArray(body.allowedTaskIds)) throw new Error("Approved completion scope is required");
+        return ctx.runMutation(internal.mcpTasks.complete, {
+            userId: body.userId as string,
+            taskId: String(body.taskId ?? ""),
+            done: typeof body.done === "boolean" ? body.done : undefined,
+            clientName: typeof body.clientName === "string" ? body.clientName : undefined,
+            allowedTaskIds: body.allowedTaskIds as string[],
+        });
+    }),
+});
+
 mcpRoute({
     path: "/mcp/update",
     method: "POST",
