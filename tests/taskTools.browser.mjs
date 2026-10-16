@@ -92,6 +92,11 @@ try {
   assert.equal(await page.evaluate(() => window.__tools.calls.length), 1, 'manual task checks do not launch or advance orchestration');
   assert.equal(await terminal.evaluate(element => getComputedStyle(element).borderRadius), '8px');
   assert.equal(await terminal.evaluate(element => getComputedStyle(element).borderWidth), '2px');
+  assert.equal(await terminal.locator('.agent-assignment-title').evaluate(element => getComputedStyle(element).fontSize), '15px', 'orchestration shares the readable assignment title');
+  assert.deepEqual(await terminal.locator('.agent-assignment-details').evaluate(element => {
+    const rect = element.getBoundingClientRect(), icon = element.querySelector('svg').getBoundingClientRect();
+    return [rect.width, rect.height, icon.width, icon.height];
+  }), [30, 30, 18, 18], 'orchestration shares the larger details control');
   assert.equal(await terminal.locator('.orchestration-terminal-host').evaluate(element => getComputedStyle(element).borderWidth), '0px', 'task information and CLI share a single outer frame');
   await page.waitForFunction(() => document.querySelector('.xterm-accessibility-tree')?.textContent.includes('LIVE CLI: a'));
   const rowHeight = await page.locator('.xterm-accessibility-tree > div').first().evaluate(node => node.getBoundingClientRect().height);

@@ -99,14 +99,16 @@ body { overflow: hidden; }
 .agent-pane-head select { max-width: 124px; min-width: 85px; padding: 4px; border: 1px solid var(--control-border, var(--border-color)); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; }
 .agent-assignment { padding: 6px 10px 10px; flex: none; }
 .agent-assignment > div { display: flex; align-items: flex-start; gap: 8px; }
-.agent-assignment > div > .check { flex: none; margin-top: 1px; }
+.agent-assignment > div > :is(.check, .row-lock-mark) { flex: none; margin-top: 5px; }
 .agent-assignment .check:focus-visible { outline: 1px solid var(--accent-color); outline-offset: 3px; }
 .agent-assignment.is-done .agent-assignment-title { text-decoration: line-through; color: var(--text-secondary); }
-.agent-assignment-title { flex: 1; min-width: 0; border: 0; padding: 0; background: none; color: inherit; text-align: left; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; cursor: pointer; }
+.agent-assignment-title { flex: 1; min-width: 0; border: 0; padding: 3px 0; background: none; color: inherit; text-align: left; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; cursor: pointer; }
 .agent-assignment-title:disabled { cursor: default; }
 .agent-assignment-title:focus-visible { outline: 1px solid var(--accent-color); outline-offset: 3px; }
 .agent-assignment small { display: block; margin: 4px 0 0 28px; color: var(--text-secondary); font-size: 11px; }
-.agent-assignment .icon-btn { width: 22px; height: 22px; flex: none; }
+.agent-assignment .icon-btn { width: 22px; height: 22px; flex: none; margin-top: 4px; }
+.agent-assignment .agent-assignment-details { width: 30px; height: 30px; margin-top: 0; padding: 0; }
+.agent-assignment-details > svg { flex: none; }
 .agent-task-picker { padding: 10px; display: grid; gap: 8px; border-bottom: 1px solid var(--hairline); }
 .agent-task-picker select, .desktop-inspector-handoff select { width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--control-border, var(--border-color)); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; }
 .agent-assignment-actions { display: flex; align-items: center; gap: 8px; }

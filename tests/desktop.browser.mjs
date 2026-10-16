@@ -517,6 +517,16 @@ try {
     await inspector.waitFor({ state: 'detached' });
     assert.ok(await pane.getByRole('button', { name: '担当タスクの詳細を開く', exact: true }).evaluate(element => element === document.activeElement), 'closing details restores the agent-side origin');
     const assignment = pane.locator('.agent-assignment');
+    assert.equal(await assignment.locator('.agent-assignment-title').evaluate(element => getComputedStyle(element).fontSize), '15px');
+    assert.deepEqual(await assignment.getByRole('button', { name: '担当タスクの詳細を開く', exact: true }).evaluate(element => {
+      const rect = element.getBoundingClientRect(), icon = element.querySelector('svg').getBoundingClientRect();
+      return [rect.width, rect.height, icon.width, icon.height];
+    }), [30, 30, 18, 18], 'assignment details use a larger icon and click target');
+    assert.ok(await assignment.evaluate(element => {
+      const check = element.querySelector('.check').getBoundingClientRect();
+      const details = element.querySelector('.agent-assignment-details').getBoundingClientRect();
+      return Math.abs(check.top + check.height / 2 - details.top - details.height / 2) < 1;
+    }), 'checkbox and details align with the title first line');
     const starts = await page.evaluate(() => window.__desktopTest.calls.filter(call => ['desktop_start', 'desktop_stop'].includes(call.command)).length);
     const assignedId = '370b6a1f-e4be-4e60-8bb8-8295a4f77e04';
     await assignment.getByRole('button', { name: '完了にする', exact: true }).press('Space');

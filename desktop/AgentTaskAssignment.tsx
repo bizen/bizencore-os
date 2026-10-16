@@ -24,7 +24,7 @@ export function AgentTaskAssignment({ taskId, items, summary, onOpenTask, onRemo
         tabIndex={0} title={task.done ? '未完了に戻す' : '完了にする'} onToggle={() => taskStore.toggleDone(task.id)}
       /> : null}
       <button type="button" className="agent-assignment-title" disabled={!task || !onOpenTask} title="担当タスクの詳細を開く" onClick={openDetails}>{task ? task.text || '（無題）' : 'タスクが見つかりません'}</button>
-      <button type="button" className="icon-btn" disabled={!task || !onOpenTask} title="担当タスクの詳細を開く" aria-label="担当タスクの詳細を開く" onClick={openDetails}><PanelRight size={15} /></button>
+      <button type="button" className="icon-btn agent-assignment-details" disabled={!task || !onOpenTask} title="担当タスクの詳細を開く" aria-label="担当タスクの詳細を開く" onClick={openDetails}><PanelRight size={18} /></button>
       {onRemove ? <button type="button" className="icon-btn" disabled={removeDisabled} title="担当タスクを外す" aria-label="担当タスクを外す" onClick={onRemove}><X size={13} /></button> : null}
     </div>
     {summary ? <small>{summary}</small> : null}
