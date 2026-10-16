@@ -169,16 +169,14 @@ function permissions(agent, cwd, cliHome, options) {
   return ids;
 }
 
-async function entries(folder, budget) {
-  if (!budget.remaining || !(await safeStat(folder)).isDirectory()) return [];
-  const result = [];
+async function* entries(folder, budget) {
+  if (!budget.remaining || !(await safeStat(folder)).isDirectory()) return;
   const directory = await opendir(folder);
   for await (const entry of directory) {
     if (!budget.remaining--) break;
-    if (!entry.isSymbolicLink()) result.push(entry);
+    if (!entry.isSymbolicLink()) yield entry;
     if (!budget.remaining) break;
   }
-  return result;
 }
 
 function output(agent, cwd, id, modified) {
@@ -213,33 +211,34 @@ async function claudeConversations(cwd, cliHome, ids, options) {
 
 async function codexConversations(cwd, cliHome, ids, options) {
   const result = [];
-  const budget = { remaining: Number.isInteger(options.maxEntries) ? Math.max(1, Math.min(MAX_ENTRIES, options.maxEntries)) : MAX_ENTRIES, reads: MAX_IDS };
+  // Owned IDs bound metadata reads; unrelated filenames must not consume their search budget.
+  const budget = { remaining: Number.isInteger(options.maxEntries) ? Math.max(1, Math.min(MAX_ENTRIES, options.maxEntries)) : ids ? Infinity : MAX_ENTRIES, reads: MAX_IDS };
   const root = path.join(cliHome, 'sessions');
   async function walk(folder, depth) {
-    let children;
-    try { children = await entries(folder, budget); } catch { return; }
-    for (const entry of children) {
-      const filename = path.join(folder, entry.name);
-      if (depth < 3 && entry.isDirectory() && (depth === 0 ? /^\d{4}$/ : /^\d{2}$/).test(entry.name)) {
-        await walk(filename, depth + 1);
-      } else if (depth === 3 && entry.isFile()) {
-        const match = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(entry.name);
-        if (!match || !isSessionId(match[1]) || (ids && !ids.has(match[1].toLowerCase()))) continue;
-        if (!budget.reads) continue;
-        budget.reads--;
-        try {
-          const header = await metadata(filename, MAX_HEADER, true);
-          const payload = header?.payload;
-          if (header?.type !== 'session_meta' || payload?.id?.toLowerCase() !== match[1].toLowerCase() ||
-            payload.cwd !== cwd || payload.source !== 'cli') continue;
-          const stat = await safeStat(filename);
-          if (options.ownedSince !== undefined && (stat.birthtimeMs < options.ownedSince ||
-            !Number.isFinite(Date.parse(payload.timestamp)) || Date.parse(payload.timestamp) < options.ownedSince)) continue;
-          if (options.cliVersion !== undefined && payload.cli_version !== options.cliVersion) continue;
-          result.push(output('codex', cwd, payload.id, stat.mtimeMs));
-        } catch { /* Malformed, missing and unsafe metadata fails closed. */ }
+    try {
+      for await (const entry of entries(folder, budget)) {
+        if ((ids && result.length === ids.size) || !budget.reads) break;
+        const filename = path.join(folder, entry.name);
+        if (depth < 3 && entry.isDirectory() && (depth === 0 ? /^\d{4}$/ : /^\d{2}$/).test(entry.name)) {
+          await walk(filename, depth + 1);
+        } else if (depth === 3 && entry.isFile()) {
+          const match = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(entry.name);
+          if (!match || !isSessionId(match[1]) || (ids && !ids.has(match[1].toLowerCase())) || result.some(row => row.sessionId === match[1].toLowerCase())) continue;
+          budget.reads--;
+          try {
+            const header = await metadata(filename, MAX_HEADER, true);
+            const payload = header?.payload;
+            if (header?.type !== 'session_meta' || payload?.id?.toLowerCase() !== match[1].toLowerCase() ||
+              payload.cwd !== cwd || payload.source !== 'cli') continue;
+            const stat = await safeStat(filename);
+            if (options.ownedSince !== undefined && (stat.birthtimeMs < options.ownedSince ||
+              !Number.isFinite(Date.parse(payload.timestamp)) || Date.parse(payload.timestamp) < options.ownedSince)) continue;
+            if (options.cliVersion !== undefined && payload.cli_version !== options.cliVersion) continue;
+            result.push(output('codex', cwd, payload.id, stat.mtimeMs));
+          } catch { /* Malformed, missing and unsafe metadata fails closed. */ }
+        }
       }
-    }
+    } catch { /* Missing or unsafe history directories grant no additional access. */ }
   }
   await walk(root, 0);
   if (!ids && (!budget.remaining || !budget.reads)) return [];
@@ -347,7 +346,8 @@ function sameIdentity(a, b) {
  * Fresh ps snapshots verify start time/executable before AND after each lsof
  * call and after metadata reads; PID reuse or lost ancestry aborts capture.
  * lsof runs with -a -p <pid> -Fn (no shell), 1s timeout and 64KiB output cap.
- * Only matching CLI executable identities are queried, at most 8 per pass.
+ * A verified Node/Bun launcher may own the native Codex child. Only Codex
+ * identities in that live ownership tree are queried, at most 8 per pass.
  * Returns one sanitized ownership record or null, at most 5s. Parent rechecks
  * accessState generation/userId before persisting; abort on logout/pane stop.
  * No sessions are enumerated or enrolled from shared-home before/after scans.
@@ -360,7 +360,7 @@ export async function discoverOwnedConversation(agent, cwd, options = {}) {
     .filter(row => Number.isSafeInteger(row?.pid) && row.pid > 0 && typeof row.started === 'string' && path.isAbsolute(row.executable ?? ''))
     .map(row => [row.pid, row]));
   const root = known.get(options.pid);
-  if (!root || !path.isAbsolute(root.executable ?? '') || path.basename(root.executable) !== 'codex' || !root.started) return null;
+  if (!root || !path.isAbsolute(root.executable ?? '') || !['codex', 'node', 'nodejs', 'bun'].includes(path.basename(root.executable)) || !root.started) return null;
   const duration = Number.isInteger(options.timeoutMs) ? Math.max(1, Math.min(5000, options.timeoutMs)) : 5000;
   const deadline = performance.now() + duration;
   const snapshot = options.snapshot ?? processSnapshot;
@@ -375,7 +375,7 @@ export async function discoverOwnedConversation(agent, cwd, options = {}) {
     known = retainProcessTree(rows, known);
     const selected = [];
     for (const saved of known.values()) {
-      if (!Number.isSafeInteger(saved?.pid) || saved.pid <= 0 || saved.executable !== root.executable || !sameIdentity(saved, live.get(saved.pid))) continue;
+      if (!Number.isSafeInteger(saved?.pid) || saved.pid <= 0 || path.basename(saved.executable ?? '') !== 'codex' || !sameIdentity(saved, live.get(saved.pid))) continue;
       let row = live.get(saved.pid), hops = 0;
       while (row.pid !== root.pid && hops++ < 256) {
         const parent = live.get(row.ppid);

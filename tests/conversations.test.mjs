@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile, utimes, link } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, opendir, readFile, realpath, rm, stat, symlink, writeFile, utimes, link } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -274,4 +274,42 @@ test('lsof capture retains only CLI descendants with verified ancestry before an
   let snapshots = 0;
   assert.equal(await captureOwnedCodexProcessSession(f.cwd, { ...options,
     snapshot: () => ++snapshots < 4 ? [root, child] : [root] }), null);
+});
+
+test('npm Node launcher capture proves ownership of the native Codex child and rejects foreign or detached processes', async t => {
+  const f = await fixture(t), id = randomUUID();
+  const filename = await codexFile(f, id, { timestamp: new Date().toISOString() });
+  const root = { pid: 42000, ppid: 41999, started: 'Mon Oct 12 00:00:00 2026', executable: '/installed/node' };
+  const child = { ...root, pid: 42001, ppid: root.pid, executable: '/npm/vendor/codex' };
+  const foreign = { ...child, pid: 43000, ppid: 1 };
+  const calls = [];
+  const options = { ...f.options, ownedSince: Date.now() - 1000, timeoutMs: 5000, processIdentity: new Map([[root.pid, root]]),
+    snapshot: () => [root, child, foreign], runlsof: async (_file, args) => {
+      calls.push(args[2]); return { stdout: `p${child.pid}\nn${filename}\n` };
+    } };
+  assert.equal((await captureOwnedCodexProcessSession(f.cwd, options)).sessionId, id);
+  assert.deepEqual(calls, [String(child.pid)], 'only the proven native child is queried, not Node or a foreign Codex');
+  assert.equal(await captureOwnedCodexProcessSession(f.cwd, { ...options, snapshot: () => [root, { ...child, ppid: 1 }, foreign] }), null);
+  let snapshots = 0;
+  assert.equal(await captureOwnedCodexProcessSession(f.cwd, { ...options, snapshot: () => ++snapshots === 1 ? [root, child] : [root, { ...child, started: 'reused PID' }] }), null);
+});
+
+test('owned Codex conversations remain resumable after more than 4096 unrelated old history files', async t => {
+  const f = await fixture(t), id = randomUUID();
+  const sessions = path.join(f.cliHome, 'sessions');
+  for (const year of ['2025', '2026']) await mkdir(path.join(sessions, year, '01', '01'), { recursive: true });
+  const directory = await opendir(sessions);
+  const firstYear = (await directory.read()).name;
+  await directory.close();
+  const old = path.join(sessions, firstYear, '01', '01');
+  for (let offset = 0; offset < 4100; offset += 100) {
+    await Promise.all(Array.from({ length: Math.min(100, 4100 - offset) }, (_, index) => writeFile(path.join(old, `old-${offset + index}.jsonl`), 'UNOWNED HISTORY')));
+  }
+  const recentYear = firstYear === '2025' ? '2026' : '2025';
+  const filename = path.join(sessions, recentYear, '01', '01', `rollout-recent-${id}.jsonl`);
+  await writeFile(filename, JSON.stringify({ type: 'session_meta', payload: { id, cwd: f.cwd, source: 'cli' } }) + '\n');
+  const options = { ...f.options, ownedIds: [id] };
+  assert.equal((await listConversations('codex', f.cwd, options))[0]?.sessionId, id);
+  assert.equal(await validateResumeSessionId('codex', f.cwd, id, options), id);
+  assert.equal(await captureOwnedCodexSession(f.cwd, { ...f.options, exclusiveCliHome: true, ownedSince: 1, cliVersion: 'fixture' }), null, 'unscoped discovery still fails closed at its scan limit');
 });

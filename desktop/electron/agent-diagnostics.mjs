@@ -12,12 +12,19 @@ function checkAgent(agent) {
   if (!Object.hasOwn(names, agent)) throw new Error('Unsupported agent');
 }
 
+export function agentEnvironment(env = process.env, userHome = homedir()) {
+  const directories = [...(env.PATH ?? '').split(path.delimiter).slice(0, 64),
+    path.join(userHome, '.local', 'bin'), path.join(userHome, '.bun', 'bin'),
+    '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+  return { ...env, PATH: [...new Set(directories.filter(directory => path.isAbsolute(directory) && !directory.includes('\0')))].join(path.delimiter) };
+}
+
 // Main-process-only options. Resolve from the same environment used at launch;
 // renderer-provided executable paths, environments or runners are never trusted.
 export async function resolveAgentExecutable(agent, options = {}) {
   checkAgent(agent);
-  const env = options.env ?? process.env;
   const userHome = options.homeDir ?? homedir();
+  const env = agentEnvironment(options.env, userHome);
   const candidates = options.executable !== undefined ? [options.executable] : [
     ...(env.PATH ?? '').split(path.delimiter).filter(dir => path.isAbsolute(dir)).slice(0, 64).map(dir => path.join(dir, agent)),
     path.join(userHome, '.local', 'bin', agent), path.join(userHome, '.bun', 'bin', agent),
@@ -49,7 +56,7 @@ export async function diagnoseAgent(agent, options = {}) {
   const timeout = Number.isInteger(options.timeoutMs) ? Math.max(100, Math.min(5000, options.timeoutMs)) : 3000;
   try {
     const { stdout } = await (options.run ?? runFile)(executable, ['--version'], {
-      env: options.env ?? process.env, cwd: options.cwd ?? homedir(), timeout, maxBuffer: 4096,
+      env: agentEnvironment(options.env, options.homeDir), cwd: options.cwd ?? homedir(), timeout, maxBuffer: 4096,
       encoding: 'utf8', windowsHide: true, shell: false, killSignal: 'SIGKILL',
     });
     const match = (typeof stdout === 'string' && stdout.length <= 4096) &&

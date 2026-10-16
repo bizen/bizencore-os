@@ -13,7 +13,7 @@ import { checkedRuntimeConfig } from './release-config.mjs';
 import { createAuthStorageChannel } from './auth-storage-channel.mjs';
 import { claimDesktopInstance } from './single-instance.mjs';
 import { agentLaunchArgs, allocateAgentSession } from './agent-launch.mjs';
-import { diagnoseAgents, resolveAgentExecutable } from './agent-diagnostics.mjs';
+import { agentEnvironment, diagnoseAgents, resolveAgentExecutable } from './agent-diagnostics.mjs';
 import { checkWorkFolder, agentLaunchFailure } from './launch-preflight.mjs';
 import { createConversationRegistry } from './conversation-registry.mjs';
 import { captureOwnedCodexProcessSession } from './conversations.mjs';
@@ -296,8 +296,7 @@ command('task-run', async (event, input) => {
     capability = desktopMcp.issue(request.id, request.agent, { taskIds: taskTreeIds(detail.task), readOnly: request.mode === 'decompose' });
     operation.controller.signal.addEventListener('abort', () => desktopMcp.revoke(capability.token), { once: true });
     const isolated = await isolatedMcpLaunch(request.agent, executable, folder, {
-      ...process.env, ELECTRON_RUN_AS_NODE: undefined,
-      PATH: `${homedir()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}`,
+      ...agentEnvironment(), ELECTRON_RUN_AS_NODE: undefined,
     }, capability, undefined, operation.controller.signal, request.mode);
     check();
     let ownedIdentity;
@@ -391,8 +390,7 @@ command('start', async (event, args) => {
   checkLaunch();
   if (!executable) throw agentLaunchFailure(agent, { code: 'ENOENT' });
   let capability;
-  let childEnv = { ...process.env, ELECTRON_RUN_AS_NODE: undefined, TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: 'en_US.UTF-8',
-    PATH: `${homedir()}/.local/bin:${homedir()}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` };
+  let childEnv = { ...agentEnvironment(), ELECTRON_RUN_AS_NODE: undefined, TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: 'en_US.UTF-8' };
   // Isolate every native agent launch, even without a task handoff.
   if (!mcpSupported || !desktopMcp) throw new Error('MCPが利用できません');
   try {

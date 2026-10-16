@@ -258,3 +258,25 @@ Server-side session revocation acceptance remains a separate disclosed gap.
   This verifies the agreed one-pane startup/work/progress/normal-exit/restart cycle on
   this Mac. Codex's prior native acceptance remains prior-version evidence, not a new
   Codex cycle on 0.1.13. Separate-account/Mac and real server revocation remain untested.
+
+## Beta Review Fixes (2026-10-16)
+
+- Scoped orchestration completion uses the desktop-only `complete-scoped` endpoint.
+  The existing completion mutation validates the approved IDs, current descendants,
+  unfinished children and locks before any writes in the same transaction. Ordinary
+  Web/MCP bulk completion retains its previous behavior. Deploy this backend change
+  before distributing a matching desktop build; old servers fail closed, never fall
+  back to bulk completion. The installed 0.1.13 does not contain these fixes.
+- Diagnostics, MCP probes and PTY launches share one absolute, deduplicated PATH,
+  preserving existing PATH precedence while adding the known user/Homebrew directories.
+  A real env-node fixture verifies a minimal Finder-style environment.
+- Codex history capture accepts a verified Node/Bun launcher and probes only native
+  Codex descendants whose identities and ancestry remain valid before/after metadata
+  reads. Unrelated, detached and PID-reused processes remain excluded.
+- Owned-history lookup streams filenames instead of exhausting a shared 4096-entry
+  allowance on unrelated history. Ownership, exact folder, symlink and bounded metadata
+  read checks remain. Unscoped discovery keeps its original bounded fail-closed scan.
+  Regression coverage includes more than 4096 unrelated old history files.
+- Regression checks use synthetic accounts/CLI fixtures and a real loopback MCP through
+  the HTTP route and mutation. They are not new installed-candidate acceptance. No
+  deployment, public feed activation or installed application replacement was performed.

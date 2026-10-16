@@ -11,6 +11,7 @@ async function load(file) {
 const { desktopMcpIdentity, DESKTOP_DEV_CONVEX_URL } = await load('convex/lib/desktopMcp.ts');
 const { default: router } = await load('convex/http.ts');
 const { createDesktopMcp } = await load('desktop/electron/dev-mcp.mjs');
+const taskHandlers = await load('convex/mcpTasks.ts');
 const env = { DESKTOP_MCP_ENABLED: 'true', CONVEX_CLOUD_URL: DESKTOP_DEV_CONVEX_URL, DESKTOP_MCP_ISSUER: 'https://grown-gorilla-52.clerk.accounts.dev' };
 
 test('production desktop MCP needs its own explicit enable flag and production issuer', () => {
@@ -138,6 +139,10 @@ test('scoped task execution enforces read-only planning, selected IDs and child-
   const local = await createDesktopMcp({ access: () => ({ userId: 'fixture', generation: 1, token: 'fixture-jwt' }), readApp: '/unused',
     fetchData: async (url, options) => {
       calls.push({ url, body: JSON.parse(options.body) });
+      if (url.endsWith('/complete-scoped')) {
+        assert.deepEqual(JSON.parse(options.body).allowedTaskIds, [id, childId]);
+        return childDone ? Response.json({ done: true }) : Response.json({ error: 'complete unfinished descendants first' }, { status: 400 });
+      }
       return Response.json(url.endsWith('/get') ? { task: { id, text: 'Fixture task', done: false, subtasks: [{ id: childId, text: 'Child', done: childDone }] } } : { done: true });
     },
   });
@@ -149,12 +154,98 @@ test('scoped task execution enforces read-only planning, selected IDs and child-
     await (await rpc(plan, 'get_task', { task_id: 'outside' })).text();
     assert.equal(calls.length, 0, 'unrelated task reads are rejected too');
     const work = local.issue('work', 'claude', { taskIds: [id, childId], readOnly: false });
-    await (await rpc(work, 'complete_task', { task_id: id })).text();
-    assert.equal(calls.filter(call => call.url.endsWith('/complete')).length, 0, 'unfinished descendants cannot be bulk checked');
+    const unfinished = await (await rpc(work, 'complete_task', { task_id: id })).text();
+    assert.match(unfinished, /complete unfinished descendants first/);
+    assert.equal(calls.filter(call => call.url.endsWith('/complete')).length, 0, 'scoped work never uses the legacy bulk-completion endpoint');
     childDone = true;
     await (await rpc(work, 'complete_task', { task_id: id })).text();
-    assert.equal(calls.filter(call => call.url.endsWith('/complete')).length, 1);
+    assert.equal(calls.filter(call => call.url.endsWith('/complete-scoped')).length, 2);
     await (await rpc(work, 'record_task_progress', { task_id: id, remaining_subtasks: [{ text: 'Unapproved task' }] })).text();
     assert.equal(calls.filter(call => call.url.endsWith('/record-progress')).length, 0);
+  } finally { await local.close(); }
+});
+
+test('scoped completion carries immutable policy through HTTP and rejects a concurrent child in the real mutation', async () => {
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  Object.assign(process.env, env);
+  const parent = '370b6a1f-e4be-4e60-8bb8-8295a4f77e04', child = '662a5ff1-a990-4c90-a9bd-2a773844da3c';
+  const row = (id, parentId) => ({ _id: id, userId: 'fixture', itemId: id, updatedAt: 1,
+    payload: JSON.stringify({ id, parentId, type: 'task', text: id, order: 0, done: false, createdAt: 1, updatedAt: 1 }) });
+  const rows = { syncItems: [row(parent, null)], accountDeletions: [], fileOwners: [] };
+  const forwarded = [];
+  const ctx = {
+    auth: { getUserIdentity: async () => ({ subject: 'fixture', issuer: env.DESKTOP_MCP_ISSUER }) },
+    db: {
+      query(table) {
+        const filters = [];
+        const q = { eq: (key, value) => { filters.push([key, value]); return q; } };
+        const query = { withIndex: (_name, apply) => { apply(q); return query; },
+          collect: async () => (rows[table] ?? []).filter(row => filters.every(([key, value]) => row[key] === value)),
+          unique: async () => (await query.collect())[0] ?? null };
+        return query;
+      },
+      patch: async (id, patch) => Object.assign(rows.syncItems.find(row => row._id === id), patch),
+    },
+    runQuery: async ref => { assert.equal(getFunctionName(ref), 'accountDeletion:job'); return null; },
+    runMutation: async (ref, args) => {
+      if (getFunctionName(ref) === 'sync:touchMcpConnection') return;
+      assert.equal(getFunctionName(ref), 'mcpTasks:complete');
+      return taskHandlers.complete._handler(ctx, args);
+    },
+  };
+  const local = await createDesktopMcp({ access: () => ({ userId: 'fixture', generation: 1, token: 'fixture-token' }), readApp: '/unused',
+    fetchData: async (url, options) => {
+      forwarded.push({ path: new URL(url).pathname, body: JSON.parse(options.body) });
+      if (rows.syncItems.length === 1) rows.syncItems.push(row(child, parent));
+      const handler = router.lookup(new URL(url).pathname, 'POST')[0];
+      assert.ok(handler);
+      return handler._handler(ctx, new Request(url, options));
+    },
+  });
+  const rpc = async (cap, taskId) => {
+    const response = await fetch(cap.url, { method: 'POST', headers: {
+      Authorization: `Bearer ${cap.token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+    }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+      name: 'complete_task', arguments: { task_id: taskId, allowedTaskIds: [parent, child] },
+    } }) });
+    return response.text();
+  };
+  try {
+    const policy = { taskIds: [parent], readOnly: false };
+    const cap = local.issue('parent-pane', 'codex', policy);
+    const denied = await rpc(cap, parent);
+    assert.match(denied, /outside the approved completion scope/);
+    assert.deepEqual(forwarded[0].body.allowedTaskIds, [parent], 'tool arguments cannot expand the native policy');
+    assert.ok(rows.syncItems.every(row => JSON.parse(row.payload).done === false));
+    const missingScope = await router.lookup('/desktop-mcp/complete-scoped', 'POST')[0]._handler(ctx,
+      new Request('https://dazzling-setter-393.convex.site/desktop-mcp/complete-scoped', { method: 'POST', body: JSON.stringify({ taskId: parent }) }));
+    assert.equal(missingScope.status, 400);
+    assert.ok(rows.syncItems.every(row => JSON.parse(row.payload).done === false));
+    assert.ok(!router.lookup('/mcp/complete-scoped', 'POST'), 'scoped endpoint is desktop-only');
+    const childCap = local.issue('child-pane', 'claude', { taskIds: [child], readOnly: false });
+    assert.doesNotMatch(await rpc(childCap, child), /"isError":true/);
+    const expanded = local.issue('new-confirmed-pane', 'codex', { taskIds: [parent, child], readOnly: false });
+    assert.doesNotMatch(await rpc(expanded, parent), /"isError":true/);
+    assert.ok(rows.syncItems.every(row => JSON.parse(row.payload).done));
+    assert.ok(forwarded.every(call => call.path === '/desktop-mcp/complete-scoped'), 'no preflight or legacy fallback');
+  } finally {
+    await local.close();
+    for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
+});
+
+test('an older backend cannot silently downgrade scoped completion to bulk completion', async () => {
+  const calls = [];
+  const local = await createDesktopMcp({ access: () => ({ userId: 'fixture', generation: 1, token: 'fixture-token' }), readApp: '/unused',
+    fetchData: async url => { calls.push(url); return Response.json({ error: 'Not found' }, { status: 404 }); },
+  });
+  try {
+    const cap = local.issue('fixture', 'codex', { taskIds: ['parent'], readOnly: false });
+    const response = await fetch(cap.url, { method: 'POST', headers: {
+      Authorization: `Bearer ${cap.token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+    }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'complete_task', arguments: { task_id: 'parent' } } }) });
+    assert.match(await response.text(), /サーバー更新が必要/);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].endsWith('/complete-scoped'));
   } finally { await local.close(); }
 });

@@ -1,9 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { diagnoseAgent, diagnoseAgents, resolveAgentExecutable } from '../desktop/electron/agent-diagnostics.mjs';
+import { agentEnvironment, diagnoseAgent, diagnoseAgents, resolveAgentExecutable } from '../desktop/electron/agent-diagnostics.mjs';
+
+test('GUI diagnostics and launch share a bounded absolute PATH without mutating the parent environment', () => {
+  const env = { PATH: '.:/custom/bin:/custom/bin:/usr/bin', OTHER: 'kept' };
+  const next = agentEnvironment(env, '/fixture/home');
+  assert.equal(env.PATH, '.:/custom/bin:/custom/bin:/usr/bin');
+  assert.equal(next.OTHER, 'kept');
+  const paths = next.PATH.split(path.delimiter);
+  assert.equal(paths[0], '/custom/bin');
+  assert.equal(new Set(paths).size, paths.length);
+  assert.ok(paths.every(value => path.isAbsolute(value)));
+  for (const directory of ['/fixture/home/.local/bin', '/fixture/home/.bun/bin', '/opt/homebrew/bin', '/usr/local/bin', '/bin']) assert.ok(paths.includes(directory));
+});
+
+test('an env-node npm launcher works with a minimal Finder PATH', async t => {
+  const f = await fixture(t);
+  const bin = path.join(f.root, '.local', 'bin');
+  await mkdir(bin, { recursive: true });
+  await symlink(process.execPath, path.join(bin, 'node'));
+  const executable = path.join(bin, 'codex');
+  await writeFile(executable, '#!/usr/bin/env node\nconsole.log("codex-cli 0.162.0");\n', { mode: 0o700 });
+  const report = await diagnoseAgent('codex', { homeDir: f.root, env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } });
+  assert.equal(report.executable, executable);
+  assert.equal(report.status, 'ready');
+  assert.equal(report.version, '0.162.0');
+});
 
 async function fixture(t, body = '') {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'agent-diagnostics-')));

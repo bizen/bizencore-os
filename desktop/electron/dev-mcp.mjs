@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createBizencoreMcp } from '../../api/_lib/mcpServer.ts';
 import { profiles, desktopMcpSite } from './release-config.mjs';
-import { checkWorkScope, taskTreeIds } from './task-runner.mjs';
+import { checkWorkScope } from './task-runner.mjs';
 
 export const DEV_CONVEX = profiles.preview.convexUrl;
 const BODY_LIMIT = 2 * 1024 * 1024;
@@ -20,18 +20,16 @@ export async function createDesktopMcp({ access, readApp, convexUrl = DEV_CONVEX
       const grant = access();
       if (!capability || capability.generation !== grant.generation || capability.userId !== grant.userId) throw new Error('Desktop MCP access expired');
       checkWorkScope(capability.policy, operation, body);
-      if (capability.policy && operation === 'complete') {
-        const current = await readTask(body.taskId);
-        if (taskTreeIds(current.task).some(id => !capability.policy.taskIds.includes(id))) throw new Error('サブタスクが変更されました。実行範囲を再確認してください');
-        const unfinished = node => (node.subtasks ?? []).some(child => !child.done || child.locked || unfinished(child));
-        if (body.done === false || current.task.locked || unfinished(current.task)) throw new Error('未完了・ロックされたサブタスクをまとめて完了にはできません');
-      }
+      const scopedCompletion = Boolean(capability.policy && operation === 'complete');
       if (!capabilities.has(token) || access().generation !== capability.generation) throw new Error('Desktop MCP access expired');
-      const response = await fetchData(`${site}/desktop-mcp/${operation}`, {
+      const response = await fetchData(`${site}/desktop-mcp/${scopedCompletion ? 'complete-scoped' : operation}`, {
         method: 'POST', redirect: 'error', signal: AbortSignal.any([capability.controller.signal, AbortSignal.timeout(15000)]),
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${grant.token}` },
-        body: JSON.stringify({ ...body, clientId: `desktop-${capability.agent}` }),
+        body: JSON.stringify({ ...body, clientId: `desktop-${capability.agent}`,
+          ...(scopedCompletion ? { allowedTaskIds: capability.policy.taskIds } : {}),
+        }),
       });
+      if (scopedCompletion && response.status === 404) throw new Error('完了処理のサーバー更新が必要です。アプリとサーバーの対応版を確認してください');
       const payload = await response.json();
       if (!capabilities.has(token) || access().generation !== capability.generation) throw new Error('Desktop MCP access expired');
       if (!response.ok) throw new Error(payload?.error ?? `Desktop MCP HTTP ${response.status}`);
