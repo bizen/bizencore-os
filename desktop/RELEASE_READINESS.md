@@ -1,5 +1,21 @@
 # Desktop Release Readiness
 
+## 0.1.16 Compact Toolbar Source (2026-10-16)
+
+- The agent count and pane tabs share the existing 54px header. Only the tabs
+  scroll horizontally; action buttons remain accessible at narrow column widths.
+  The layout popover contains outer orientation, grid/tabs and (only with multiple
+  panes) reorder controls. Native popover dismissal preserves Escape/light-dismiss.
+- The shared Web inspector and docked desktop content hide only scrollbar chrome.
+  New browser acceptance checks wheel scrolling and keyboard access to the last
+  control on mobile/Web and docked desktop, in black/white/original themes.
+- Desktop acceptance covers one/eight panes, narrow/split/inspector layouts,
+  popover viewport bounds (including the collapsed bottom toolbar), keyboard tab
+  visibility, node continuity, resume and no unintended agent restart. Task-tools
+  browser acceptance and 374 unit tests pass; TypeScript passes; lint retains its
+  existing hook warning with zero errors. This source step does not publish Web
+  or the desktop feed; installed-candidate acceptance follows separately.
+
 ## Private 0.1.15 Installed Acceptance (2026-10-16)
 
 - Built from clean source `b940ad6e6c47ae7a7c77c1e099fd5f6f563db2bd`, local tag

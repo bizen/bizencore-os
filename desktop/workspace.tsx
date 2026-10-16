@@ -381,6 +381,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
   const preferenceKey = account ? uiPrefsKey(account, import.meta.env.VITE_CONVEX_URL ?? 'unconfigured') : null;
   const [prefs, setPrefs] = useState<UiPrefs>(() => preferenceKey ? readUiPrefs(preferenceKey) : { ...defaultUiPrefs });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const layoutPopover = useRef<HTMLDivElement>(null);
   const [prefsError, setPrefsError] = useState(false);
   const changePrefs = (next: UiPrefs) => {
     setPrefs(next);
@@ -586,9 +587,30 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
         setInspectorWidth(Math.max(280, Math.min(maxInspectorWidth, stacked && !expanded ? inspectorRect.right - e.clientX : e.clientX - inspectorRect.left)));
       }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />
     <aside className="desktop-agents" aria-label="エージェント" onKeyDown={event => event.stopPropagation()}>
-      <header className="agent-toolbar"><span className="agent-toolbar-name"><Bot size={16} /><span>agents <small>{toolsBusy ? 1 : panes.length}/8</small></span></span>
-        <div>
-          <button type="button" className="icon-btn" title={stacked ? '左右分割に切り替え' : '上下分割に切り替え'} aria-label={stacked ? '左右分割に切り替え' : '上下分割に切り替え'} onClick={() => setOrientation(stacked ? 'columns' : 'rows')}>{stacked ? <Columns2 size={16} /> : <Rows2 size={16} />}</button>
+      <header className="agent-toolbar"><span className="agent-toolbar-name"><Bot size={16} /><span><span className="agent-toolbar-label">agents </span><small>{toolsBusy ? 1 : panes.length}/8</small></span></span>
+        {panes.length > 0 && !toolsOpen ? <div className="agent-navigation" role="tablist" aria-label="エージェントペイン">{panes.map((pane, index) => <button key={pane.id} id={`pane-tab-${pane.id}`} type="button" role="tab" aria-selected={selectedId === pane.id} aria-controls={`pane-${pane.id}`} tabIndex={selectedId === pane.id ? 0 : -1} title={`${pane.agent === 'claude' ? 'Claude Code' : 'Codex'}${pane.assignment ? ` · ${items[pane.assignment.taskId]?.text || '（無題）'}` : ''}`} onClick={() => { setActiveId(pane.id); if (zoomId) setZoomId(pane.id); }} onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const target = event.key === 'Home' ? 0 : event.key === 'End' ? panes.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + panes.length) % panes.length;
+          setActiveId(panes[target].id); if (zoomId) setZoomId(panes[target].id);
+          document.getElementById(`pane-tab-${panes[target].id}`)?.focus();
+        }}><AgentLogo agent={pane.agent} size={12} />{index + 1}<span className={pane.busy ? 'is-running' : ''} /></button>)}</div> : null}
+        <div className="agent-toolbar-actions">
+          <button type="button" className="icon-btn agent-layout-trigger" title="配置" aria-label="配置" popoverTarget="agent-layout-options"><PanelsTopLeft size={16} /></button>
+          <div ref={layoutPopover} id="agent-layout-options" className="agent-layout-popover" popover="auto">
+            <div role="group" aria-label="画面の分割方向">
+              <button type="button" aria-label={stacked ? '左右分割に切り替え' : '左右分割'} aria-pressed={!stacked} onClick={() => { setOrientation('columns'); layoutPopover.current?.hidePopover(); }}><Columns2 size={15} />左右分割</button>
+              <button type="button" aria-label={stacked ? '上下分割' : '上下分割に切り替え'} aria-pressed={stacked} onClick={() => { setOrientation('rows'); layoutPopover.current?.hidePopover(); }}><Rows2 size={15} />上下分割</button>
+            </div>
+            {panes.length > 0 ? <div role="group" aria-label="ペインの表示方法">
+              <button type="button" aria-label="並列表示" aria-pressed={layout === 'grid' && !zoomId} onClick={() => { setLayout('grid'); setZoomId(null); layoutPopover.current?.hidePopover(); }}><Columns2 size={15} />並列表示</button>
+              <button type="button" aria-label="タブ表示" aria-pressed={layout === 'tabs' || Boolean(zoomId)} onClick={() => { setLayout('tabs'); setZoomId(null); layoutPopover.current?.hidePopover(); }}><PanelsTopLeft size={15} />タブ表示</button>
+            </div> : null}
+            {panes.length > 1 && !toolsOpen ? <div role="group" aria-label="ペインの順序">
+              <button type="button" aria-label="選択ペインを前へ" disabled={selectedId === panes[0]?.id} onClick={() => { moveSelected(-1); layoutPopover.current?.hidePopover(); }}><ArrowLeft size={14} />前へ</button>
+              <button type="button" aria-label="選択ペインを後ろへ" disabled={selectedId === panes.at(-1)?.id} onClick={() => { moveSelected(1); layoutPopover.current?.hidePopover(); }}><ArrowRight size={14} />後ろへ</button>
+            </div> : null}
+          </div>
           {bridge.taskToolsSupported ? <button type="button" className="icon-btn" title="オーケストレーション・タスクベース分解" aria-label="作業ツールを開く" aria-expanded={toolsOpen} onClick={() => { setToolsOpen(value => !value); setDraft(null); setExpanded(false); }}><ListTodo size={16} /></button> : null}
           <button type="button" className="icon-btn" title="ターミナル設定" aria-label="ターミナル設定" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(value => !value)}><Settings2 size={16} /></button>
           {panes.length || toolsOpen ? <button type="button" className="icon-btn" title={expanded ? 'タスク画面を表示' : 'エージェント画面を拡大'} aria-label="エージェント画面を拡大・縮小" aria-pressed={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button> : null}
@@ -605,17 +627,6 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
         {prefsError ? <p className="agent-error" role="alert">設定を保存できませんでした。</p> : null}
       </div> : null}
       {draft ? <div className="agent-launcher-stage"><AgentLauncher key={draft.id} draft={draft} items={items} available={available} checking={checkingAgents} onRefresh={() => void checkAgents()} onLaunch={createAgent} onClose={() => setDraft(null)} /></div> : null}
-      {panes.length ? <div className="agent-navigation">
-        <div role="group" aria-label="ペインの表示方法"><button type="button" className="icon-btn" title="並列表示" aria-label="並列表示" aria-pressed={layout === 'grid' && !zoomId} onClick={() => { setLayout('grid'); setZoomId(null); }}><Columns2 size={15} /></button><button type="button" className="icon-btn" title="タブ表示" aria-label="タブ表示" aria-pressed={layout === 'tabs' || Boolean(zoomId)} onClick={() => { setLayout('tabs'); setZoomId(null); }}><PanelsTopLeft size={15} /></button></div>
-        <div role="tablist" aria-label="エージェントペイン">{panes.map((pane, index) => <button key={pane.id} id={`pane-tab-${pane.id}`} type="button" role="tab" aria-selected={selectedId === pane.id} aria-controls={`pane-${pane.id}`} tabIndex={selectedId === pane.id ? 0 : -1} title={`${pane.agent === 'claude' ? 'Claude Code' : 'Codex'}${pane.assignment ? ` · ${items[pane.assignment.taskId]?.text || '（無題）'}` : ''}`} onClick={() => { setActiveId(pane.id); if (zoomId) setZoomId(pane.id); }} onKeyDown={event => {
-          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-          event.preventDefault();
-          const target = event.key === 'Home' ? 0 : event.key === 'End' ? panes.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + panes.length) % panes.length;
-          setActiveId(panes[target].id); if (zoomId) setZoomId(panes[target].id);
-          document.getElementById(`pane-tab-${panes[target].id}`)?.focus();
-        }}><AgentLogo agent={pane.agent} size={12} />{index + 1}<span className={pane.busy ? 'is-running' : ''} /></button>)}</div>
-        <div role="group" aria-label="ペインの順序"><button type="button" className="icon-btn" title="選択ペインを前へ" aria-label="選択ペインを前へ" disabled={selectedId === panes[0]?.id} onClick={() => moveSelected(-1)}><ArrowLeft size={14} /></button><button type="button" className="icon-btn" title="選択ペインを後ろへ" aria-label="選択ペインを後ろへ" disabled={selectedId === panes.at(-1)?.id} onClick={() => moveSelected(1)}><ArrowRight size={14} /></button></div>
-      </div> : null}
       {!bridge.nativeDesktop ? <p className="agent-error" role="status">エージェントの起動はデスクトップアプリで利用できます。</p> : null}
       {error ? <p className="agent-error" role="alert">{error}</p> : null}
       {storageError ? <p className="agent-error" role="alert">ペインの配置を保存できませんでした。</p> : null}

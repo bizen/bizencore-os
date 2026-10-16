@@ -90,6 +90,17 @@ const html = `<style>${css}</style><div id="root"></div><script>${outputFiles[0]
 const browser = await chromium.launch({ ...(process.env.PLAYWRIGHT_CHROME_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHROME_CHANNEL } : {}), ...(process.env.DESKTOP_GPU_DISABLED === '1' ? { args: ['--disable-webgl'] } : {}) });
 try {
   const page = await browser.newPage({ viewport: { width: 1380, height: 900 } });
+  const chooseLayout = async name => {
+    await page.getByRole('button', { name: '配置', exact: true }).click();
+    const popup = page.locator('#agent-layout-options');
+    await popup.waitFor({ state: 'visible' });
+    assert.ok(await popup.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight;
+    }), 'layout popover stays inside the window, including the collapsed bottom toolbar');
+    await popup.getByRole('button', { name, exact: true }).click();
+    await popup.waitFor({ state: 'hidden' });
+  };
   await page.addInitScript(() => {
     const now = Date.now();
     localStorage.setItem('chrct.tasks.v2', JSON.stringify([
@@ -139,7 +150,7 @@ try {
   await initialSettings.getByRole('button', { name: '診断を更新', exact: true }).click();
   await initialSettings.getByText('/mock/claude', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'ターミナル設定', exact: true }).click();
-  await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+  await chooseLayout('上下分割に切り替え');
   assert.equal(await page.locator('.desktop-agents').evaluate(element => element.getBoundingClientRect().height), 54, 'empty stacked agents collapse to a bottom toolbar');
   await page.getByRole('button', { name: 'ターミナル設定', exact: true }).click();
   assert.ok(await initialSettings.evaluate(element => {
@@ -153,7 +164,7 @@ try {
     return form.width <= 360 && Math.abs((form.left + form.right - agents.left - agents.right) / 2) <= 1 && form.top >= agents.top + 54;
   }), 'stacked launcher remains compact and centered in the bottom region');
   await page.getByRole('button', { name: '起動設定を閉じる', exact: true }).click();
-  await page.getByRole('button', { name: '左右分割に切り替え', exact: true }).click();
+  await chooseLayout('左右分割に切り替え');
   await page.locator('.desktop-tasks .app-shell').evaluate(element => {
     const filler = document.createElement('div');
     filler.id = 'scroll-test-filler'; filler.style.height = '4000px'; element.appendChild(filler);
@@ -241,6 +252,7 @@ try {
   const inspector = page.getByRole('dialog', { name: 'タスクの詳細', exact: true });
   await page.locator('.row--task').first().getByRole('button', { name: '詳細を開く', exact: true }).click();
   await inspector.waitFor();
+  assert.equal(await inspector.locator('.desktop-inspector-content').evaluate(element => getComputedStyle(element).scrollbarWidth), 'none', 'docked inspector hides its scrollbar without disabling scrolling');
   assert.ok(await inspector.evaluate(element => element.parentElement.classList.contains('desktop-inspector')), 'details are portaled to the independent center column');
   assert.ok(await inspector.getByRole('textbox', { name: 'タスク', exact: true }).evaluate(element => element === document.activeElement), 'opening details retains title keyboard focus');
   for (const theme of ['black', 'white', 'original']) {
@@ -376,6 +388,29 @@ try {
   await launcher.getByRole('button', { name: '起動する', exact: true }).click();
   const pane = page.locator('.agent-pane').first();
   await pane.locator('.agent-status-running').waitFor();
+  const assertCompactToolbar = async () => {
+    assert.ok(await page.locator('.agent-toolbar').evaluate(element => {
+      const toolbar = element.getBoundingClientRect();
+      const name = element.querySelector('.agent-toolbar-name').getBoundingClientRect();
+      const tabs = element.querySelector('.agent-navigation').getBoundingClientRect();
+      const actions = element.querySelector('.agent-toolbar-actions').getBoundingClientRect();
+      return toolbar.height === 54 && tabs.top >= toolbar.top && tabs.bottom <= toolbar.bottom &&
+        name.right <= tabs.left && tabs.right <= actions.left && actions.right <= toolbar.right &&
+        element.scrollWidth <= element.clientWidth;
+    }), 'pane tabs and all toolbar actions share one non-overlapping header row');
+    assert.equal(await page.locator('.desktop-agents > .agent-navigation').count(), 0, 'no second navigation row');
+  };
+  await assertCompactToolbar();
+  for (const theme of ['black', 'white', 'original']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await assertCompactToolbar();
+    await page.locator('.agent-toolbar').screenshot({ path: `/private/tmp/bizencore-agent-single-toolbar-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'black'; });
+  await page.getByRole('button', { name: '配置', exact: true }).click();
+  assert.equal(await page.getByRole('group', { name: 'ペインの順序', exact: true }).count(), 0, 'single panes have no reorder controls');
+  await page.keyboard.press('Escape');
+  await page.locator('#agent-layout-options').waitFor({ state: 'hidden' });
   assert.equal(await pane.locator('.agent-pane-head .agent-logo[data-agent="codex"]').count(), 1);
   assert.equal(await page.getByRole('tablist', { name: 'エージェントペイン', exact: true }).locator('.agent-logo[data-agent="codex"]').count(), 1, 'pane tabs retain the provider symbol beside their number');
   await page.getByRole('button', { name: 'ターミナル設定', exact: true }).click();
@@ -560,7 +595,7 @@ try {
       const handle = element.getBoundingClientRect(), line = getComputedStyle(element, '::before');
       return handle.width === 6 && line.width === '1px' && getComputedStyle(element).backgroundColor === 'rgba(0, 0, 0, 0)';
     }), 'column splitter has a 1px visible line and retains its 6px drag target');
-    await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+    await chooseLayout('上下分割に切り替え');
     const verticalSplitter = page.getByRole('separator', { name: 'タスク画面の高さ', exact: true });
     assert.equal(await verticalSplitter.getAttribute('aria-orientation'), 'horizontal');
     assert.ok(await verticalSplitter.evaluate(element => {
@@ -597,6 +632,7 @@ try {
           tasks.bottom < agents.top && agents.left === 0 && Math.abs(agents.right - innerWidth) < 1 &&
           Math.abs(agents.bottom - innerHeight) < 1 && document.documentElement.scrollWidth <= innerWidth;
       });
+      await assertCompactToolbar();
       await page.screenshot({ path: `/private/tmp/bizencore-desktop-stacked-${viewport.width}.png` });
     }
     await page.setViewportSize({ width: 1380, height: 900 });
@@ -614,13 +650,13 @@ try {
     await page.waitForFunction(() => window.__desktopTest.terminals[0].buffer.active.getLine(window.__desktopTest.terminals[0].buffer.active.cursorY - 1)?.translateToString(true).includes('output continues'));
     assert.equal(await page.evaluate(() => window.__desktopTest.calls.filter(call => ['desktop_start', 'desktop_stop'].includes(call.command)).length), lifecycleCalls, 'orientation and inspector changes never restart or stop agents');
     const verticalRatio = await verticalSplitter.getAttribute('aria-valuenow');
-    await page.getByRole('button', { name: '左右分割に切り替え', exact: true }).click();
+    await chooseLayout('左右分割に切り替え');
     assert.equal(await page.getByRole('separator', { name: 'タスク画面の幅', exact: true }).getAttribute('aria-valuenow'), horizontalRatio);
-    await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+    await chooseLayout('上下分割に切り替え');
     assert.equal(await verticalSplitter.getAttribute('aria-valuenow'), verticalRatio, 'each direction retains its own split ratio');
-    await page.getByRole('button', { name: '左右分割に切り替え', exact: true }).click();
+    await chooseLayout('左右分割に切り替え');
   }
-  await page.getByRole('button', { name: 'タブ表示', exact: true }).click();
+  await chooseLayout('タブ表示');
   assert.equal(await page.locator('.agent-pane:visible').count(), 1);
   await page.evaluate(id => window.__desktopTest.focusPane(id.replace('pane-', '')), firstId);
   await page.waitForFunction(id => document.querySelector('.agent-pane:not([hidden])')?.id === id, firstId);
@@ -632,13 +668,13 @@ try {
   await page.waitForFunction(() => window.__desktopTest.terminals.slice(0, 2).every(term => term.options.theme.background === '#0a0b0c'));
   await page.getByRole('tablist', { name: 'エージェントペイン', exact: true }).getByRole('tab').last().press('ArrowLeft');
   assert.equal(await page.locator('.agent-pane:visible').getAttribute('id'), firstId);
-  await page.getByRole('button', { name: '選択ペインを後ろへ', exact: true }).click();
+  await chooseLayout('選択ペインを後ろへ');
   assert.equal(await page.locator('.agent-pane').last().getAttribute('id'), firstId);
-  await page.getByRole('button', { name: '選択ペインを前へ', exact: true }).click();
+  await chooseLayout('選択ペインを前へ');
   await page.getByRole('button', { name: 'エージェントを追加', exact: true }).click();
   assert.equal(await launcher.locator('.agent-launcher-folder').getAttribute('title'), '/smoke/second-project', 'reordering panes does not change the most recently used folder');
   await launcher.getByRole('button', { name: '起動設定を閉じる', exact: true }).click();
-  await page.getByRole('button', { name: '並列表示', exact: true }).click();
+  await chooseLayout('並列表示');
   await pane.getByRole('button', { name: 'ペインを拡大・縮小', exact: true }).click();
   assert.equal(await page.locator('.agent-pane:visible').count(), 1);
   await pane.getByRole('button', { name: 'ペインを拡大・縮小', exact: true }).click();
@@ -726,6 +762,7 @@ try {
   assert.equal(await page.getByRole('button', { name: 'エージェントを追加', exact: true }).isEnabled(), false);
   for (const width of [900, 1380]) {
     await page.setViewportSize({ width, height: 900 });
+    await assertCompactToolbar();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'desktop layout has no horizontal page overflow');
     const headers = await page.locator('.agent-pane-head').evaluateAll(elements => elements.map(element => {
       const rect = element.getBoundingClientRect();
@@ -734,6 +771,12 @@ try {
     assert.ok(headers.every(Boolean), 'pane header controls fit');
     await page.screenshot({ path: `/private/tmp/bizencore-desktop-eight-${width}.png` });
   }
+  await page.getByRole('tablist', { name: 'エージェントペイン', exact: true }).getByRole('tab').first().press('End');
+  assert.ok(await page.getByRole('tablist', { name: 'エージェントペイン', exact: true }).evaluate(element => {
+    const selected = element.querySelector('[aria-selected="true"]').getBoundingClientRect();
+    const viewport = element.getBoundingClientRect();
+    return selected.left >= viewport.left - 1 && selected.right <= viewport.right + 1;
+  }), 'keyboard navigation scrolls the selected tab into view');
   const splitter = page.getByRole('separator', { name: 'タスク画面の幅' });
   await splitter.press('ArrowRight');
   assert.equal(await splitter.getAttribute('aria-valuenow'), '48');
@@ -747,7 +790,7 @@ try {
   assert.equal(await page.locator('.desktop-tasks').isVisible(), false);
   await page.locator('.desktop-header').getByRole('link', { name: 'tasks', exact: true }).click();
   assert.equal(await page.locator('.desktop-tasks').isVisible(), true, 'global navigation restores the task column after agent expansion');
-  await page.getByRole('button', { name: '上下分割に切り替え', exact: true }).click();
+  await chooseLayout('上下分割に切り替え');
   await page.getByRole('separator', { name: 'タスク画面の高さ', exact: true }).press('ArrowDown');
   await page.waitForFunction(() => {
     const key = Object.keys(localStorage).find(key => key.startsWith('bizencore.desktop.workspace.v1:') && !key.endsWith('.task-tools.v1'));
