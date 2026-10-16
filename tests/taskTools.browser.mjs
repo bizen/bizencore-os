@@ -91,6 +91,7 @@ try {
   assert.equal(await page.evaluate(() => window.__tools.stopped.length), 0, 'manual task checks do not terminate the CLI');
   assert.equal(await page.evaluate(() => window.__tools.calls.length), 1, 'manual task checks do not launch or advance orchestration');
   assert.equal(await terminal.evaluate(element => getComputedStyle(element).borderRadius), '8px');
+  assert.equal(await terminal.evaluate(element => getComputedStyle(element).borderWidth), '2px');
   assert.equal(await terminal.locator('.orchestration-terminal-host').evaluate(element => getComputedStyle(element).borderWidth), '0px', 'task information and CLI share a single outer frame');
   await page.waitForFunction(() => document.querySelector('.xterm-accessibility-tree')?.textContent.includes('LIVE CLI: a'));
   const rowHeight = await page.locator('.xterm-accessibility-tree > div').first().evaluate(node => node.getBoundingClientRect().height);

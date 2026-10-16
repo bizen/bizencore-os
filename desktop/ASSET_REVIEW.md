@@ -3,6 +3,14 @@
 Public release remains gated on this review. Dependency licensing does not grant rights
 to project images. Do not infer permission just because an asset is in the repository.
 
+On 2026-10-16 the owner explicitly chose to retain Clawd for general distribution
+after being informed that redistribution permission could not be established.
+Anthropic's public Claude Code LICENSE.md says all rights reserved and points to
+commercial terms; it does not establish a character-art redistribution license.
+This decision does not resolve that uncertainty or constitute Anthropic permission.
+Do not represent the artwork as license-cleared. Reference checked on that date:
+https://github.com/anthropics/claude-code/blob/main/LICENSE.md .
+
 ## Excluded From Desktop Distribution
 
 - The owner confirmed no redistribution permission for `src/assets/cirno.png`,

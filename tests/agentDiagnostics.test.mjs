@@ -3,7 +3,21 @@ import test from 'node:test';
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { agentEnvironment, diagnoseAgent, diagnoseAgents, resolveAgentExecutable } from '../desktop/electron/agent-diagnostics.mjs';
+import { agentDiscoveryOptions, agentEnvironment, diagnoseAgent, diagnoseAgents, resolveAgentExecutable } from '../desktop/electron/agent-diagnostics.mjs';
+
+test('missing-CLI validation is an explicit process-local restriction shared by diagnosis and launch', async t => {
+  const f = await fixture(t);
+  assert.deepEqual(agentDiscoveryOptions([]), {});
+  assert.deepEqual(agentDiscoveryOptions(['--validate-missing-cli=false']), {});
+  const options = agentDiscoveryOptions(['--validate-missing-cli']);
+  assert.ok(Object.isFrozen(options));
+  const run = () => { throw Error('CLI must not run'); };
+  for (const agent of ['claude', 'codex']) {
+    assert.equal(await resolveAgentExecutable(agent, { ...options, executable: f.executable }), null);
+    assert.equal((await diagnoseAgent(agent, { ...options, executable: f.executable, run })).status, 'missing');
+  }
+  assert.equal(await resolveAgentExecutable('codex', { executable: f.executable }), f.executable);
+});
 
 test('GUI diagnostics and launch share a bounded absolute PATH without mutating the parent environment', () => {
   const env = { PATH: '.:/custom/bin:/custom/bin:/usr/bin', OTHER: 'kept' };

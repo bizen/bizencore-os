@@ -526,6 +526,7 @@ try {
         return checks.map(element => getComputedStyle(element).borderColor);
       }, assignedId);
       assert.equal(await pane.evaluate(element => getComputedStyle(element).borderRadius), '8px');
+      assert.equal(await pane.evaluate(element => getComputedStyle(element).borderWidth), '2px');
       assert.equal(await pane.locator('.agent-pane-head .agent-logo').evaluate(element => getComputedStyle(element).color), theme === 'white' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)', 'OpenAI stays monochrome and visible in every theme');
       assert.ok(await pane.locator('.agent-logo path').first().evaluate(element => { const box = element.getBBox(); return box.width > 0 && box.height > 0; }), 'bundled provider paths render without an external image request');
       assert.equal(await assignment.evaluate(element => getComputedStyle(element).borderBottomWidth), '0px', 'no dividing rule separates task information from its terminal');

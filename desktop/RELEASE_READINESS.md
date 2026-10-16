@@ -1,5 +1,32 @@
 # Desktop Release Readiness
 
+## 0.1.15 Source Preparation (2026-10-16)
+
+- Agent and orchestration frames now have a 2px border, retaining the existing
+  colors and 8px corners. Workspace splitters remain a 1px visual line with their
+  larger interaction target. Both browser suites assert the 2px frame.
+- `--validate-missing-cli` is an explicit main-process-only fault injection that
+  makes the shared diagnostic/launch resolver return no executable. It only
+  removes availability for that invocation: no CLI files, PATH, authentication,
+  permissions, IPC authority, or settings are changed. The window title identifies
+  the validation invocation. This is not an actual uninstall or another-Mac test.
+- All 374 unit tests pass. Packaged fault-injection acceptance is pending.
+- The owner completed Clerk's email reverification for signing out only the
+  Electron 44.7.0 device through their own Web account Security screen. The
+  subsequent active-device list contains the Web browsers and iPhone but no
+  Electron session. Installed 0.1.14 remains blocked with a reauthentication
+  message after Reload. The previously idle Claude PID 46071 was independently
+  confirmed absent; no real task was assigned to it. The initial native lock
+  occurred before email reverification finished, so it is not proof of exact
+  server-revocation latency. An old MCP capability was not replayed. Recovery
+  through a fresh desktop login remains pending.
+- The owner chose to keep Clawd in general distribution after being told its
+  redistribution permission has not been established. This is a product choice,
+  not permission from Anthropic or legal clearance. Keep provenance and the
+  unresolved status in the asset review; do not label the artwork licensed.
+- No new binary has been installed, public download enabled, or feed activated
+  at this source-preparation step.
+
 ## Private 0.1.14 Candidate Acceptance (2026-10-16)
 
 - Built from clean source `7ee5c10aed103232a208f22da4c495c42427fd6c`, tagged

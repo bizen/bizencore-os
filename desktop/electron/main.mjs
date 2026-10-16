@@ -13,7 +13,7 @@ import { checkedRuntimeConfig } from './release-config.mjs';
 import { createAuthStorageChannel } from './auth-storage-channel.mjs';
 import { claimDesktopInstance } from './single-instance.mjs';
 import { agentLaunchArgs, allocateAgentSession } from './agent-launch.mjs';
-import { agentEnvironment, diagnoseAgents, resolveAgentExecutable } from './agent-diagnostics.mjs';
+import { agentDiscoveryOptions, agentEnvironment, diagnoseAgents, resolveAgentExecutable } from './agent-diagnostics.mjs';
 import { checkWorkFolder, agentLaunchFailure } from './launch-preflight.mjs';
 import { createConversationRegistry } from './conversation-registry.mjs';
 import { captureOwnedCodexProcessSession } from './conversations.mjs';
@@ -37,7 +37,8 @@ import { desktopContentPolicy } from './content-policy.mjs';
 const root = app.getAppPath();
 const config = JSON.parse(await readFile(path.join(root, 'config.json'), 'utf8'));
 const profile = checkedRuntimeConfig(config);
-const windowTitle = `${profile.name} ${config.version}${profile.channel === 'preview' ? ' (Preview)' : ''}`;
+const discoveryOptions = agentDiscoveryOptions(process.argv);
+const windowTitle = `${profile.name} ${config.version}${profile.channel === 'preview' ? ' (Preview)' : ''}${discoveryOptions.unavailable ? ' (CLI missing validation)' : ''}`;
 const checkDesktopUpdate = createDesktopUpdateCheck({ channel: profile.channel, arch: config.arch,
   version: config.version, fetchRelease: (url, options) => net.fetch(url, options) });
 const scheme = profile.scheme;
@@ -170,7 +171,7 @@ function command(name, handler, authenticated = true) {
   });
 }
 async function agentPath(agent) {
-  return resolveAgentExecutable(agent);
+  return resolveAgentExecutable(agent, discoveryOptions);
 }
 async function stopAgentsAndWait() {
   lock();
@@ -250,7 +251,7 @@ command('agents', async event => {
 });
 command('agent-diagnostics', async event => {
   const generation = accessState.generation;
-  const result = await diagnoseAgents();
+  const result = await diagnoseAgents(discoveryOptions);
   sameAccess(event, generation);
   const problems = { missing: '未インストール', timeout: 'バージョン確認がタイムアウトしました', 'output-limit': 'バージョン確認の応答が大きすぎます', 'invalid-version': 'バージョンを確認できません', failed: '起動できません' };
   return result.map(agent => ({ id: agent.agent, name: agent.name, path: agent.executable, version: agent.version,

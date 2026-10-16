@@ -12,6 +12,12 @@ function checkAgent(agent) {
   if (!Object.hasOwn(names, agent)) throw new Error('Unsupported agent');
 }
 
+// Fault injection can only remove CLI availability for this process. It never
+// changes installed executables, authentication, or the renderer's IPC authority.
+export function agentDiscoveryOptions(argv) {
+  return Object.freeze(argv.includes('--validate-missing-cli') ? { unavailable: true } : {});
+}
+
 export function agentEnvironment(env = process.env, userHome = homedir()) {
   const directories = [...(env.PATH ?? '').split(path.delimiter).slice(0, 64),
     path.join(userHome, '.local', 'bin'), path.join(userHome, '.bun', 'bin'),
@@ -23,6 +29,7 @@ export function agentEnvironment(env = process.env, userHome = homedir()) {
 // renderer-provided executable paths, environments or runners are never trusted.
 export async function resolveAgentExecutable(agent, options = {}) {
   checkAgent(agent);
+  if (options.unavailable === true) return null;
   const userHome = options.homeDir ?? homedir();
   const env = agentEnvironment(options.env, userHome);
   const candidates = options.executable !== undefined ? [options.executable] : [
