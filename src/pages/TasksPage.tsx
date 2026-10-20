@@ -217,14 +217,18 @@ function TasksPageContent() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [partnerSide, setPartnerSide] = useState<'self' | 'partner'>('self');
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const collapsedIds = useMemo(() => new Set([
+    ...Object.values(items).filter(item => item.collapsed).map(item => item.id),
+    ...Object.values(lifeData.entries).filter(entry => entry.collapsed).map(entry => entry.id),
+  ]), [items, lifeData.entries]);
   const toggleCollapse = useCallback((id: string) => {
     setActiveId(id);
-    setCollapsedIds(previous => {
-      const next = new Set(previous);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    const item = taskStore.getState().items[id];
+    if (item) taskStore.setCollapsed(id, !item.collapsed);
+    else {
+      const entry = lifeWorldStore.getSnapshot().data.entries[id];
+      if (entry) lifeWorldStore.setCollapsed(id, !entry.collapsed);
+    }
   }, []);
   const revealTask = useCallback((id: string) => {
     const tasks = taskStore.getState().items;
@@ -236,10 +240,10 @@ function TasksPageContent() {
       ancestors.add(parent);
       parent = tasks[parent]?.parentId ?? parents?.get(parent) ?? null;
     }
-    setCollapsedIds(previous => {
-      if (![...ancestors].some(parent => previous.has(parent))) return previous;
-      return new Set([...previous].filter(parent => !ancestors.has(parent)));
-    });
+    for (const parent of ancestors) {
+      if (tasks[parent]?.collapsed) taskStore.setCollapsed(parent, false);
+      else if (life.entries[parent]?.collapsed) lifeWorldStore.setCollapsed(parent, false);
+    }
   }, []);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
   const [deadlineOpenId, setDeadlineOpenId] = useState<string | null>(null);

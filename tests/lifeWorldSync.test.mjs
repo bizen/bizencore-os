@@ -283,3 +283,26 @@ test('a locked descendant blocks parent completion on the server, but not indepe
     await assert.rejects(lifeWorldPush._handler(s.ctx, { accountId: 'user-a', entries: [entry], checks: [] }), /Invalid life entry/);
   }
 });
+
+test('locked life containers retain collapse across reload and devices without overwriting notes', async () => {
+  const s = server(), cache = storage(), a = createLifeWorldStore(cache), b = createLifeWorldStore(storage());
+  a.setAccount('user-a'); b.setAccount('user-a');
+  const id = a.add('2026-10-20'); a.setLocked(id, true, '2026-10-20');
+  const send = async (device, remote) => lifeWorldPush._handler(s.ctx, { accountId: 'user-a', ...lifePendingChanges(device.getSnapshot().data, remote) });
+  await send(a, emptyLifeData());
+  const base = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' }); b.mergeRemote(base, 'user-a');
+  a.setCollapsed(id, true); b.setNote(id, 'Concurrent note');
+  await send(a, base); await send(b, base);
+  const folded = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  a.mergeRemote(folded, 'user-a'); b.mergeRemote(folded, 'user-a');
+  assert.equal(folded.entries[id].collapsed, true);
+  assert.equal(folded.entries[id].note, 'Concurrent note');
+  const reloaded = createLifeWorldStore(cache); reloaded.setAccount('user-a');
+  assert.equal(reloaded.getSnapshot().data.entries[id].collapsed, true);
+  b.setCollapsed(id, false); await send(b, folded);
+  const expanded = await lifeWorldPull._handler(s.ctx, { accountId: 'user-a' });
+  a.mergeRemote(expanded, 'user-a');
+  assert.equal(a.getSnapshot().data.entries[id].collapsed, undefined);
+  assert.equal(a.getSnapshot().data.entries[id].note, 'Concurrent note');
+  assert.deepEqual(lifePendingChanges(a.getSnapshot().data, expanded), { entries: [], checks: [] });
+});

@@ -69,6 +69,7 @@ function coerceItem(raw: unknown): Item | null {
     completionCriteria: typeof r.completionCriteria === 'string' && r.completionCriteria ? r.completionCriteria : undefined,
     done: !locked && r.done === true,
     locked: locked ? true : undefined,
+    collapsed: type === 'task' && r.collapsed === true ? true : undefined,
     createdBy: r.createdBy === 'user' || r.createdBy === 'ai' ? r.createdBy : undefined,
     createdByClient: r.createdBy === 'ai' && typeof r.createdByClient === 'string' ? r.createdByClient : undefined,
     completedBy: !locked && r.done === true && (r.completedBy === 'user' || r.completedBy === 'ai') ? r.completedBy : undefined,
@@ -233,6 +234,7 @@ function sameContent(a: Item, b: Item): boolean {
     a.completionCriteria === b.completionCriteria &&
     a.done === b.done &&
     a.locked === b.locked &&
+    a.collapsed === b.collapsed &&
     a.createdBy === b.createdBy &&
     a.createdByClient === b.createdByClient &&
     a.completedBy === b.completedBy &&
@@ -442,6 +444,12 @@ export const taskStore = {
     const time = dueDate ? dueTime : undefined;
     if (current.dueDate === dueDate && current.dueTime === time) return;
     commit(withPatches([{ ...current, dueDate, dueTime: time }]));
+  },
+
+  setCollapsed(id: string, collapsed: boolean): void {
+    const current = state.items[id];
+    if (!isLive(current) || current.type !== 'task' || !current.locked || !!current.collapsed === collapsed) return;
+    commit(withPatches([{ ...current, collapsed: collapsed ? true : undefined }]));
   },
 
   setLocked(id: string, locked: boolean): void {
