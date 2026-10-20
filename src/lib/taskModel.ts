@@ -66,6 +66,7 @@ export interface Item {
   done: boolean;
   /** 常設の見出しとして使い、このタスク自体の完了を禁止する */
   locked?: boolean;
+  collapsed?: boolean;
   /** 古いタスクは出所を推測せず未設定のままにする */
   createdBy?: 'user' | 'ai';
   createdByClient?: string;

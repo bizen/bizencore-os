@@ -59,7 +59,7 @@ export function createLifeWorldStore(storage?: Storage) {
     state = { ...state, syncStatus: accountId ? 'pending' : 'local' };
     save(after);
   }
-  function edit(id: string, fields: Partial<Pick<LifeEntry, 'text' | 'note' | 'repeat' | 'locked'>>, key?: string) {
+  function edit(id: string, fields: Partial<Pick<LifeEntry, 'text' | 'note' | 'repeat' | 'locked' | 'collapsed'>>, key?: string) {
     change(data => {
       const entry = Object.hasOwn(data.entries, id) ? data.entries[id] : undefined;
       if (!entry || entry.deletedAt || Object.entries(fields).every(([k, v]) => entry[k as keyof LifeEntry] === v)) return data;
@@ -107,6 +107,11 @@ export function createLifeWorldStore(storage?: Storage) {
     setText: (id: string, text: string) => edit(id, { text }, `text:${id}`),
     setNote: (id: string, note: string) => edit(id, { note }, `note:${id}`),
     setRepeat: (id: string, repeat: LifeRepeat) => edit(id, { repeat }),
+    setCollapsed(id: string, collapsed: boolean) {
+      const entry = state.data.entries[id];
+      if (!entry?.locked) return;
+      edit(id, { collapsed: collapsed ? true : undefined });
+    },
     setLocked(id: string, locked: boolean, date: string) {
       const entry = state.data.entries[id];
       if (!entry || !isDateString(date) || (locked && lifeEntryDone(state.data, entry, date))) return;

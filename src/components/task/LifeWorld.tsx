@@ -112,15 +112,11 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
   const emptyAddButton = useRef<HTMLButtonElement>(null);
   const pendingFocus = useRef<{ id: string; field: 'title' | 'note'; caret?: number } | null>(null);
-  const [localCollapsedIds, setLocalCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
-  const foldedIds = collapsedIds ?? localCollapsedIds;
+  const foldedIds = collapsedIds ?? new Set(Object.values(data.entries).filter(entry => entry.collapsed).map(entry => entry.id));
   const toggleCollapse = (id: string) => {
     if (onToggleCollapse) { onToggleCollapse(id); return; }
-    setLocalCollapsedIds(previous => {
-      const next = new Set(previous);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    const entry = lifeWorldStore.getSnapshot().data.entries[id];
+    if (entry) lifeWorldStore.setCollapsed(id, !entry.collapsed);
   };
   const partitions = partitionLifeRows(data, date, !!allRootIds, query);
   const folded = collapseRows(filedOnly ? partitions.done : partitions.active,
@@ -145,7 +141,7 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
         const parents = lifeParentIds(lifeWorldStore.getSnapshot().data), ancestors = new Set<string>();
         let parent = parents.get(id) ?? null;
         while (parent && !ancestors.has(parent)) { ancestors.add(parent); parent = parents.get(parent) ?? null; }
-        setLocalCollapsedIds(previous => new Set([...previous].filter(parent => !ancestors.has(parent))));
+        for (const parent of ancestors) lifeWorldStore.setCollapsed(parent, false);
       }
     }
   };

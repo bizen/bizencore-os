@@ -5,7 +5,7 @@ export type LifeRepeat = 'once' | 'daily' | 'weekdays';
 export const LIFE_REPEAT_NAMES: Record<LifeRepeat, string> = {
   once: '繰り返さない', daily: '毎日', weekdays: '平日',
 };
-export const LIFE_ENTRY_GROUPS = ['text', 'note', 'schedule', 'order', 'deletion', 'lock', 'hierarchy'] as const;
+export const LIFE_ENTRY_GROUPS = ['text', 'note', 'schedule', 'order', 'deletion', 'lock', 'hierarchy', 'collapse'] as const;
 export type LifeEntryGroup = typeof LIFE_ENTRY_GROUPS[number];
 
 export interface LifeEntry {
@@ -19,6 +19,7 @@ export interface LifeEntry {
   updatedAt: number;
   deletedAt?: number;
   locked?: boolean;
+  collapsed?: boolean;
   stamps?: Partial<Record<LifeEntryGroup, number>>;
 }
 
@@ -263,6 +264,7 @@ function groupValue(entry: LifeEntry, group: LifeEntryGroup): unknown[] {
   if (group === 'schedule') return [entry.startDate, entry.repeat];
   if (group === 'deletion') return [entry.deletedAt];
   if (group === 'lock') return [entry.locked === true];
+  if (group === 'collapse') return [entry.collapsed === true];
   if (group === 'hierarchy') return [entry.parentId ?? null];
   return [entry[group]];
 }
@@ -277,7 +279,7 @@ export function restampLifeEntry(before: LifeEntry | undefined, after: LifeEntry
 }
 
 export function lifeEntryStamp(entry: LifeEntry, group: LifeEntryGroup): number {
-  return entry.stamps?.[group] ?? ((group === 'lock' && !entry.locked) || (group === 'hierarchy' && !entry.parentId) ? 0 : entry.updatedAt);
+  return entry.stamps?.[group] ?? ((group === 'collapse' && !entry.collapsed) || (group === 'lock' && !entry.locked) || (group === 'hierarchy' && !entry.parentId) ? 0 : entry.updatedAt);
 }
 
 function reconcileLifeChecks(entries: Record<string, LifeEntry>, checks: Record<string, LifeCheck>): Record<string, LifeCheck> {
@@ -317,6 +319,7 @@ export function mergeLifeEntry(a: LifeEntry, b: LifeEntry): LifeEntry {
     else if (group === 'deletion') result.deletedAt = chosen.deletedAt;
     else if (group === 'order') result.order = chosen.order;
     else if (group === 'lock') result.locked = chosen.locked ? true : undefined;
+    else if (group === 'collapse') result.collapsed = chosen.collapsed ? true : undefined;
     else if (group === 'hierarchy') result.parentId = chosen.parentId ?? undefined;
     else result[group] = chosen[group];
   }
@@ -348,6 +351,7 @@ export function coerceLifeData(value: unknown): LifeData {
         startDate: e.startDate, repeat: e.repeat as LifeRepeat, order: e.order,
         updatedAt: e.updatedAt, deletedAt: typeof e.deletedAt === 'number' ? e.deletedAt : undefined,
         locked: e.locked === true ? true : undefined,
+        collapsed: e.collapsed === true ? true : undefined,
         parentId: typeof e.parentId === 'string' && e.parentId.length <= 256 && e.parentId !== e.id ? e.parentId : undefined,
         stamps: Object.keys(stamps).length ? stamps : undefined,
       } });
@@ -396,7 +400,7 @@ export function mergeLifeData(a: LifeData, b: LifeData): LifeData {
 
 export function lifePendingChanges(local: LifeData, remote: LifeData) {
   const entryKey = (entry: LifeEntry) => JSON.stringify([entry.id, entry.text, entry.note, entry.startDate,
-    entry.repeat, entry.order, entry.updatedAt, entry.deletedAt, entry.locked === true, entry.parentId ?? null,
+    entry.repeat, entry.order, entry.updatedAt, entry.deletedAt, entry.locked === true, entry.collapsed === true, entry.parentId ?? null,
     LIFE_ENTRY_GROUPS.map(group => lifeEntryStamp(entry, group))]);
   const checkKey = (check: LifeCheck) => JSON.stringify([check.entryId, check.date, check.done, check.updatedAt, check.filed === true, check.cleared === true]);
   return {

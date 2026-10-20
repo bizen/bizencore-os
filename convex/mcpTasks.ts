@@ -45,6 +45,7 @@ interface StoredItem {
     completionCriteria?: string;
     done: boolean;
     locked?: boolean;
+    collapsed?: boolean;
     createdBy?: "user" | "ai";
     createdByClient?: string;
     completedBy?: "user" | "ai";
@@ -86,6 +87,7 @@ function parsePayload(row: SyncRow): StoredItem | null {
             dueTime: typeof raw.dueDate === "string" && isDateString(raw.dueDate) && typeof raw.dueTime === "string" && isTimeString(raw.dueTime) ? raw.dueTime : undefined,
             done: !locked && raw.done === true,
             locked: locked ? true : undefined,
+            collapsed: raw.type !== "section" && raw.collapsed === true ? true : undefined,
             filed: !locked && raw.filed === true ? true : undefined,
             createdBy: raw.createdBy === "user" || raw.createdBy === "ai" ? raw.createdBy : undefined,
             createdByClient: raw.createdBy === "ai" && typeof raw.createdByClient === "string" ? raw.createdByClient : undefined,
