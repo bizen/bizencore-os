@@ -2595,7 +2595,22 @@ body {
   pointer-events: none;
 }
 
+.mascot-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 12px;
+  pointer-events: auto;
+}
+
+.mascot-button:focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 4px;
+}
+
 .mascot {
+  display: block;
   width: 120px;
   height: auto;
   cursor: pointer;
@@ -2680,6 +2695,108 @@ body {
 .close-bubble:hover {
   background-color: rgba(var(--surface-rgb), 0.08);
   color: var(--text-primary);
+}
+
+.mascot-container--handoff {
+  left: 2rem;
+  right: auto;
+  align-items: flex-start;
+}
+
+.mascot-container--handoff .mascot-button {
+  touch-action: none;
+  cursor: grab;
+}
+
+.mascot-container--handoff .mascot {
+  animation: none;
+  cursor: inherit;
+}
+
+.mascot-container--handoff.is-dragging .mascot-button { opacity: 0.3; }
+.mascot-container--handoff.is-dragging .mascot { cursor: grabbing; }
+
+.mascot-container--handoff .speech-bubble {
+  width: min(310px, calc(100vw - 4rem));
+  margin-right: 0;
+  margin-left: 0.5rem;
+}
+
+.mascot-container--handoff .speech-bubble::before,
+.mascot-container--handoff .speech-bubble::after {
+  left: 36px;
+  right: auto;
+}
+
+.mascot-container--handoff .speech-bubble-title { padding-right: 12px; }
+.mascot-settings, .mascot-handoff {
+  display: grid;
+  gap: 12px;
+  max-height: calc(100dvh - 230px);
+  overflow-y: auto;
+}
+.mascot-settings .handoff-option { margin: 0; }
+.mascot-settings .inspector-handoff-mode { flex-wrap: wrap; }
+
+.mascot-field {
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.mascot-field select, .mascot-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.mascot-field textarea { min-height: 90px; resize: vertical; }
+.mascot-task-name { font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mascot-handoff-summary { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.5; }
+
+.mascot-handoff-action {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--accent-rgb), 0.5);
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--accent-text-strong);
+  text-align: center;
+  text-decoration: none;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.mascot-handoff-action:hover { background: rgba(var(--accent-rgb), 0.25); }
+.mascot-handoff-action:disabled { opacity: 0.5; cursor: wait; }
+.mascot-field :focus-visible, .mascot-handoff-action:focus-visible, .close-bubble:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; }
+
+.mascot-drag-preview {
+  position: fixed;
+  width: 90px;
+  height: auto;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.85;
+}
+
+.row--task.is-mascot-drop-target {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot, .speech-bubble { animation: none; }
 }
 
 /* ---------- Mobile ---------- */

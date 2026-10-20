@@ -134,7 +134,7 @@ export default function App({ desktop = false }: { desktop?: boolean }) {
         </main>
         {taskScroll ? <TaskScrollRail controls="task-scroll-content" /> : null}
 
-        <Mascot />
+        <Mascot key={location.pathname === "/" ? "tasks" : "count"} handoff={location.pathname === "/"} />
         {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} theme={theme} onThemeChange={changeTheme} /> : null}
       </div>
       </AccountDeletionBoundary>
