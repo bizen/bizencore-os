@@ -10,11 +10,16 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
     checkUpdate: async () => { window.fixture.checks++; return window.fixture.version ? { version: window.fixture.version } : null; },
     openUpdate: async () => { window.fixture.opens++; },
   };
+  if (location.search.includes('automatic')) Object.assign(window.bizencoreDesktop, {
+    downloadUpdate: () => { window.fixture.downloads = (window.fixture.downloads || 0) + 1; return new Promise(resolve => { window.fixture.finish = () => resolve({ version: '0.1.19' }); }); },
+    installUpdate: async () => { window.fixture.installs = (window.fixture.installs || 0) + 1; return false; },
+    onUpdateProgress: callback => { window.fixture.progress = callback; return () => { window.fixture.progress = null; }; },
+  });
   createRoot(document.getElementById('root')).render(<header className="app-header">
     <span className="brand">bizen<i>core</i> terminal<sup>2</sup></span>
     <div className="app-header-tools"><DesktopUpdateButton /><button className="app-settings-btn" aria-label="設定">S</button></div>
   </header>);
-` }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
+` }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' } });
 const css = await readFile('src/index.css', 'utf8');
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) });
 try {
@@ -37,5 +42,31 @@ try {
   await page.getByRole('button', { name: '新版 0.1.9 の配布ページを開く' }).waitFor();
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   assert.equal(await page.locator('.app-update-btn').count(), 0);
-  console.log('Desktop update header: newer-only visibility, download action, refresh/offline and responsive layout verified without account/network changes.');
+  await page.goto('https://update.test/?automatic');
+  await page.getByRole('button', { name: '新版 0.1.8 をダウンロード', exact: true }).click();
+  await page.evaluate(() => window.fixture.progress(42));
+  const downloading = page.getByRole('button', { name: '新版 0.1.8 をダウンロード中 42%', exact: true });
+  assert.equal(await downloading.isEnabled(), false);
+  assert.equal(await downloading.textContent(), '42%');
+  assert.equal(await page.evaluate(() => window.fixture.installs || 0), 0, 'download never quits an active app');
+  await page.evaluate(() => window.fixture.finish());
+  const restart = page.getByRole('button', { name: '再起動して 0.1.19 に更新', exact: true }); await restart.waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event('offline'))); await restart.waitFor();
+  page.on('dialog', dialog => dialog.accept());
+  await page.evaluate(() => { const busy = document.createElement('button'); busy.className = 'context-upload-btn'; busy.setAttribute('aria-busy', 'true'); document.body.append(busy); });
+  await restart.click();
+  assert.equal(await page.evaluate(() => window.fixture.installs || 0), 0, 'in-flight uploads prevent restart');
+  await page.evaluate(() => document.querySelector('.context-upload-btn').remove());
+  await page.evaluate(() => {
+    window.fixture.prevent = event => event.preventDefault();
+    window.addEventListener('bizencore:before-reload', window.fixture.prevent);
+  });
+  await restart.click();
+  assert.equal(await page.evaluate(() => window.fixture.installs || 0), 0, 'failed workspace saves prevent restart');
+  await page.evaluate(() => window.removeEventListener('bizencore:before-reload', window.fixture.prevent));
+  await restart.click(); await restart.waitFor();
+  assert.equal(await page.evaluate(() => window.fixture.installs), 1);
+  assert.equal(await page.evaluate(() => window.fixture.opens), 0, 'in-app installation does not open the download page');
+  assert.equal(await restart.isEnabled(), true, 'cancelling shutdown retains the downloaded update');
+  console.log('Update UI: legacy fallback, progress, explicit restart, upload guard, cancelled restart, offline readiness and responsive layout passed.');
 } finally { await browser.close(); }

@@ -121,6 +121,7 @@ function AuthenticationGate({ children }: { children: ReactNode }) {
 }
 
 export function DesktopAuthentication({ children }: { children: ReactNode }) {
+  useEffect(() => { void window.bizencoreDesktop?.updateReady?.().catch(() => {}); }, []);
   if (!isCloudConfigured) return <AuthScreen><p role="alert">ログイン設定を読み込めませんでした。</p><ReloadButton /></AuthScreen>;
   return <ConvexClientProvider><AuthenticationGate>{children}</AuthenticationGate></ConvexClientProvider>;
 }

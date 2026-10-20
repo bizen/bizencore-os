@@ -17,7 +17,9 @@ export function checkedDesktopRelease(value, arch, current) {
     !/^[a-f0-9]{40}$/.test(value.sourceCommit) ||
     value.pageUrl !== DESKTOP_DOWNLOAD_URL || !/^[a-f0-9]{64}$/.test(value.sha256) ||
     !Number.isSafeInteger(value.size) || value.size <= 0 || !newerVersion(value.version, current)) return null;
-  return { version: value.version, pageUrl: DESKTOP_DOWNLOAD_URL, sha256: value.sha256, size: value.size };
+  const downloadUrl = `https://github.com/bizen/bizencore-os/releases/download/desktop-v${value.version}/bizencore-terminal-${value.version}-darwin-${arch}.zip`;
+  if (value.downloadUrl !== undefined && value.downloadUrl !== downloadUrl) return null;
+  return { version: value.version, pageUrl: DESKTOP_DOWNLOAD_URL, sha256: value.sha256, size: value.size, downloadUrl };
 }
 
 export function createDesktopUpdateCheck({ channel, arch, version, fetchRelease, now = Date.now }) {

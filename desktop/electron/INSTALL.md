@@ -1,7 +1,6 @@
 # bizencore terminal for macOS
 
-This private candidate uses your production bizencore account. It is not a
-public release. The current ZIP targets Apple Silicon (arm64).
+This beta uses your production bizencore account. The ZIP targets Apple Silicon (arm64).
 
 ## Install
 
@@ -24,22 +23,18 @@ refuse to open a downloaded copy. If blocked, stop and review the distribution
 decision; do not disable Gatekeeper or remove quarantine attributes. A successful
 local build launch does not establish downloaded-copy compatibility.
 
-## Manual Update
+## Update
 
-1. Finish or explicitly stop agent work. Stopping does not undo changes already
-   made to files or synchronized tasks. Keep important work backed up separately.
-2. Quit the app with Command-Q. Closing its window is not quitting on macOS.
-3. Verify the new ZIP's checksum, then extract it outside the installed app.
-4. Move the previous installed app to a versioned backup folder. Move the new
-   app into the same installation path. Never replace a running app bundle.
-5. Launch the new version. Check your account, tasks and saved pane settings.
-   Restored panes should remain stopped until you explicitly launch them.
-6. If the update fails, quit it and move the previous app back to the same path.
-   Keep account data in place; do not delete the app's Application Support folder.
+From 0.1.19 onward, the update button downloads and verifies the new release.
+Choose “Restart to update” when ready. Active agents use the existing quit
+confirmation; cancelling leaves them running. Login, tasks and settings are
+retained. Restored panes remain stopped. A failed startup restores the old app.
+The app must be in a writable Applications folder. OS protections are not disabled.
 
-There is no automatic update download, installer or background agent launch.
-Rollback is limited to versions whose local data formats remain compatible.
-Restoring an old app does not roll back cloud tasks or working-folder changes.
+Versions through 0.1.18 need one manual replacement to acquire this updater:
+quit the old app, verify the new ZIP checksum, keep a backup and replace the app
+in the same location. Do not delete account data. macOS may request approval for
+the downloaded app. Restoring the old app does not roll back cloud or user data.
 
 ## Sign Out
 

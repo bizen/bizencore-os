@@ -31,6 +31,7 @@ import { checkWorkRequest, createTaskOperationGuard, runTaskProcess, taskTreeIds
 import { checkOrchestration, orchestrationPrompt, reviewOrchestration } from './orchestration.mjs';
 import { createShutdownBarrier } from './session-shutdown.mjs';
 import { createDesktopUpdateCheck, DESKTOP_DOWNLOAD_URL } from './desktop-update.mjs';
+import { acknowledgeUpdate, createDesktopInstaller } from './update-install.mjs';
 import { desktopContentPolicy } from './content-policy.mjs';
 
 // Runtime config contains only public Vite values, never a Clerk secret key.
@@ -41,6 +42,13 @@ const discoveryOptions = agentDiscoveryOptions(process.argv);
 const windowTitle = `${profile.name} ${config.version}${profile.channel === 'preview' ? ' (Preview)' : ''}${discoveryOptions.unavailable ? ' (CLI missing validation)' : ''}`;
 const checkDesktopUpdate = createDesktopUpdateCheck({ channel: profile.channel, arch: config.arch,
   version: config.version, fetchRelease: (url, options) => net.fetch(url, options) });
+const bundle = path.dirname(path.dirname(path.dirname(root)));
+const updater = profile.channel === 'production' && app.isPackaged ? createDesktopInstaller({
+  bundle, arch: config.arch, getRelease: checkDesktopUpdate,
+  fetchData: (url, options) => net.fetch(url, options),
+  helperSource: await readFile(path.join(root, 'update-helper.sh'), 'utf8'),
+  onProgress: percent => send('bizencore:update-progress', percent),
+}) : null;
 const scheme = profile.scheme;
 const rendererOrigin = `${scheme}://renderer`;
 const trustedRenderer = (url, development = false) => acceptsRenderer(url, development, profile.channel);
@@ -239,8 +247,25 @@ command('check-update', async event => {
   sameAccess(event, generation);
   return release;
 });
+command('update-ready', async () => {
+  if (app.isPackaged && profile.channel === 'production') await acknowledgeUpdate(bundle, process.argv);
+}, false);
 command('open-update', async () => {
   await shell.openExternal(DESKTOP_DOWNLOAD_URL);
+});
+command('download-update', async event => {
+  const generation = accessState.generation;
+  if (!updater) throw Error('アプリ内更新は本番アプリで利用できます');
+  try {
+    const result = await updater.download();
+    sameAccess(event, generation);
+    return result;
+  } catch { throw Error('新版を取得できませんでした。通信と保存容量を確認して再試行してください。'); }
+});
+command('install-update', async () => {
+  if (!updater || !lifecycle) throw Error('更新の準備ができていません');
+  try { return await updater.install({ requestQuit: options => lifecycle.requestQuit(options), quit: () => app.quit() }); }
+  catch { throw Error('更新できませんでした。保存容量を確認し、アプリを書き込み可能なApplicationsフォルダに置いて再試行してください。'); }
 });
 command('agents', async event => {
   const generation = accessState.generation;
@@ -550,9 +575,9 @@ function applicationMenu() {
       { role: 'about' },
       { label: `バージョン ${config.version}${profile.channel === 'preview' ? '（開発版）' : ''}`, enabled: false },
       { label: 'このアプリをFinderで表示', click: () => shell.showItemInFolder(app.isPackaged ? path.dirname(path.dirname(path.dirname(root))) : root) },
-      { label: '手動更新の案内', click: () => void dialog.showMessageBox(window, {
-        type: 'info', title: '手動更新', message: `${profile.name} ${config.version}`,
-        detail: '更新する際は、作業を終えるかエージェントを停止し、アプリを完全に終了してください。新しいZIPのチェックサムを確認し、旧版をバックアップしてから同じ場所へ入れ替えます。\n\nアカウントの保存データは削除しません。再起動したペインは未起動のままです。問題があれば、終了後に旧版へ戻してください。\n\nAppleの公証は受けていません。更新版でもmacOSが個別の起動許可を求める場合があります。自動インストールや作業中の強制終了は行いません。',
+      { label: '更新の案内', click: () => void dialog.showMessageBox(window, {
+        type: 'info', title: 'アプリの更新', message: `${profile.name} ${config.version}`,
+        detail: '更新アイコンから新版をダウンロードし、「再起動して更新」を押すと、入力内容を保存してアプリを入れ替えます。実行中のエージェントがある場合は終了確認が表示され、キャンセルすれば作業を続けられます。\n\nログイン情報と設定は保持し、再起動後にエージェントを自動で起動しません。新版が起動しなければ以前のアプリへ戻します。\n\n0.1.18以前からの初回更新は配布ページから入れ替えてください。Apple未公証のため、macOSが個別の許可を求める場合があります。',
         buttons: ['閉じる', '配布ページを開く'], noLink: true,
       }).then(result => { if (result.response === 1) return shell.openExternal(DESKTOP_DOWNLOAD_URL); }).catch(() => {}) },
       { label: '第三者ライセンス', click: () => shell.showItemInFolder(path.join(process.resourcesPath, 'THIRD_PARTY_NOTICES.txt')) },
@@ -658,6 +683,12 @@ if (clerk.isPrimaryInstance) app.whenReady().then(async () => {
     },
   });
   await createWindow();
+  if (app.isPackaged && profile.channel === 'production') {
+    if (process.argv.includes('--bizencore-update-rolled-back')) void dialog.showMessageBox(window, {
+      type: 'error', message: '新版の起動を確認できなかったため、以前のバージョンに戻しました。',
+      detail: 'タスク・ログイン情報・設定は削除していません。更新を再試行するか、配布ページをご確認ください。',
+    });
+  }
 }).catch(() => {
   dialog.showErrorBox(profile.name, 'デスクトップを起動できませんでした。ビルド設定を確認してください。');
   app.quit();

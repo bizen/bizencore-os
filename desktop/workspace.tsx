@@ -17,6 +17,7 @@ import { compareItems, isLive, type Item, type ItemMap } from '../src/lib/taskMo
 import { HandoffIntentControl } from '../src/components/task/HandoffIntentControl';
 import { DesktopWorkspaceAccount } from './workspace-account';
 import { readWorkspace, workspaceKey, writeWorkspace, type WorkspaceState } from './workspace-state';
+import { BEFORE_APP_RELOAD_EVENT } from '../src/lib/prepareAppReload';
 import { validateTerminalInput } from './validation';
 import { readTerminalTheme } from './terminal-theme';
 import { TaskScrollRail } from '../src/components/TaskScrollRail';
@@ -428,9 +429,10 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
   }, [storageKey, panes, width, height, orientation, inspectorWidth, expanded, layout, lastCwd]);
   useEffect(() => {
     if (!storageKey) return;
-    const flush = () => { writeWorkspace(storageKey, snapshot.current); };
+    const flush = (event?: Event) => { if (!writeWorkspace(storageKey, snapshot.current)) event?.preventDefault(); };
     window.addEventListener('pagehide', flush);
-    return () => { window.removeEventListener('pagehide', flush); flush(); };
+    window.addEventListener(BEFORE_APP_RELOAD_EVENT, flush);
+    return () => { window.removeEventListener('pagehide', flush); window.removeEventListener(BEFORE_APP_RELOAD_EVENT, flush); flush(); };
   }, [storageKey]);
   const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth);
   const [compactTasks, setCompactTasks] = useState(false);

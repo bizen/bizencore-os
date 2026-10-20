@@ -44,3 +44,11 @@ test('update checks are coalesced, bounded and never send account credentials', 
   const preview = createDesktopUpdateCheck({ channel: 'preview', fetchRelease: () => { throw Error('must not fetch'); } });
   assert.equal(await preview(), null);
 });
+
+test('download URLs are fixed to the versioned first-party GitHub asset', () => {
+  const checked = checkedDesktopRelease(release, 'arm64', '0.1.7');
+  assert.equal(checked.downloadUrl, 'https://github.com/bizen/bizencore-os/releases/download/desktop-v0.1.8/bizencore-terminal-0.1.8-darwin-arm64.zip');
+  for (const downloadUrl of ['https://attacker.test/update.zip', checked.downloadUrl + '?redirect=evil']) {
+    assert.equal(checkedDesktopRelease({ ...release, downloadUrl }, 'arm64', '0.1.7'), null);
+  }
+});

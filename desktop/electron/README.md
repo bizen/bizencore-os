@@ -1078,3 +1078,15 @@ Its build and strict/deep ad-hoc signature checks passed. It supersedes 0.1.6
 for the next installation but is not publicly distributed, Developer ID signed
 or notarized. Installed 0.1.5 and its login storage remain unchanged; explicit
 permission to replace it and final installed-app checks are still pending.
+
+## In-app Updates (0.1.19)
+
+The update button downloads the official GitHub asset with a bounded stream, exact
+size/SHA-256 verification, ZIP path/link preflight, bundle/version/architecture checks
+and codesign verification. It then offers an explicit restart, saves renderer input
+and uses the existing lifecycle shutdown gate. A helper outside the bundle waits
+for the owner to exit, swaps on the installation volume and restores the previous
+bundle if the new renderer does not acknowledge startup. User data is not replaced.
+No Gatekeeper or quarantine settings are changed. A writable install location is
+required. Pre-0.1.19 clients still need one manual update; the feed retains the
+legacy manual field for their download-page fallback.

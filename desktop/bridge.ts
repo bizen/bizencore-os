@@ -14,6 +14,10 @@ export type StartArgs = { id: string; agent: AgentId; cwd: string; cols: number;
 export type DesktopBridge = {
   checkUpdate?: () => Promise<{ version: string; pageUrl: string; sha256: string; size: number } | null>;
   openUpdate?: () => Promise<void>;
+  downloadUpdate?: () => Promise<{ version: string }>;
+  installUpdate?: () => Promise<boolean>;
+  onUpdateProgress?: (callback: (percent: number) => void) => () => void;
+  updateReady?: () => Promise<void>;
   integratedTitlebar?: boolean;
   validation?: {
     state: () => Promise<{ pauseRefresh: boolean }>;
