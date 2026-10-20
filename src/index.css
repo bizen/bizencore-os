@@ -2574,6 +2574,8 @@ body {
 
 /* ---------- Mascot ---------- */
 
+.mascot, .mascot-drag-preview, .splash-cirno { scale: -1 1; }
+
 @keyframes mascot-float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
