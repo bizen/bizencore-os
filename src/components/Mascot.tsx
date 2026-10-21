@@ -57,7 +57,10 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
     const copyAttempt = useRef<symbol | null>(null);
     const suppressClick = useRef(false);
     const bubbleId = useId();
+    const thoughtId = useId();
+    const curious = hovered && !position && !panel && !happy;
     const target = AI_TARGETS.find(target => target.id === agent)!;
+    const handoffAgentName = desktop ? desktop.agentName ?? 'エージェントを選ぶ' : target.name;
     const item = panel && typeof panel === 'object' ? items[panel.taskId] : undefined;
     const validTask = isLive(item) && item.type === 'task';
     const mode = mcpEnabled ? preferences.mode : 'text';
@@ -204,13 +207,14 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
                 {manualCopy ? <label className="mascot-field"><span role="alert">コピーできなかったよ。この内容を選択してコピーしてね。</span><textarea readOnly value={manualCopy} aria-label="手動でコピーする内容" onFocus={event => event.target.select()} /></label> : null}
             </div> : <p className="speech-bubble-body" role="status">このタスクは削除されたよ。別のタスクを選んでね。</p>}
         </div> : null}
-        <button ref={buttonRef} type="button" className="mascot-button" aria-label={handoff ? 'チルノのハンドオフ設定' : 'bizencore について'} aria-haspopup="dialog" aria-expanded={!!panel} aria-controls={panel ? bubbleId : undefined}
+        <button ref={buttonRef} type="button" className="mascot-button" aria-label={handoff ? 'チルノのハンドオフ設定' : 'bizencore について'} aria-describedby={curious && handoff ? thoughtId : undefined} aria-haspopup="dialog" aria-expanded={!!panel} aria-controls={panel ? bubbleId : undefined}
             onClick={event => {
                 if (event.detail !== 0 && suppressClick.current) { suppressClick.current = false; return; }
                 resetResult();
                 setPreferences(readHandoffPreferences());
                 setPanel(current => current === (handoff ? 'settings' : 'about') ? null : handoff ? 'settings' : 'about');
             }}
+            onFocus={() => setHovered(true)} onBlur={() => setHovered(false)}
             onPointerEnter={event => { if (event.pointerType === 'mouse') setHovered(true); }}
             onPointerLeave={() => setHovered(false)}
             onPointerDown={event => {
@@ -220,7 +224,9 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
                 event.currentTarget.setPointerCapture(event.pointerId);
             }}
             onPointerMove={move} onPointerUp={drop} onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}>
-            <MascotPortrait active={!position && !panel && !happy} mood={happy ? 'happy' : hovered && !position && !panel ? 'curious' : 'idle'} />
+            <MascotPortrait active={!position && !panel && !happy} mood={happy ? 'happy' : curious ? 'curious' : 'idle'} />
+            {curious ? handoff ? <span id={thoughtId} role="tooltip" className="mascot-thought">{handoffAgentName}？</span>
+                : <span className="mascot-reaction mascot-question" aria-hidden="true">?</span> : null}
         </button>
         {position ? <span className="mascot-drag-preview" style={{ left: position.x, top: position.y }}><MascotPortrait active={false} mood="dragging" decorative /></span> : null}
     </div>;

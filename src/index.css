@@ -2597,6 +2597,7 @@ body {
 }
 
 .mascot-button {
+  position: relative;
   display: block;
   padding: 0;
   border: 0;
@@ -2647,6 +2648,11 @@ body {
 .mascot-portrait[data-mood="happy"] .mascot-eye { scale: 1.1 0.3; }
 .mascot-reaction { position: absolute; top: 22%; right: -3%; pointer-events: none; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.35)); }
 .mascot-question { font: 700 24px/1 system-ui; color: var(--text-primary); rotate: 12deg; }
+.mascot-thought { position: absolute; left: calc(100% - 12px); bottom: calc(100% - 26px); z-index: 1; width: max-content; max-width: min(180px, calc(100vw - 110px)); padding: 8px 14px; border: 1px solid var(--border-color); border-radius: 50%; background: var(--popover-bg); color: var(--text-primary); font: 500 12px/1.5 var(--font-family); overflow-wrap: anywhere; box-shadow: 0 3px 12px rgba(0,0,0,.12); pointer-events: none; }
+.mascot-thought::before, .mascot-thought::after { content: ""; position: absolute; border: 1px solid var(--border-color); border-radius: 50%; background: var(--popover-bg); }
+.mascot-thought::before { width: 8px; height: 8px; left: 10px; bottom: -7px; }
+.mascot-thought::after { width: 4px; height: 4px; left: 3px; bottom: -13px; }
+
 .mascot-sweat-burst { position: absolute; inset: 0; pointer-events: none; animation-play-state: inherit; }
 .mascot-sweat { --sweat-x: 20px; --sweat-y: -22px; width: 11px; height: 16px; animation: mascot-sweat 900ms ease-out infinite; animation-play-state: inherit; }
 .mascot-sweat:nth-child(2) { --sweat-x: -20px; --sweat-y: -15px; left: 3%; right: auto; top: 30%; animation-delay: -300ms; }

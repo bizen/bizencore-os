@@ -88,10 +88,10 @@ function ResumePicker({ pane, update, onReady }: { pane: Pane; update: (pane: Pa
     {error ? <p role="alert" className="agent-error">{error}</p> : null}
   </div>;
 }
-function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch, onClose }: {
-  draft: Pane; items: ItemMap; available: bridge.AgentDiagnostic[]; checking: boolean; onRefresh: () => void; onLaunch: (pane: Pane) => string | null; onClose: () => void;
+function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch, onClose, onAgentChange }: {
+  draft: Pane; items: ItemMap; available: bridge.AgentDiagnostic[]; checking: boolean; onRefresh: () => void; onLaunch: (pane: Pane) => string | null; onClose: () => void; onAgentChange: (agent: bridge.AgentId) => void;
 }) {
-  const [agent, setAgent] = useState(draft.agent);
+  const agent = draft.agent;
   const [cwd, setCwd] = useState(draft.cwd);
   const [label, setLabel] = useState(draft.assignment && items[draft.assignment.taskId] ? labelOf(items[draft.assignment.taskId], items) : draft.labelId ?? '');
   const [taskId, setTaskId] = useState(draft.assignment?.taskId ?? '');
@@ -116,7 +116,7 @@ function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch,
     <label className="agent-launcher-field" title={agent === 'claude' ? 'Claude Code' : 'Codex'}>
       <AgentLogo agent={agent} size={18} /><span className="agent-launcher-field-name">エージェント</span>
       <small>{agent === 'claude' ? 'Claude Code' : 'Codex'}</small>
-      <select autoFocus aria-label="起動するエージェント" value={agent} onChange={event => setAgent(event.target.value as bridge.AgentId)}>
+      <select autoFocus aria-label="起動するエージェント" value={agent} onChange={event => onAgentChange(event.target.value as bridge.AgentId)}>
       <option value="claude">Claude Code</option><option value="codex">Codex</option>
     </select></label>
     <button type="button" className="agent-launcher-field agent-launcher-folder agent-folder-select" aria-label="作業フォルダを選択" title={cwd || 'フォルダを選択'} disabled={choosingFolder} onClick={async () => {
@@ -538,6 +538,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
 
   return <DesktopHandoffContext.Provider value={bridge.taskHandoffSupported ? {
     mcpAvailable,
+    agentName: draft?.agent === 'codex' ? 'Codex' : 'Claude Code',
     openTools: bridge.taskToolsSupported ? openTools : undefined,
     panes: panes.map((pane, index) => ({ id: pane.id, name: `${index + 1}: ${pane.agent === 'claude' ? 'Claude Code' : 'Codex'}${pane.assignment ? ` · ${items[pane.assignment.taskId]?.text || '（不明）'}` : ''}`, busy: Boolean(pane.busy), taskId: pane.assignment?.taskId })), assign,
   } : null}><DesktopInspectorContext.Provider value={{ host: inspectorHost, open: inspectorOpen, setOpen: showInspector, registerTaskOpener, openTask: taskOpener ?? undefined }}><DesktopHeaderContext.Provider value={{ host: headerHost, showTasks }}>
@@ -628,7 +629,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
         <details><summary>エージェント診断</summary><button type="button" className="icon-btn" title="診断を更新" aria-label="診断を更新" disabled={checkingAgents} onClick={() => void checkAgents()}><RotateCcw size={14} /></button>{available.map(agent => <AgentSetup key={agent.id} diagnostic={agent} />)}</details>
         {prefsError ? <p className="agent-error" role="alert">設定を保存できませんでした。</p> : null}
       </div> : null}
-      {draft ? <div className="agent-launcher-stage"><AgentLauncher key={draft.id} draft={draft} items={items} available={available} checking={checkingAgents} onRefresh={() => void checkAgents()} onLaunch={createAgent} onClose={() => setDraft(null)} /></div> : null}
+      {draft ? <div className="agent-launcher-stage"><AgentLauncher key={draft.id} draft={draft} items={items} available={available} checking={checkingAgents} onRefresh={() => void checkAgents()} onLaunch={createAgent} onAgentChange={agent => setDraft(current => current ? { ...current, agent } : null)} onClose={() => setDraft(null)} /></div> : null}
       {!bridge.nativeDesktop ? <p className="agent-error" role="status">エージェントの起動はデスクトップアプリで利用できます。</p> : null}
       {error ? <p className="agent-error" role="alert">{error}</p> : null}
       {storageError ? <p className="agent-error" role="alert">ペインの配置を保存できませんでした。</p> : null}

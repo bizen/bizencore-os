@@ -6,6 +6,7 @@ export type HandoffPane = { id: string; name: string; busy: boolean; taskId?: st
 export const DesktopHandoffContext = createContext<{
   panes: HandoffPane[];
   mcpAvailable: boolean;
+  agentName?: string;
   assign: (paneId: string | null, assignment: PaneAssignment) => string | null;
   openTools?: (mode: 'execute' | 'decompose', taskIds: string[]) => void;
 } | null>(null);

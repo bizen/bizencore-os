@@ -833,6 +833,8 @@ try {
     assert.equal(await page.locator('.is-mascot-drop-target, .mascot-drag-preview').count(), 0);
   };
   assert.equal(await mascot.isVisible(), true);
+  await mascot.hover();
+  await page.getByRole('tooltip').filter({ hasText: 'Claude Code？' }).waitFor();
   await dragMascot('.row--section');
   await dragMascot('.app-header');
   await dragMascot('.row--task .row-title', true);
@@ -854,6 +856,7 @@ try {
   assert.equal(await launcher.getByRole('button', { name: '実行する', exact: true }).getAttribute('aria-pressed'), 'true');
   await launcher.getByRole('button', { name: '作業フォルダを選択', exact: true }).click();
   await launcher.getByRole('combobox', { name: '起動するエージェント', exact: true }).selectOption('codex');
+  await mascot.hover(); await page.getByRole('tooltip').filter({ hasText: 'Codex？' }).waitFor();
   await launcher.getByRole('button', { name: '起動する', exact: true }).click();
   await page.locator('.agent-status-running').waitFor();
   const mascotStart = await page.evaluate(() => window.__desktopTest.calls.find(call => call.command === 'desktop_start'));

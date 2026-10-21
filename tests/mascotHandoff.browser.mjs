@@ -121,7 +121,8 @@ try {
   assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).scale), 'none', 'provided artwork keeps its original orientation');
   assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).width), '108px', 'mascot is only ten percent smaller');
   await mascot().hover();
-  await page.locator('.mascot-question').waitFor();
+  await page.getByRole('tooltip').filter({ hasText: 'Codex？' }).waitFor();
+  assert.equal(await page.locator('.mascot-question').count(), 0, 'thought bubble replaces the isolated question mark');
   await openSettings();
   assert.equal(await settings().getByLabel('エージェント', { exact: true }).inputValue(), 'codex');
   assert.equal(await settings().getByLabel('渡し方', { exact: true }).inputValue(), 'mcp');
@@ -170,6 +171,9 @@ try {
   for (const agent of ['claude-code', 'codex', 'claude', 'chatgpt']) {
     await openSettings();
     await settings().getByLabel('エージェント', { exact: true }).selectOption(agent);
+    await page.keyboard.press('Escape'); await mascot().hover();
+    assert.equal(await page.getByRole('tooltip').innerText(), ({ 'claude-code': 'Claude Code', codex: 'Codex', claude: 'Claude', chatgpt: 'ChatGPT' })[agent] + '？');
+    await openSettings();
     await settings().getByRole('button', { name: '実行する', exact: true }).click();
     await selectTask();
     const action = handoff().locator('.mascot-handoff-action');
@@ -259,6 +263,12 @@ try {
     assert.ok(await handoff().evaluate(el => el.scrollWidth <= el.clientWidth + 1));
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.screenshot({ path: '/private/tmp/bizencore-mascot-' + theme + '-' + width + '.png' });
+    await page.keyboard.press('Escape'); await mascot().hover();
+    const thought = page.getByRole('tooltip'); await thought.waitFor();
+    assert.ok(await thought.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0; }), 'thought bubble stays in viewport');
+    assert.equal(await thought.evaluate(el => getComputedStyle(el).pointerEvents), 'none');
+    assert.equal(await mascot().getAttribute('aria-describedby'), await thought.getAttribute('id'));
+    if ((theme === 'black' && width === 1280) || (theme === 'white' && width === 320)) await page.screenshot({ path: '/private/tmp/bizencore-mascot-thought-' + theme + '-' + width + '.png' });
   }
 
   await page.evaluate(() => fixtureNavigate('/count'));
