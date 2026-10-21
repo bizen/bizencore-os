@@ -64,3 +64,16 @@ test('consultation does not imply execution and refreshing the task preserves th
   assert.match(TASK_START_INSTRUCTIONS, /Do not treat a settled design or sufficient information alone as permission/);
   assert.match(TASK_START_INSTRUCTIONS, /Do not record progress or add subtasks merely because you are waiting for this initial intent answer/);
 });
+
+test('handoffs retain consent before desktop assignment and keep external clients compatible', () => {
+  for (const intent of [undefined, 'consult', 'execute']) {
+    const prompt = workOnTaskInstructions('task-1', false, intent);
+    assert.match(prompt, /If start_task is available in a normal interactive bizencore desktop terminal/);
+    assert.match(prompt, /intent \(consult or execute\)/);
+    assert.match(prompt, /Creation, reading and waiting for the initial intent answer alone must not assign/);
+    assert.match(prompt, /explicitly changes consultation to execution/);
+    assert.match(prompt, /Re-reading a task does not reset intent or require another start notification/);
+    assert.match(prompt, /If start_task is not offered, continue the normal workflow without calling it/);
+    assert.match(prompt, /Dedicated orchestration\/decomposition workers must not call it/);
+  }
+});

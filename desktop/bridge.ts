@@ -11,6 +11,7 @@ export type AccessGrant = { userId: string; expiresAt: number };
 export type ResumeEvent = { authorized: boolean; reauthorize: boolean };
 export type OrchestrationHandoff = { taskId: string; reply: string };
 export type StartArgs = { id: string; agent: AgentId; cwd: string; cols: number; rows: number; handoff?: PaneAssignment & { prompt: string }; resumeSessionId?: string; orchestration?: OrchestrationHandoff };
+export type TaskStartRequest = { requestId: string; paneId: string; assignment: PaneAssignment; expiresAt: number };
 export type DesktopBridge = {
   checkUpdate?: () => Promise<{ version: string; pageUrl: string; sha256: string; size: number } | null>;
   openUpdate?: () => Promise<void>;
@@ -31,6 +32,8 @@ export type DesktopBridge = {
   conversations?: (agent: AgentId, cwd: string) => Promise<Conversation[]>;
   openExternal?: (url: string) => Promise<void>;
   notify?: (value: PaneNotification) => Promise<void>;
+  onTaskStart?: (callback: (request: TaskStartRequest) => void) => () => void;
+  replyTaskStart?: (requestId: string, error: string | null) => Promise<void>;
   onFocusPane?: (callback: (paneId: string) => void) => () => void;
   folder: () => Promise<string | null>;
   taskRun?: (request: WorkRequest) => Promise<WorkReply>;
@@ -95,3 +98,6 @@ export const write = (id: string, data: string) => required().write(id, data);
 export const resize = (id: string, cols: number, rows: number) => required().resize(id, cols, rows);
 export const acknowledgeOutput = (id: string, streamId: string, sequence: number) => electron?.acknowledgeOutput?.(id, streamId, sequence) ?? Promise.resolve();
 export const stop = (id: string) => required().stop(id);
+
+export const onTaskStart = (callback: (request: TaskStartRequest) => void) => electron?.onTaskStart?.(callback) ?? (() => {});
+export const replyTaskStart = (requestId: string, error: string | null) => electron?.replyTaskStart?.(requestId, error) ?? unavailable('担当タスクの反映');

@@ -9,10 +9,26 @@ export const DEV_CONVEX = profiles.preview.convexUrl;
 const BODY_LIMIT = 2 * 1024 * 1024;
 
 // Only a per-pane capability reaches the CLI. The Clerk JWT stays in the main process.
-export async function createDesktopMcp({ access, readApp, convexUrl = DEV_CONVEX, fetchData = fetch }) {
+export async function createDesktopMcp({ access, readApp, startTask, convexUrl = DEV_CONVEX, fetchData = fetch }) {
   const site = desktopMcpSite(convexUrl);
   const capabilities = new Map();
   const instance = createBizencoreMcp({
+    ...(startTask ? { startTask: async (ctx, taskId, intent) => {
+      const token = ctx.http?.authInfo?.token;
+      const capability = capabilities.get(token);
+      const check = () => {
+        const current = access();
+        if (!capability || capabilities.get(token) !== capability || current.generation !== capability.generation || current.userId !== capability.userId) throw new Error('Desktop MCP access expired');
+        if (capability.policy) throw new Error('専用のオーケストレーション・分解では担当を追加できません');
+      };
+      check();
+      const detail = await readTask(taskId, capability.controller.signal);
+      check();
+      if (detail.task.id !== taskId || detail.task.done || detail.task.filed || detail.task.deletedAt) throw new Error('未完了のタスクを選択してください');
+      const result = await startTask(capability.paneId, { taskId, intent, mode: 'mcp' }, capability.controller.signal);
+      check();
+      return result;
+    } } : {}),
     signingKey: randomBytes(32), readApp: () => readFile(readApp, 'utf8'),
     fetchData: async (ctx, operation, body) => {
       const token = ctx.http?.authInfo?.token;

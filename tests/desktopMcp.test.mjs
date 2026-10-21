@@ -249,3 +249,44 @@ test('an older backend cannot silently downgrade scoped completion to bulk compl
     assert.ok(calls[0].endsWith('/complete-scoped'));
   } finally { await local.close(); }
 });
+
+test('desktop start_task binds the calling pane only after an explicit start and validates latest task and access', async () => {
+  let grant = { userId: 'alice', generation: 1, token: 'jwt' };
+  const started = [], reads = [];
+  const local = await createDesktopMcp({ access: () => grant, readApp: '/unused',
+    fetchData: async (url, options) => {
+      const body = JSON.parse(options.body); reads.push(body.taskId);
+      return Response.json({ task: { id: body.taskId, done: body.taskId === 'done', filed: body.taskId === 'filed', deletedAt: body.taskId === 'deleted' ? 1 : undefined } });
+    },
+    startTask: async (paneId, assignment, signal) => {
+      assert.equal(signal.aborted, false);
+      if (assignment.taskId === 'full') throw new Error('担当タスクは3件までです');
+      started.push({ paneId, ...assignment }); return { assigned: true, task_id: assignment.taskId };
+    },
+  });
+  const cap = local.issue('pane-a', 'codex');
+  const rpc = (capability, name, args) => fetch(capability.url, { method: 'POST', headers: { Authorization: `Bearer ${capability.token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+  try {
+    await (await rpc(cap, 'work_on_task', { task_id: 'existing' })).text();
+    await (await rpc(cap, 'add_task', { text: 'New task' })).text();
+    assert.equal(started.length, 0, 'creation and reads never assign a task');
+    assert.match(await (await rpc(cap, 'start_task', { task_id: 'existing', intent: 'consult' })).text(), /assigned/);
+    assert.match(await (await rpc(cap, 'start_task', { task_id: 'new', intent: 'execute' })).text(), /assigned/);
+    assert.deepEqual(started, [
+      { paneId: 'pane-a', taskId: 'existing', intent: 'consult', mode: 'mcp' },
+      { paneId: 'pane-a', taskId: 'new', intent: 'execute', mode: 'mcp' },
+    ]);
+    for (const id of ['done', 'filed', 'deleted']) assert.match(await (await rpc(cap, 'start_task', { task_id: id, intent: 'execute' })).text(), /未完了/);
+    assert.match(await (await rpc(cap, 'start_task', { task_id: 'full', intent: 'execute' })).text(), /3件/);
+    assert.equal(started.length, 2);
+    const scoped = local.issue('scoped', 'claude', { taskIds: ['existing'], readOnly: false });
+    const before = reads.length;
+    assert.match(await (await rpc(scoped, 'start_task', { task_id: 'existing', intent: 'execute' })).text(), /担当を追加できません/);
+    assert.equal(reads.length, before, 'scoped sessions cannot expand their assigned work');
+    local.revoke(cap.token);
+    assert.equal((await rpc(cap, 'start_task', { task_id: 'new', intent: 'execute' })).status, 401);
+    const stale = local.issue('stale', 'claude');
+    grant = { ...grant, generation: 2, userId: 'bob' };
+    assert.equal((await rpc(stale, 'start_task', { task_id: 'new', intent: 'execute' })).status, 401);
+  } finally { await local.close(); }
+});

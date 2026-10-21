@@ -171,12 +171,23 @@ Clerk may retain encrypted client state without an active session.
 
 ## Task assignments
 
-Each stopped pane can choose a label and then a task. The task inspector can
-also assign its current task and consultation/execution intent to a stopped or
-new pane. Assignment alone does not launch an agent. An explicit launch asks
-for confirmation and passes the handoff as one positional CLI argument without
-a shell, extra permissions or automatic terminal keystrokes. Running panes
-cannot change assignments; one task cannot be assigned to two panes.
+Each pane can hold up to three tasks, including tasks from different labels.
+Labels and tasks are optional at launch. Once a conversation establishes the
+task and consultation/execution intent, the agent calls the desktop-only
+`start_task(task_id, intent)` to add it without restarting the terminal. Creating
+or reading a task alone does not assign it. Repeating an ID updates its intent;
+a consultation-to-execution change still requires the user's explicit agreement.
+Completed assignments count until removed. A fourth task leaves existing
+assignments intact and reports that one must be removed or another terminal used.
+Removing an assignment does not stop work already running. One task cannot be
+assigned to two panes. Dedicated orchestration/decomposition cannot add assignments.
+
+The task inspector and pane picker can assign tasks manually, including while
+running. Assignment alone does not launch an agent. An explicit new launch asks
+for confirmation and passes each unfinished task's intent in one positional CLI
+argument without a shell or automatic terminal keystrokes. Legacy single-task
+workspace data is restored as one assignment; layout and selected-agent state
+from 0.1.33 are preserved.
 
 The assigned title and direct-subtask completion counts follow the shared task
 store. A stopped or exited agent never marks a task complete; only synchronized

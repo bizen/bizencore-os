@@ -160,7 +160,7 @@ function TaskAiHandoff({ item, items, canUseMcp }: { item: Item; items: ItemMap;
       {desktop ? <div className="desktop-inspector-handoff">
         <select aria-label="ハンドオフ先のペイン" value={paneId} onChange={event => setPaneId(event.target.value)}>
           <option value="new" disabled={desktop.panes.length >= 8}>新しいペイン</option>
-          {desktop.panes.map(pane => <option key={pane.id} value={pane.id} disabled={pane.busy}>{pane.name}{pane.busy ? ' · 起動中' : ''}</option>)}
+          {desktop.panes.map(pane => <option key={pane.id} value={pane.id}>{pane.name}{pane.busy ? ' · 起動中' : ''}</option>)}
         </select>
         <button type="button" className="inspector-ai-btn" disabled={item.done || (paneId === 'new' && desktop.panes.length >= 8)} onClick={() => {
           const error = desktop.assign(paneId === 'new' ? null : paneId, { taskId: item.id, intent, mode });

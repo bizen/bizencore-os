@@ -1,7 +1,7 @@
 import type { AgentId } from './bridge';
 import type { PaneAssignment } from '../src/lib/desktopHandoff';
 
-export type SavedPane = { id: string; agent: AgentId; cwd: string; assignment?: PaneAssignment; resumeSessionId?: string; labelId?: string };
+export type SavedPane = { id: string; agent: AgentId; cwd: string; assignments?: PaneAssignment[]; resumeSessionId?: string; labelId?: string };
 export type WorkspaceState = { version: 1; panes: SavedPane[]; width: number; height: number; orientation: 'columns' | 'rows'; inspectorWidth: number; expanded: boolean; layout: 'grid' | 'tabs'; lastCwd?: string };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -23,11 +23,14 @@ export function normalizeWorkspace(value: unknown): WorkspaceState | null {
     const pane: SavedPane = { id: raw.id, agent: raw.agent, cwd };
     if (cwd && typeof raw.resumeSessionId === 'string' && uuid.test(raw.resumeSessionId)) pane.resumeSessionId = raw.resumeSessionId;
     if (typeof raw.labelId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(raw.labelId)) pane.labelId = raw.labelId;
-    const assignment = raw.assignment;
-    if (object(assignment) && typeof assignment.taskId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(assignment.taskId) && !taskIds.has(assignment.taskId) &&
-      (assignment.intent === 'consult' || assignment.intent === 'execute') && (assignment.mode === 'mcp' || assignment.mode === 'text')) {
-      pane.assignment = { taskId: assignment.taskId, intent: assignment.intent, mode: assignment.mode };
-      taskIds.add(assignment.taskId);
+    const assignments = Array.isArray(raw.assignments) ? raw.assignments : raw.assignment ? [raw.assignment] : [];
+    for (const assignment of assignments) {
+      if ((pane.assignments?.length ?? 0) >= 3) break;
+      if (object(assignment) && typeof assignment.taskId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(assignment.taskId) && !taskIds.has(assignment.taskId) &&
+        (assignment.intent === 'consult' || assignment.intent === 'execute') && (assignment.mode === 'mcp' || assignment.mode === 'text')) {
+        (pane.assignments ??= []).push({ taskId: assignment.taskId, intent: assignment.intent, mode: assignment.mode });
+        taskIds.add(assignment.taskId);
+      }
     }
     panes.push(pane);
   }

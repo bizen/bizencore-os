@@ -20,6 +20,7 @@ import { captureOwnedCodexProcessSession } from './conversations.mjs';
 import { attachDesktopLifecycle, restoreWindowBounds } from './lifecycle.mjs';
 import { createDesktopNotifications, externalWebUrl } from './notifications.mjs';
 import { installMacAuthentication } from './mac-auth.mjs';
+import { createTaskStartRequests } from './task-start-requests.mjs';
 import { createDesktopMcp } from './dev-mcp.mjs';
 import { isolatedMcpLaunch } from './mcp-launch.mjs';
 import { TerminalOutput } from './terminal-output.mjs';
@@ -104,6 +105,9 @@ const validation = validationEnabled(process.argv, config) ? createRuntimeValida
 const send = (channel, ...args) => {
   if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, ...args);
 };
+const taskStarts = createTaskStartRequests(request => send('bizencore:task-start', request));
+command('task-start-reply', (_event, requestId, error) => taskStarts.reply(requestId, error));
+
 function stopOwnedSession(id, session) {
   return shutdowns.run(id, async () => {
     stopping.add(session.terminal.pid);
@@ -675,6 +679,10 @@ if (clerk.isPrimaryInstance) app.whenReady().then(async () => {
   });
   if (mcpSupported) desktopMcp = await createDesktopMcp({
     convexUrl: profile.convexUrl,
+    startTask: (id, assignment, signal) => {
+      if (!sessions.has(id) || sessions.get(id).ended || orchestrations.has(id)) throw new Error('通常の実行中ターミナルでのみ担当を追加できます');
+      return taskStarts.request(id, assignment, signal);
+    },
     readApp: path.join(root, 'dist-mcp/index.html'),
     fetchData: (url, options) => net.fetch(url, options),
     access: () => {

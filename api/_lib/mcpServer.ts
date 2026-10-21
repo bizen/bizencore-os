@@ -3,13 +3,14 @@ import { acceptedContent, createRequestStateCodec, inputRequired, inputResponse 
 import type { CallToolResult, InputRequiredResult, ServerContext } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'mcp-handler';
 import { z } from 'zod';
-import { TASK_PICKER_PENDING, TASK_SELECTION_INSTRUCTIONS, TASK_START_INSTRUCTIONS, workOnTaskInstructions } from '../../src/lib/taskWorkPrompt.js';
+import { TASK_PICKER_PENDING, TASK_SELECTION_INSTRUCTIONS, TASK_START_INSTRUCTIONS, TASK_ASSIGNMENT_INSTRUCTIONS, workOnTaskInstructions } from '../../src/lib/taskWorkPrompt.js';
 import { MAX_ATTACHMENT_TEXT, MAX_ATTACHMENT_TITLE } from '../../src/lib/attachments.js';
 
 type McpOptions = {
   signingKey: Uint8Array;
   fetchData: (ctx: ServerContext, path: string, body: Record<string, unknown>) => Promise<unknown>;
   readApp: () => Promise<string>;
+  startTask?: (ctx: ServerContext, taskId: string, intent: 'consult' | 'execute') => Promise<unknown>;
 };
 
 // Authentication and backend credentials belong to the host, not the shared tools.
@@ -318,6 +319,14 @@ export function createBizencoreMcp(options: McpOptions) {
 
   const handler = createMcpHandler(
     (server) => {
+      if (options.startTask) server.registerTool('start_task', {
+        description: 'For normal interactive desktop terminals only; dedicated orchestration and decomposition workers must not call this tool. Add a task to this terminal’s existing assignments (maximum three), or update its confirmed consultation/execution intent. Call only after the user has agreed to work on this task, including when selected or created during an ongoing chat. Creation and reading alone do not qualify. Does not launch a terminal, implement anything, or complete tasks. If it fails, resolve the assignment before starting the task.',
+        inputSchema: z.object({ task_id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), intent: z.enum(['consult', 'execute']) }),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      }, async ({ task_id, intent }, ctx) => {
+        try { return json(await options.startTask!(ctx, task_id, intent)); }
+        catch (error) { return toolError(error); }
+      });
       registerAppTool(
         server,
         'open_task_picker',
@@ -406,7 +415,7 @@ export function createBizencoreMcp(options: McpOptions) {
         'work_on_task',
         {
           title: 'Choose a label and task, then confirm how to proceed',
-          description: 'With task_id, read the selected task afresh, bypassing all selection UI. Summarize the goal, current state and remaining work. If the user explicitly selected consultation or execution in their agent handoff, follow that confirmed intent without asking again. Otherwise ask how they want to proceed and wait before implementation or task changes. Keep an already answered intent for this task in the same conversation. Without task_id, open native label/task elicitation forms only as the fallback when MCP Apps is unavailable. Use open_task_picker first in MCP Apps-capable hosts and wait for selection; do not call the no-ID form while that picker is pending. If native forms are also unsupported, use list_tasks to offer plain numbered labels and then numbered tasks, wait for the number, and call this tool with the exact task_id. Native forms support search/pagination; label skips the label form and today: true limits tasks to today.',
+          description: 'With task_id, read the selected task afresh, bypassing all selection UI. Summarize the goal, current state and remaining work. If the user explicitly selected consultation or execution in their agent handoff, follow that confirmed intent without asking again. Otherwise ask how they want to proceed and wait before implementation or task changes. Keep an already answered intent for this task in the same conversation. Without task_id, open native label/task elicitation forms only as the fallback when MCP Apps is unavailable. Use open_task_picker first in MCP Apps-capable hosts and wait for selection; do not call the no-ID form while that picker is pending. If native forms are also unsupported, use list_tasks to offer plain numbered labels and then numbered tasks, wait for the number, and call this tool with the exact task_id. Native forms support search/pagination; label skips the label form and today: true limits tasks to today. ' + TASK_ASSIGNMENT_INSTRUCTIONS,
           inputSchema: z.object({
             task_id: z.string().optional(),
             query: z.string().max(200).optional(),
@@ -655,7 +664,7 @@ export function createBizencoreMcp(options: McpOptions) {
     },
     {
       serverInfo: { name: 'bizencore', version: '0.1.0' },
-      instructions: INSTRUCTIONS,
+      instructions: `${INSTRUCTIONS} ${TASK_ASSIGNMENT_INSTRUCTIONS}`,
       requestState: { verify: confirmationState.verify },
     }
   );

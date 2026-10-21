@@ -17,6 +17,11 @@ const { outputFiles } = await build({
     const fixture = window.__desktopTest;
     fixture.store = taskStore;
     fixture.terminals = [];
+    fixture.createTask = id => {
+      const now = Date.now() + 10000;
+      taskStore.mergeRemote([{ itemId: id, updatedAt: now, payload: JSON.stringify({ id, type: 'task', parentId: 'late-label', order: 5, text: id, done: false, createdAt: now, updatedAt: now }) }]);
+    };
+
     const openTerminal = Terminal.prototype.open;
     Terminal.prototype.open = function(host) {
       if (host.closest('.agent-pane')) fixture.terminals.push(this);
@@ -69,6 +74,8 @@ const { outputFiles } = await build({
         resize: (id, cols, rows) => Promise.resolve(handler('desktop_resize', { id, cols, rows })),
         acknowledgeOutput: (id, streamId, sequence) => Promise.resolve(handler('desktop_ack', { id, streamId, sequence })),
         stop: id => Promise.resolve(handler('desktop_stop', { id })),
+        onTaskStart: callback => { fixture.taskStart = callback; return () => { fixture.taskStart = undefined; }; },
+        replyTaskStart: async (requestId, error) => { fixture.calls.push({ command: 'task-start-reply', requestId, error }); },
         onEvent: callback => { listeners.add(callback); return () => listeners.delete(callback); },
       };
     }
@@ -89,7 +96,7 @@ const css = (await readFile('src/index.css', 'utf8')) + (await readFile('desktop
 const html = `<style>${css}</style><div id="root"></div><script>${outputFiles[0].text}</script>`;
 const browser = await chromium.launch({ ...(process.env.PLAYWRIGHT_CHROME_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHROME_CHANNEL } : {}), ...(process.env.DESKTOP_GPU_DISABLED === '1' ? { args: ['--disable-webgl'] } : {}) });
 try {
-  const page = await browser.newPage({ viewport: { width: 1380, height: 900 } });
+  let page = await browser.newPage({ viewport: { width: 1380, height: 900 } });
   const chooseLayout = async name => {
     await page.getByRole('button', { name: '配置', exact: true }).click();
     const popup = page.locator('#agent-layout-options');
@@ -507,8 +514,8 @@ try {
     assert.equal(handoff.intent, 'execute');
     assert.match(handoff.prompt, mcp ? /work_on_task.*task_id/ : /次のタスクを実行/);
     assert.match(handoff.prompt, mcp ? /record_task_progress/ : /進捗の自動反映はできません/);
-    assert.equal(await pane.getByRole('button', { name: '担当タスクを外す' }).isEnabled(), false);
-    assert.equal(await pane.getByRole('button', { name: '担当タスクを選択' }).isEnabled(), false);
+    assert.equal(await pane.getByRole('button', { name: '担当タスクを外す' }).isEnabled(), true);
+    assert.equal(await pane.getByRole('button', { name: '担当タスクを選択' }).isEnabled(), true);
     assert.match(await pane.locator('.agent-assignment').textContent(), /送信済み/);
     await page.screenshot({ path: '/private/tmp/bizencore-desktop-task-handoff.png' });
     await pane.getByRole('button', { name: '担当タスクの詳細を開く', exact: true }).click();
@@ -874,5 +881,62 @@ try {
   assert.equal(await page.locator('.agent-pane').count(), 1);
   assert.deepEqual(errors, []);
   await page.screenshot({ path: '/private/tmp/bizencore-desktop-mascot.png' });
+  if (mcp) {
+    await page.close();
+    page = await browser.newPage({ viewport: { width: 1380, height: 900 } });
+    page.on('dialog', dialog => dialog.accept());
+    await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: html }));
+    await page.addInitScript(() => {
+      if (localStorage.getItem('late-test-seeded')) return;
+      localStorage.setItem('late-test-seeded', '1');
+      const now = Date.now();
+      const items = ['late-a', 'late-b', 'late-c'].map((id, index) => ({ id, type: 'task', parentId: index % 2 ? 'late-label' : null, order: index, text: id, done: false, createdAt: now, updatedAt: now }));
+      localStorage.setItem('chrct.tasks.v2', JSON.stringify([{ id: 'late-label', type: 'section', parentId: null, order: 0, text: 'Another label', createdAt: now, updatedAt: now }, ...items]));
+    });
+    await page.goto('http://127.0.0.1/');
+    await page.locator('.splash-root').waitFor({ state: 'detached' });
+    await page.getByRole('button', { name: 'エージェントを追加', exact: true }).click();
+    const lateLauncher = page.getByRole('form', { name: 'エージェントを起動する', exact: true });
+    await lateLauncher.getByRole('button', { name: '作業フォルダを選択', exact: true }).click();
+    await lateLauncher.getByRole('button', { name: '起動する', exact: true }).click();
+    const latePane = page.locator('.agent-pane');
+    await latePane.locator('.agent-status-running').waitFor();
+    assert.equal(await latePane.locator('.agent-assignment').count(), 0);
+    const starts = await page.evaluate(() => window.__desktopTest.calls.filter(value => value.command === 'desktop_start').length);
+    const startTask = async (taskId, intent = 'consult') => {
+      const requestId = taskId + ':' + intent + ':' + Date.now();
+      await page.evaluate(({ requestId, taskId, intent }) => {
+        const paneId = document.querySelector('.agent-pane').id.replace(/^pane-/, '');
+        window.__desktopTest.taskStart({ requestId, paneId, assignment: { taskId, intent, mode: 'mcp' }, expiresAt: Date.now() + 5000 });
+      }, { requestId, taskId, intent });
+      await page.waitForFunction(requestId => window.__desktopTest.calls.some(value => value.command === 'task-start-reply' && value.requestId === requestId), requestId);
+      return page.evaluate(requestId => window.__desktopTest.calls.find(value => value.command === 'task-start-reply' && value.requestId === requestId).error, requestId);
+    };
+    for (const taskId of ['late-a', 'late-b', 'late-c']) assert.equal(await startTask(taskId), null);
+    assert.equal(await latePane.locator('.agent-assignment').count(), 3);
+    assert.match(await latePane.locator('.agent-assignment').nth(1).textContent(), /Another label/);
+    await page.evaluate(() => window.__desktopTest.createTask('late-d'));
+    assert.equal(await latePane.locator('.agent-assignment').count(), 3, 'creating a task does not assign it');
+    assert.match(await startTask('late-d'), /3件/);
+    assert.equal(await startTask('late-b', 'execute'), null);
+    assert.equal(await latePane.locator('.agent-assignment').count(), 3);
+    assert.match(await latePane.locator('.agent-assignment').nth(1).textContent(), /実行/);
+    assert.equal(await page.locator('.agent-pane').count(), 1);
+    assert.equal(await page.evaluate(() => window.__desktopTest.calls.filter(value => value.command === 'desktop_start').length), starts, 'late assignment never restarts the terminal');
+    await latePane.locator('.agent-assignment').first().getByRole('button', { name: '担当タスクを外す', exact: true }).click();
+    assert.equal(await startTask('late-d'), null);
+    await page.waitForFunction(() => Object.keys(localStorage).some(key => key.startsWith('bizencore.desktop.workspace.') && JSON.parse(localStorage[key]).panes?.[0]?.assignments?.some(value => value.taskId === 'late-d')));
+    await page.reload();
+    await page.locator('.splash-root').waitFor({ state: 'detached' });
+    await page.locator('.agent-assignment').nth(2).waitFor();
+    assert.equal(await page.locator('.agent-assignment').count(), 3);
+    assert.equal(await page.locator('.agent-status-running').count(), 0, 'restoring assignments never starts work');
+    await latePane.getByRole('button', { name: 'エージェントを起動', exact: true }).click();
+    await latePane.locator('.agent-status-running').waitFor();
+    const combined = await page.evaluate(() => window.__desktopTest.calls.find(value => value.command === 'desktop_start').handoff.prompt);
+    for (const taskId of ['late-b', 'late-c', 'late-d']) assert.ok(combined.includes(taskId), 'all assigned tasks are handed off');
+    assert.match(combined, /実行する/);
+    assert.match(combined, /検討する/);
+  }
   console.log('Passed: Electron workspace layout, centered 2x2 launcher, setup help, font/search/web links, specific session resume without handoff, verified completion notification and pane focus, terminal continuity and eight-pane limit (mock native IPC).');
 } finally { await browser.close(); }

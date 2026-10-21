@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bot, Columns2, ExternalLink, FolderOpen, Link2, ListTodo, Maximize2, Minimize2, Minus, PanelsTopLeft, Play, Plus, RotateCcw, Rows2, Search, Settings2, Square, Tag, X } from 'lucide-react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -23,11 +23,12 @@ import { readTerminalTheme } from './terminal-theme';
 import { TaskScrollRail } from '../src/components/TaskScrollRail';
 import { defaultUiPrefs, readUiPrefs, uiPrefsKey, writeUiPrefs, type UiPrefs } from './ui-prefs';
 import { completedAssignments } from './task-notifications';
+import { addAssignment } from './task-assignments';
 import { TaskTools, type ToolsIntent } from './TaskTools';
 import { AgentTaskAssignment } from './AgentTaskAssignment';
 import { AgentLogo } from './AgentLogo';
 
-type Pane = { id: string; agent: bridge.AgentId; cwd: string; assignment?: PaneAssignment; labelId?: string; resumeSessionId?: string; busy?: boolean; sentAt?: number; launchRequested?: boolean };
+type Pane = { id: string; agent: bridge.AgentId; cwd: string; assignments?: PaneAssignment[]; labelId?: string; resumeSessionId?: string; busy?: boolean; launchRequested?: boolean };
 const newPane = (cwd = ''): Pane => ({ id: crypto.randomUUID(), agent: 'claude', cwd });
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -93,9 +94,9 @@ function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch,
 }) {
   const agent = draft.agent;
   const [cwd, setCwd] = useState(draft.cwd);
-  const [label, setLabel] = useState(draft.assignment && items[draft.assignment.taskId] ? labelOf(items[draft.assignment.taskId], items) : draft.labelId ?? '');
-  const [taskId, setTaskId] = useState(draft.assignment?.taskId ?? '');
-  const [intent, setIntent] = useState<PaneAssignment['intent']>(draft.assignment?.intent ?? 'consult');
+  const [label, setLabel] = useState(draft.assignments?.[0] && items[draft.assignments[0].taskId] ? labelOf(items[draft.assignments[0].taskId], items) : draft.labelId ?? '');
+  const [taskId, setTaskId] = useState(draft.assignments?.[0]?.taskId ?? '');
+  const [intent, setIntent] = useState<PaneAssignment['intent']>(draft.assignments?.[0]?.intent ?? 'consult');
   const [error, setError] = useState('');
   const [choosingFolder, setChoosingFolder] = useState(false);
   const selectedAgent = available.find(value => value.id === agent);
@@ -104,8 +105,8 @@ function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch,
   const tasks = Object.values(items).filter(item => isLive(item) && item.type === 'task' && !item.done && !item.filed && labelOf(item, items) === label).sort(compareItems);
   return <form className="agent-launcher" aria-label="エージェントを起動する" onSubmit={event => {
     event.preventDefault();
-    const assignment = taskId ? { taskId, intent, mode: draft.assignment?.mode ?? (mcpAvailable ? 'mcp' : 'text') } as PaneAssignment : undefined;
-    const failure = onLaunch({ ...draft, agent, cwd, labelId: label || undefined, assignment, resumeSessionId: undefined, launchRequested: true });
+    const assignment = taskId ? { taskId, intent, mode: draft.assignments?.[0]?.mode ?? (mcpAvailable ? 'mcp' : 'text') } as PaneAssignment : undefined;
+    const failure = onLaunch({ ...draft, agent, cwd, labelId: label || undefined, assignments: assignment ? [assignment] : [], resumeSessionId: undefined, launchRequested: true });
     if (failure) setError(failure);
   }} onKeyDown={event => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) { if (event.key === 'Enter') event.preventDefault(); return; }
@@ -127,7 +128,7 @@ function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch,
     }}><FolderOpen size={20} aria-hidden /><span className="agent-launcher-field-name">作業フォルダ</span><small>{choosingFolder ? '選択中…' : cwd.split(/[\\/]/).filter(Boolean).at(-1) || cwd || '未選択'}</small></button>
     {bridge.taskHandoffSupported ? <>
       <label className="agent-launcher-field" title={items[label]?.text || 'ラベルなし'}>
-        <Tag size={20} aria-hidden /><span className="agent-launcher-field-name">ラベル</span>
+        <Tag size={20} aria-hidden /><span className="agent-launcher-field-name">ラベル<span className="agent-launcher-optional">（任意）</span></span>
         <small>{items[label]?.text || 'ラベルなし'}</small>
         <select aria-label="ラベル" value={label} onChange={event => { setLabel(event.target.value); setTaskId(''); }}>
         <option value="">ラベルなし</option>{labels.map(item => <option key={item.id} value={item.id}>{item.text || '（無題）'}</option>)}
@@ -147,9 +148,9 @@ function AgentLauncher({ draft, items, available, checking, onRefresh, onLaunch,
   </form>;
 }
 function TaskAssignmentPicker({ pane, items, onAssign, onClose }: { pane: Pane; items: ItemMap; onAssign: (value: PaneAssignment) => string | null; onClose: () => void }) {
-  const [label, setLabel] = useState(pane.assignment && items[pane.assignment.taskId] ? labelOf(items[pane.assignment.taskId], items) : pane.labelId ?? '');
-  const [taskId, setTaskId] = useState(pane.assignment?.taskId ?? '');
-  const [intent, setIntent] = useState<PaneAssignment['intent']>(pane.assignment?.intent ?? 'consult');
+  const [label, setLabel] = useState(pane.assignments?.[0] && items[pane.assignments[0].taskId] ? labelOf(items[pane.assignments[0].taskId], items) : pane.labelId ?? '');
+  const [taskId, setTaskId] = useState(pane.assignments?.[0]?.taskId ?? '');
+  const [intent, setIntent] = useState<PaneAssignment['intent']>(pane.assignments?.[0]?.intent ?? 'consult');
   const [error, setError] = useState('');
   const labels = Object.values(items).filter(item => isLive(item) && item.type === 'section').sort(compareItems);
   const tasks = Object.values(items).filter(item => isLive(item) && item.type === 'task' && !item.done && !item.filed && labelOf(item, items) === label).sort(compareItems);
@@ -162,7 +163,7 @@ function TaskAssignmentPicker({ pane, items, onAssign, onClose }: { pane: Pane; 
     </select>
     <HandoffIntentControl intent={intent} onChange={setIntent} />
     <div className="agent-assignment-actions"><button type="button" className="ghost-btn" disabled={!tasks.some(item => item.id === taskId)} onClick={() => {
-      const failure = onAssign({ taskId, intent, mode: pane.assignment?.mode ?? (mcpAvailable ? 'mcp' : 'text') });
+      const failure = onAssign({ taskId, intent, mode: pane.assignments?.[0]?.mode ?? (mcpAvailable ? 'mcp' : 'text') });
       if (failure) setError(failure); else onClose();
     }}><Link2 size={14} />割り当て</button><button type="button" className="icon-btn" title="閉じる" aria-label="タスク選択を閉じる" onClick={onClose}><X size={14} /></button></div>
     {error ? <p role="alert" className="agent-error">{error}</p> : null}
@@ -170,7 +171,7 @@ function TaskAssignmentPicker({ pane, items, onAssign, onClose }: { pane: Pane; 
 }
 
 function AgentPane({ pane, items, available, update, reportBusy, assign, close, hidden, zoomed, onZoom, onSelect, onStarted, fontSize }: {
-  pane: Pane; items: ItemMap; available: bridge.AgentDiagnostic[]; update: (next: Pane) => void;
+  pane: Pane; items: ItemMap; available: bridge.AgentDiagnostic[]; update: (next: Pane | ((current: Pane) => Pane)) => void;
   reportBusy: (id: string, busy: boolean) => void; assign: (id: string | null, assignment: PaneAssignment) => string | null; close: () => void;
   hidden: boolean; zoomed: boolean; onZoom: () => void; onSelect: () => void; onStarted: (cwd: string) => void; fontSize: number;
 }) {
@@ -193,10 +194,12 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
   const [searchResult, setSearchResult] = useState<{ resultIndex: number; resultCount: number } | null>(null);
   const busy = status === 'starting' || status === 'running' || status === 'stopping';
   const executable = available.find(agent => agent.id === pane.agent);
-  const assigned = pane.assignment ? items[pane.assignment.taskId] : undefined;
-  const task = isLive(assigned) && assigned.type === 'task' ? assigned : undefined;
-  const canLaunch = pane.resumeSessionId ? resumeReady : !pane.assignment || Boolean(task && task.type === 'task' && !task.done && !task.filed);
-  const children = task ? Object.values(items).filter(item => isLive(item) && item.type === 'task' && item.parentId === task.id) : [];
+  const assignments = pane.assignments ?? [];
+  const launchAssignments = assignments.filter(value => {
+    const task = items[value.taskId];
+    return isLive(task) && task.type === 'task' && !task.done && !task.filed;
+  });
+  const canLaunch = pane.resumeSessionId ? resumeReady : !assignments.length || launchAssignments.length > 0;
   const releaseGpu = () => {
     const renderer = gpu.current;
     gpu.current = null;
@@ -285,8 +288,11 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
 
   const launch = async () => {
     if (busy || !canLaunch || !pane.cwd || !executable?.path || executable.problem) return;
-    const handoff = !pane.resumeSessionId && pane.assignment && task ? { ...pane.assignment, prompt: buildTaskHandoff(task, items, pane.assignment.mode, pane.assignment.intent) } : undefined;
-    if (handoff && !confirm(`「${task!.text || '（無題）'}」を${executable.name}へ渡して${handoff.intent === 'consult' ? '検討' : '実行'}を開始しますか？\n${handoff.mode === 'mcp' ? '同じアカウント・環境のbizencore MCP接続が必要です。' : '現在の内容を送信します。進捗は自動反映できません。'}`)) return;
+    const handoff = !pane.resumeSessionId && launchAssignments.length ? {
+      ...launchAssignments[0],
+      prompt: launchAssignments.map(value => buildTaskHandoff(items[value.taskId], items, value.mode, value.intent)).join('\n\n---\n\n'),
+    } : undefined;
+    if (handoff && !confirm(`${launchAssignments.map(value => `「${items[value.taskId].text || '（無題）'}」を${value.intent === 'consult' ? '検討' : '実行'}`).join('\n')}\n${executable.name}へ渡して開始しますか？`)) return;
     setError(''); setStatus('starting');
     fit.current?.fit();
     const term = terminal.current!;
@@ -313,7 +319,7 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
       }, handoff, pane.resumeSessionId);
       if (!mounted.current) { await bridge.stop(pane.id); return; }
       onStarted(pane.cwd);
-      if (handoff) update({ ...pane, busy: !exited, sentAt: Date.now() });
+      if (handoff) update(current => ({ ...current, busy: !exited, assignments: current.assignments?.map(value => launchAssignments.some(sent => sent.taskId === value.taskId) ? { ...value, sentAt: Date.now() } : value) }));
       if (!exited) { alive.current = true; setStatus('running'); term.focus(); }
     } catch (e) {
       if (mounted.current) { releaseGpu(); setError(message(e)); setStatus('idle'); }
@@ -326,9 +332,11 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
     catch (e) { setError(message(e)); setStatus('running'); }
   };
 
+  const autoLaunch = useEffectEvent(launch);
   useEffect(() => {
-    if (pane.launchRequested && !autoLaunched.current) { autoLaunched.current = true; void launch(); }
-  }, [pane.launchRequested, launch]);
+    if (pane.launchRequested && !autoLaunched.current) { autoLaunched.current = true; void autoLaunch(); }
+  }, [pane.launchRequested]);
+
 
   return <section id={`pane-${pane.id}`} tabIndex={-1} className={`agent-pane${status === 'idle' ? ' is-idle' : ''}`} hidden={hidden} onFocusCapture={onSelect} onPointerDown={onSelect} aria-label={`${executable?.name ?? pane.agent}ペイン`}>
     <header className="agent-pane-head">
@@ -342,8 +350,8 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
         catch (e) { setError(message(e)); }
       }}><FolderOpen size={15} /></button>
       <span className="agent-cwd" title={pane.cwd}>{pane.cwd.split('/').filter(Boolean).at(-1) || 'フォルダ未選択'}</span>
-      {bridge.taskHandoffSupported ? <button type="button" className="icon-btn" disabled={busy} title="担当タスクを選択" aria-label="担当タスクを選択" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}><Link2 size={14} /></button> : null}
-      <button type="button" className="icon-btn" disabled={busy ? status !== 'running' : !canLaunch || !pane.cwd || !executable?.path || Boolean(executable.problem)} title={busy ? '停止' : pane.resumeSessionId ? '会話を再開' : pane.assignment ? 'タスクを渡して起動' : '新しいセッションを起動'} aria-label={busy ? 'エージェントを停止' : 'エージェントを起動'} onClick={() => void (busy ? halt() : launch())}>
+      {bridge.taskHandoffSupported ? <button type="button" className="icon-btn" title="担当タスクを選択" aria-label="担当タスクを選択" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}><Link2 size={14} /></button> : null}
+      <button type="button" className="icon-btn" disabled={busy ? status !== 'running' : !canLaunch || !pane.cwd || !executable?.path || Boolean(executable.problem)} title={busy ? '停止' : pane.resumeSessionId ? '会話を再開' : pane.assignments?.length ? 'タスクを渡して起動' : '新しいセッションを起動'} aria-label={busy ? 'エージェントを停止' : 'エージェントを起動'} onClick={() => void (busy ? halt() : launch())}>
         {busy ? <Square size={14} /> : status === 'exited' ? <RotateCcw size={15} /> : <Play size={15} />}
       </button>
       <button type="button" className="icon-btn" title={zoomed ? '全ペインを表示' : 'このペインを拡大'} aria-label="ペインを拡大・縮小" aria-pressed={zoomed} onClick={onZoom}>{zoomed ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>
@@ -352,10 +360,15 @@ function AgentPane({ pane, items, available, update, reportBusy, assign, close, 
       }}><X size={15} /></button>
     </header>
     {!busy ? <ResumePicker pane={pane} update={update} onReady={setResumeReady} /> : null}
-    {pickerOpen && !busy ? <TaskAssignmentPicker pane={pane} items={items} onAssign={value => assign(pane.id, value)} onClose={() => setPickerOpen(false)} /> : null}
-    {pane.assignment ? <AgentTaskAssignment taskId={pane.assignment.taskId} items={items} onOpenTask={inspector?.openTask}
-      onRemove={() => update({ ...pane, assignment: undefined, sentAt: undefined })} removeDisabled={busy}
-      summary={`${pane.assignment.intent === 'consult' ? '検討' : '実行'} · ${pane.assignment.mode === 'mcp' ? 'MCP' : '内容のみ'} · ${task?.done ? '完了' : task?.locked ? '常設' : pane.sentAt ? '送信済み' : '未送信'}${children.length ? ` · サブタスク ${children.filter(item => item.done).length}/${children.length}` : ''}`} /> : null}
+    {pickerOpen ? <TaskAssignmentPicker pane={pane} items={items} onAssign={value => assign(pane.id, value)} onClose={() => setPickerOpen(false)} /> : null}
+    {assignments.map(assignment => {
+      const assigned = items[assignment.taskId];
+      const task = isLive(assigned) && assigned.type === 'task' ? assigned : undefined;
+      const children = task ? Object.values(items).filter(item => isLive(item) && item.type === 'task' && item.parentId === task.id) : [];
+      return <AgentTaskAssignment key={assignment.taskId} taskId={assignment.taskId} items={items} onOpenTask={inspector?.openTask}
+        onRemove={() => update(current => ({ ...current, assignments: current.assignments?.filter(value => value.taskId !== assignment.taskId) }))}
+        summary={`${task ? items[labelOf(task, items)]?.text || 'ラベルなし' : 'ラベル不明'} · ${assignment.intent === 'consult' ? '検討' : '実行'} · ${assignment.mode === 'mcp' ? 'MCP' : '内容のみ'} · ${task?.done ? '完了' : task?.locked ? '常設' : assignment.sentAt ? '送信済み' : '未送信'}${children.length ? ` · サブタスク ${children.filter(item => item.done).length}/${children.length}` : ''}`} />;
+    })}
     {executable && (!executable.path || executable.problem) ? <AgentSetup diagnostic={executable} /> : null}
     {error ? <p role="alert" className="agent-error">{error}</p> : null}
     {status !== 'idle' ? <div className="agent-terminal-tools"><button type="button" className="icon-btn" title="ターミナルを検索" aria-label="ターミナルを検索" aria-expanded={searchOpen} onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}><Search size={14} /></button></div> : null}
@@ -454,10 +467,10 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
   useEffect(() => { panesRef.current = panes; }, [panes]);
   const previousAssigned = useRef<Parameters<typeof completedAssignments>[0]>([]);
   useEffect(() => {
-    const current = panes.flatMap(pane => {
-      const task = pane.assignment ? items[pane.assignment.taskId] : undefined;
+    const current = panes.flatMap(pane => (pane.assignments ?? []).flatMap(assignment => {
+      const task = items[assignment.taskId];
       return isLive(task) && task.type === 'task' ? [{ paneId: pane.id, taskId: task.id, title: task.text || '（無題）', done: task.done === true }] : [];
-    });
+    }));
     const completed = completedAssignments(previousAssigned.current, current);
     previousAssigned.current = current;
     if (!account || !prefs.completionNotifications || !bridge.notificationsSupported) return;
@@ -478,32 +491,40 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
     return () => cancelAnimationFrame(frame);
   }, [focusRequest, selectedId]);
   const reportBusy = useCallback((id: string, busy: boolean) => setPanes(values => values.map(pane => pane.id === id && pane.busy !== busy ? { ...pane, busy } : pane)), []);
-  const assign = (id: string | null, assignment: PaneAssignment) => {
+  const assign = (id: string | null, assignment: PaneAssignment, verified = false) => {
     if (toolsBusy) return 'オーケストレーション・分解を停止してから割り当ててください';
-    const current = panesRef.current;
     const task = items[assignment.taskId];
-    if (!isLive(task) || task.type !== 'task' || task.done || task.filed) return '未完了のタスクを選択してください';
+    if (!verified && (!isLive(task) || task.type !== 'task' || task.done || task.filed)) return '未完了のタスクを選択してください';
     if (assignment.mode === 'mcp' && !mcpAvailable) return 'このデスクトップではMCP接続を利用できません';
-    if (current.some(pane => pane.id !== id && pane.assignment?.taskId === task.id)) return 'このタスクは別のペインに割り当て済みです';
+    const current = panesRef.current;
     const target = id === null ? newPane(lastCwd) : current.find(pane => pane.id === id);
-    if (!target || target.busy || (id === null && current.length >= 8)) return '停止中のペインを選択してください';
-    const next = { ...target, assignment, labelId: labelOf(task, items) || undefined, sentAt: undefined, resumeSessionId: undefined };
-    if (id === null) { setDraft(next); setExpanded(false); return null; }
-    const values = current.map(pane => pane.id === id ? next : pane);
-    panesRef.current = values;
-    setPanes(values); setActiveId(id); if (zoomId) setZoomId(id); setExpanded(false);
-    return null;
+    if (!target || (id === null && current.length >= 8)) return '利用可能なペインを選択してください';
+    if (verified && !target.busy) return '実行中のターミナルにのみ着手を反映できます';
+    try {
+      const values = addAssignment(id === null ? [...current, { ...target, labelId: task ? labelOf(task, items) || undefined : undefined }] : current, target.id, { ...assignment, sentAt: assignment.sentAt });
+      if (id === null) { setDraft(values.at(-1)!); setExpanded(false); return null; }
+      if (!target.busy) values[values.findIndex(value => value.id === target.id)].resumeSessionId = undefined;
+      panesRef.current = values;
+      snapshot.current = { ...snapshot.current, panes: values };
+      setPanes(values); setActiveId(id); if (zoomId) setZoomId(id); setExpanded(false);
+      return null;
+    } catch (failure) { return message(failure); }
   };
+  const taskStarted = useEffectEvent((request: bridge.TaskStartRequest) => {
+    const failure = request.expiresAt < Date.now() ? '着手通知の有効期限が切れました' : assign(request.paneId, { ...request.assignment, sentAt: Date.now() }, true);
+    void bridge.replyTaskStart(request.requestId, failure).catch(failure => setError(message(failure)));
+  });
+  useEffect(() => bridge.onTaskStart(taskStarted), []);
   const createAgent = (next: Pane) => {
     if (toolsBusy) return 'オーケストレーション・分解を停止してから起動してください';
     const current = panesRef.current;
     if (current.length >= 8) return 'エージェントは8件まで起動できます';
     const executable = available.find(agent => agent.id === next.agent);
     if (!next.cwd || !executable?.path || executable.problem) return 'エージェント診断と作業フォルダを確認してください';
-    if (next.assignment) {
-      const task = items[next.assignment.taskId];
+    for (const assignment of next.assignments ?? []) {
+      const task = items[assignment.taskId];
       if (!isLive(task) || task.type !== 'task' || task.done || task.filed) return '未完了のタスクを選択してください';
-      if (current.some(pane => pane.assignment?.taskId === task.id)) return 'このタスクは別のペインに割り当て済みです';
+      if (current.some(pane => pane.assignments?.some(value => value.taskId === task.id))) return 'このタスクは別のペインに割り当て済みです';
     }
     panesRef.current = [...current, next];
     setPanes(panesRef.current); setActiveId(next.id); setZoomId(null); setDraft(null); setExpanded(false);
@@ -540,7 +561,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
     mcpAvailable,
     agentName: draft?.agent === 'codex' ? 'Codex' : 'Claude Code',
     openTools: bridge.taskToolsSupported ? openTools : undefined,
-    panes: panes.map((pane, index) => ({ id: pane.id, name: `${index + 1}: ${pane.agent === 'claude' ? 'Claude Code' : 'Codex'}${pane.assignment ? ` · ${items[pane.assignment.taskId]?.text || '（不明）'}` : ''}`, busy: Boolean(pane.busy), taskId: pane.assignment?.taskId })), assign,
+    panes: panes.map((pane, index) => ({ id: pane.id, name: `${index + 1}: ${pane.agent === 'claude' ? 'Claude Code' : 'Codex'}${(pane.assignments ?? []).map(value => ` · ${items[value.taskId]?.text || '（不明）'}`).join('')}`, busy: Boolean(pane.busy), taskIds: pane.assignments?.map(value => value.taskId) })), assign,
   } : null}><DesktopInspectorContext.Provider value={{ host: inspectorHost, open: inspectorOpen, setOpen: showInspector, registerTaskOpener, openTask: taskOpener ?? undefined }}><DesktopHeaderContext.Provider value={{ host: headerHost, showTasks }}>
   <div className="desktop-shell">
   <div className="desktop-header" ref={setHeaderHost} />
@@ -591,7 +612,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
       }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />
     <aside className="desktop-agents" aria-label="エージェント" onKeyDown={event => event.stopPropagation()}>
       <header className="agent-toolbar"><span className="agent-toolbar-name"><Bot size={16} /><span><span className="agent-toolbar-label">agents </span><small>{toolsBusy ? 1 : panes.length}/8</small></span></span>
-        {panes.length > 0 && !toolsOpen ? <div className="agent-navigation" role="tablist" aria-label="エージェントペイン">{panes.map((pane, index) => <button key={pane.id} id={`pane-tab-${pane.id}`} type="button" role="tab" aria-selected={selectedId === pane.id} aria-controls={`pane-${pane.id}`} tabIndex={selectedId === pane.id ? 0 : -1} title={`${pane.agent === 'claude' ? 'Claude Code' : 'Codex'}${pane.assignment ? ` · ${items[pane.assignment.taskId]?.text || '（無題）'}` : ''}`} onClick={() => { setActiveId(pane.id); if (zoomId) setZoomId(pane.id); }} onKeyDown={event => {
+        {panes.length > 0 && !toolsOpen ? <div className="agent-navigation" role="tablist" aria-label="エージェントペイン">{panes.map((pane, index) => <button key={pane.id} id={`pane-tab-${pane.id}`} type="button" role="tab" aria-selected={selectedId === pane.id} aria-controls={`pane-${pane.id}`} tabIndex={selectedId === pane.id ? 0 : -1} title={`${pane.agent === 'claude' ? 'Claude Code' : 'Codex'}${(pane.assignments ?? []).map(value => ` · ${items[value.taskId]?.text || '（無題）'}`).join('')}`} onClick={() => { setActiveId(pane.id); if (zoomId) setZoomId(pane.id); }} onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault();
           const target = event.key === 'Home' ? 0 : event.key === 'End' ? panes.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + panes.length) % panes.length;
@@ -637,7 +658,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
         {panes.map(pane => <AgentPane key={pane.id} pane={pane} items={items} available={available} reportBusy={reportBusy} assign={assign} onStarted={setLastCwd} fontSize={prefs.terminalFontSize}
           hidden={(layout === 'tabs' || Boolean(zoomId)) && pane.id !== selectedId} zoomed={zoomId === pane.id}
           onSelect={() => setActiveId(pane.id)} onZoom={() => { setActiveId(pane.id); setZoomId(value => value === pane.id ? null : pane.id); }}
-          update={next => setPanes(values => values.map(value => value.id === next.id ? next : value))}
+          update={next => { const values = panesRef.current.map(value => value.id === pane.id ? (typeof next === 'function' ? next(value) : next) : value); panesRef.current = values; setPanes(values); }}
           close={() => { if (zoomId === pane.id) setZoomId(null); setPanes(values => values.filter(value => value.id !== pane.id)); }} />)}
       </div>
     </aside>

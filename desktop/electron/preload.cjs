@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('bizencoreDesktop', {
   resize: (id, cols, rows) => invoke('resize', id, cols, rows),
   acknowledgeOutput: (id, streamId, sequence) => invoke('ack-output', id, streamId, sequence),
   stop: id => invoke('stop', id),
+  onTaskStart: callback => subscribe('bizencore:task-start', callback),
+  replyTaskStart: (requestId, error) => invoke('task-start-reply', requestId, error),
   onEvent: callback => subscribe('bizencore:agent-event', callback),
   onExpired: callback => subscribe('bizencore:access-expired', callback),
   onResume: callback => subscribe('bizencore:resume', callback),

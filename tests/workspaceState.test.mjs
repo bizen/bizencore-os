@@ -12,7 +12,7 @@ const state = () => ({ version: 1, panes: [{ id: paneId, agent: 'codex', cwd: '/
 
 test('workspace preserves assignments and layout but never executable state, terminal content or credentials', () => {
   const saved = normalizeWorkspace(state());
-  assert.deepEqual(saved.panes[0], { id: paneId, agent: 'codex', cwd: '/test/project', assignment: { taskId, intent: 'execute', mode: 'mcp' } });
+  assert.deepEqual(saved.panes[0], { id: paneId, agent: 'codex', cwd: '/test/project', assignments: [{ taskId, intent: 'execute', mode: 'mcp' }] });
   assert.equal(saved.width, 50);
   assert.equal(saved.inspectorWidth, 330);
   assert.ok(!JSON.stringify(saved).includes('do-not-save'));
@@ -77,7 +77,7 @@ test('workspace rejects corrupt versions, clamps layout and discards invalid or 
   assert.equal(saved.inspectorWidth, 340);
   assert.equal(saved.panes.length, 2);
   assert.equal(saved.panes[1].cwd, '');
-  assert.equal(saved.panes[1].assignment, undefined);
+  assert.equal(saved.panes[1].assignments, undefined);
   assert.deepEqual(normalizeWorkspace({ ...state(), panes: [] }).panes, []);
 });
 
@@ -86,16 +86,16 @@ test('workspace limits restore to eight panes and requires explicit recognized h
   candidate.panes = Array.from({ length: 20 }, (_, index) => ({ ...candidate.panes[0], id: `${String(index).padStart(8, '0')}-1111-4111-8111-111111111111`, assignment: { taskId, intent: 'automatic', mode: 'mcp' } }));
   const saved = normalizeWorkspace(candidate);
   assert.equal(saved.panes.length, 8);
-  assert.ok(saved.panes.every(pane => !pane.assignment));
+  assert.ok(saved.panes.every(pane => !pane.assignments));
 });
 
 test('workspace restores legacy task IDs without weakening native pane IDs', () => {
   const candidate = state();
   candidate.panes[0].assignment.taskId = 'm5c12abc-k7x2v8mn';
-  assert.equal(normalizeWorkspace(candidate).panes[0].assignment.taskId, 'm5c12abc-k7x2v8mn');
+  assert.equal(normalizeWorkspace(candidate).panes[0].assignments[0].taskId, 'm5c12abc-k7x2v8mn');
   for (const taskId of ['', 'x'.repeat(129), 'bad\0id', '../task', 'task\nid']) {
     candidate.panes[0].assignment.taskId = taskId;
-    assert.equal(normalizeWorkspace(candidate).panes[0].assignment, undefined);
+    assert.equal(normalizeWorkspace(candidate).panes[0].assignments, undefined);
   }
   candidate.panes[0].id = 'm5c12abc-k7x2v8mn';
   assert.equal(normalizeWorkspace(candidate), null);
@@ -120,4 +120,14 @@ test('workspace storage is scoped by account and environment and survives unavai
   assert.equal(readWorkspace(key), null);
   globalThis.localStorage.setItem = () => { throw Error('quota'); };
   assert.equal(writeWorkspace(key, state()), false);
+});
+
+test('multiple assignments retain per-task intent, cap at three and remove duplicates without persisting sent state', () => {
+  const assignments = ['one', 'two', 'three', 'four'].map((taskId, i) => ({ taskId, intent: i === 1 ? 'consult' : 'execute', mode: 'mcp', sentAt: 123 }));
+  const candidate = state();
+  candidate.panes[0].assignments = [assignments[0], assignments[0], ...assignments.slice(1)];
+  const saved = normalizeWorkspace(candidate);
+  assert.deepEqual(saved.panes[0].assignments, assignments.slice(0, 3).map(({ sentAt, ...value }) => value));
+  assert.equal(saved.panes[0].assignment, undefined);
+  assert.deepEqual(normalizeWorkspace(saved), saved);
 });
