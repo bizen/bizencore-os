@@ -9,6 +9,7 @@ import { isLive } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 import type { HandoffIntent } from '../lib/taskWorkPrompt';
 import { HandoffIntentControl } from './task/HandoffIntentControl';
+import { MascotPortrait } from './MascotPortrait';
 
 const AGENT_KEY = 'bizencore.mascotAgent';
 type Panel = 'about' | 'settings' | { taskId: string } | null;
@@ -207,7 +208,7 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
                 event.currentTarget.setPointerCapture(event.pointerId);
             }}
             onPointerMove={move} onPointerUp={drop} onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}>
-            <img src={cirnoImg} alt="Cirno" className="mascot" draggable={false} />
+            <MascotPortrait active={!position && !panel} />
         </button>
         {position ? <img src={cirnoImg} alt="" className="mascot-drag-preview" style={{ left: position.x, top: position.y }} /> : null}
     </div>;
