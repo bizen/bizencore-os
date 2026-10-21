@@ -24,7 +24,6 @@ export default defineConfig(({ mode, command }) => {
   } }],
   resolve: { alias: [
     { find: /^@clerk\/clerk-react$/, replacement: fileURLToPath(new URL('./desktop/electron/clerk.tsx', import.meta.url)) },
-    { find: './components/Mascot', replacement: fileURLToPath(new URL('./desktop/electron/Mascot.tsx', import.meta.url)) },
     { find: './components/SplashScreen', replacement: fileURLToPath(new URL('./desktop/electron/SplashScreen.tsx', import.meta.url)) },
   ] },
   server: { host: '127.0.0.1', port: 5211, strictPort: true },
