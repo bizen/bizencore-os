@@ -2785,7 +2785,7 @@ body {
   position: fixed;
   width: 90px;
   height: auto;
-  transform: translate(-50%, -50%);
+  translate: -50% -50%;
   pointer-events: none;
   user-select: none;
   opacity: 0.85;

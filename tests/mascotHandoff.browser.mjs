@@ -98,6 +98,11 @@ try {
     await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
     await page.mouse.down();
     await page.mouse.move(destination.x + destination.width / 2, destination.y + Math.min(destination.height / 2, 20), { steps: 12 });
+    const offset = await page.locator('.mascot-drag-preview').evaluate(el => {
+      const rect = el.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2 - parseFloat(el.style.left), y: rect.top + rect.height / 2 - parseFloat(el.style.top) };
+    });
+    assert.ok(Math.abs(offset.x) < 1 && Math.abs(offset.y) < 1, `drag preview must center on pointer: ${JSON.stringify(offset)}`);
     if (beforeDrop) await beforeDrop();
     await page.mouse.up();
   };
