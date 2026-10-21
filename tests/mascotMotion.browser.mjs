@@ -47,12 +47,14 @@ try {
   await page.mouse.move(650, 50);
   current = await state(); assert.equal(current.rotate, 0); assert.equal(current.gaze, 'translate(0px, 0px)');
   assert.equal(await portrait.evaluate(el => getComputedStyle(el).animationName), 'mascot-idle', 'gentle idle motion resumes away from cursor');
-  await page.clock.runFor(3500);
-  assert.equal(await page.evaluate(() => blinks.length), 2, 'both eyes blink after four seconds');
+  await page.clock.runFor(1900);
+  assert.equal(await page.evaluate(() => blinks.length), 2, 'both eyes blink at the 2.5 second lower bound');
   const blink = await page.evaluate(() => blinks[0]); assert.equal(blink.options.duration, 160); assert.equal(blink.frames[1].scale, '1 0.08');
   await page.evaluate(() => document.querySelectorAll('.mascot-eye').forEach(eye => eye.getAnimations().forEach(animation => { animation.pause(); animation.currentTime = 72; })));
   await page.addStyleTag({ content: '.mascot { width: 324px; }' });
   await page.screenshot({ path: '/private/tmp/bizencore-cirno-blink.png' });
+  await page.clock.runFor(280);
+  assert.equal(await page.evaluate(() => blinks.length), 4, 'occasional double blink follows after a short open-eye pause');
   const setMotion = async value => {
     await page.evaluate(() => { globalThis.motionChanged = new Promise(resolve => matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => resolve(true), { once: true })); });
     await page.emulateMedia({ reducedMotion: value });
@@ -70,12 +72,17 @@ try {
   await page.clock.runFor(10_000);
   assert.equal(await page.evaluate(() => blinks.length), before, 'hidden windows stop timers');
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
-  await page.clock.runFor(4001); assert.equal(await page.evaluate(() => blinks.length), before + 2, 'visibility restores blinking');
+  await page.clock.runFor(2501); assert.equal(await page.evaluate(() => blinks.length), before + 2, 'visibility restores blinking');
   await page.evaluate(() => setPortraitActive(false));
   await page.waitForFunction(() => document.querySelector('.mascot-portrait').style.rotate === '0deg');
   const paused = await page.evaluate(() => blinks.length); await page.clock.runFor(10_000);
   assert.equal(await page.evaluate(() => blinks.length), paused, 'dragging/menu pause stops motion');
-  await page.evaluate(() => setPortraitActive(true)); await page.clock.runFor(1);
+  await page.evaluate(() => { Math.random = () => 1; setPortraitActive(true); });
+  await page.waitForFunction(() => document.querySelector('.mascot-portrait').dataset.active === 'true');
+  const longInterval = await page.evaluate(() => blinks.length);
+  await page.clock.runFor(4999); assert.equal(await page.evaluate(() => blinks.length), longInterval, 'upper interval does not blink early');
+  await page.clock.runFor(1); assert.equal(await page.evaluate(() => blinks.length), longInterval + 2);
+  await page.clock.runFor(280); assert.equal(await page.evaluate(() => blinks.length), longInterval + 2, 'ordinary blinks do not always repeat');
   const largeCenter = await portrait.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   await page.evaluate(({ x, y }) => document.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'touch', clientX: x + 40, clientY: y })), largeCenter);
   assert.equal((await state()).rotate, 0, 'touch does not create a lingering gaze');

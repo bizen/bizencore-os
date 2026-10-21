@@ -17,6 +17,7 @@ export function MascotPortrait({ active = true, mood = 'idle', decorative = fals
         const eyeNodes = [...eyes.current];
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
         let timer: number | undefined;
+        let repeatTimer: number | undefined;
         const enabled = () => active && ready && !document.hidden && !reducedMotion.matches;
         const reset = () => {
             if (portrait.current) {
@@ -25,17 +26,23 @@ export function MascotPortrait({ active = true, mood = 'idle', decorative = fals
             }
             if (gaze.current) gaze.current.style.transform = 'translate(0px, 0px)';
         };
+        const blink = () => {
+            if (!enabled()) return;
+            for (const eye of eyeNodes) eye?.animate([
+                { scale: '1 1' }, { scale: '1 0.08', offset: 0.45 }, { scale: '1 1' },
+            ], { duration: 160, easing: 'ease-in-out' });
+        };
         const scheduleBlink = () => {
             timer = window.setTimeout(() => {
                 if (!enabled()) return;
-                for (const eye of eyeNodes) eye?.animate([
-                    { scale: '1 1' }, { scale: '1 0.08', offset: 0.45 }, { scale: '1 1' },
-                ], { duration: 160, easing: 'ease-in-out' });
+                blink();
+                if (Math.random() < 0.18) repeatTimer = window.setTimeout(blink, 280);
                 scheduleBlink();
-            }, 4000 + Math.random() * 3000);
+            }, 2500 + Math.random() * 2500);
         };
         const refresh = () => {
             window.clearTimeout(timer);
+            window.clearTimeout(repeatTimer);
             for (const eye of eyeNodes) eye?.getAnimations().forEach(animation => animation.cancel());
             reset();
             if (portrait.current) portrait.current.style.animationPlayState = document.hidden ? 'paused' : 'running';
@@ -61,6 +68,7 @@ export function MascotPortrait({ active = true, mood = 'idle', decorative = fals
         reducedMotion.addEventListener('change', refresh);
         return () => {
             window.clearTimeout(timer);
+            window.clearTimeout(repeatTimer);
             for (const eye of eyeNodes) eye?.getAnimations().forEach(animation => animation.cancel());
             document.removeEventListener('pointermove', follow);
             document.removeEventListener('pointerleave', reset);
