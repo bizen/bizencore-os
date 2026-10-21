@@ -115,6 +115,8 @@ try {
 
   await page.goto('https://mascot.test/');
   await row().waitFor();
+  assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).scale), 'none', 'provided artwork keeps its original orientation');
+  assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).width), '108px', 'mascot is only ten percent smaller');
   await openSettings();
   assert.equal(await settings().getByLabel('エージェント', { exact: true }).inputValue(), 'codex');
   assert.equal(await settings().getByLabel('渡し方', { exact: true }).inputValue(), 'mcp');

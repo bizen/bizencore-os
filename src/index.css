@@ -2505,7 +2505,7 @@ body {
 }
 
 .splash-cirno {
-  height: clamp(140px, 32vh, 240px);
+  height: clamp(126px, 28.8vh, 216px);
   width: auto;
   object-fit: contain;
   user-select: none;
@@ -2574,7 +2574,6 @@ body {
 
 /* ---------- Mascot ---------- */
 
-.mascot, .mascot-drag-preview, .splash-cirno { scale: -1 1; }
 
 @keyframes mascot-float {
   0%, 100% { transform: translateY(0); }
@@ -2613,7 +2612,7 @@ body {
 
 .mascot {
   display: block;
-  width: 120px;
+  width: 108px;
   height: auto;
   cursor: pointer;
   animation: mascot-float 6s ease-in-out infinite;
@@ -2783,7 +2782,7 @@ body {
 
 .mascot-drag-preview {
   position: fixed;
-  width: 90px;
+  width: 81px;
   height: auto;
   translate: -50% -50%;
   pointer-events: none;
@@ -2894,7 +2893,7 @@ body {
   }
 
   .mascot {
-    width: 80px;
+    width: 72px;
   }
 
   .speech-bubble {
