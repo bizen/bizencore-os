@@ -1073,11 +1073,11 @@ body {
   left: calc(0.35rem + var(--tree-mark-width) / 2 + var(--tree-level) * var(--tree-step));
   width: 1px;
   transform: translateX(-50%);
-  background: rgba(var(--muted-rgb), 0.14);
+  background: rgba(var(--tree-color), 0.3);
 }
 
 .row-tree-guide.is-parent,
-.row-tree-stem { background: rgba(var(--muted-rgb), 0.23); }
+.row-tree-stem { background: rgba(var(--tree-color), 0.45); }
 
 .row-tree-stem { top: calc(0.3rem + 2px + max(20px, 1.3rem)); }
 

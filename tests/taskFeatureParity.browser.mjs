@@ -60,6 +60,7 @@ try {
     await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: html }));
     await page.goto('https://parity.test/' + (desktop ? '?desktop' : ''));
     await page.locator('.splash-root').waitFor({ state: 'detached' });
+    assert.equal(await page.locator('.row-tree-guide').count(), 0, 'flat first-level tasks have no outer hierarchy line');
     await page.evaluate(() => { document.documentElement.dataset.theme = 'white'; });
     const backgrounds = await page.evaluate(() => {
       const css = getComputedStyle(document.documentElement);

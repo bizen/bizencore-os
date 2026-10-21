@@ -70,17 +70,19 @@ try {
         rows.forEach((row, index) => {
           const depth = Number(row.style.getPropertyValue('--depth'));
           const nextDepth = Number(rows[index + 1]?.style.getPropertyValue('--depth') || 0);
-          const childStem = nextDepth > depth && !row.matches('.row--section');
+          const childStem = depth > 0 && nextDepth > depth && !row.matches('.row--section');
           const main = row.querySelector('.row-main');
           const rect = main.getBoundingClientRect();
           const mark = row.querySelector('.row-mark').getBoundingClientRect();
           const guides = [...row.querySelectorAll('.row-tree-guide:not(.row-tree-stem)')];
           const stem = row.querySelector('.row-tree-stem');
-          if (guides.length !== depth) problems.push('missing ancestor rails at depth ' + depth);
+          if (guides.length !== Math.max(0, depth - 1)) problems.push('missing ancestor rails at depth ' + depth);
           if (!!stem !== childStem) problems.push('incorrect visible-child stem');
           const step = parseFloat(getComputedStyle(row).getPropertyValue('--tree-step')) * parseFloat(getComputedStyle(row).fontSize);
           for (const guide of [...guides, ...(stem ? [stem] : [])]) {
             const level = Number(guide.style.getPropertyValue('--tree-level'));
+            if (level === 0) problems.push('outermost rail must be absent');
+            if (!guide.style.getPropertyValue('--tree-color')) problems.push('missing depth color');
             const box = guide.getBoundingClientRect();
             const expected = mark.x + mark.width / 2 - (depth - level) * step;
             if (Math.abs(box.x + box.width / 2 - expected) > 1) problems.push('rail not centered on ancestor checkbox');
