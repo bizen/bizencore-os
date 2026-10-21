@@ -2,7 +2,7 @@ import { readFile, readdir, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-export const excludedArtwork = ['src/assets/cirno.png', 'public/quests/mainquest.png', 'public/quests/tanomigoto.png'];
+export const excludedArtwork = ['public/quests/mainquest.png', 'public/quests/tanomigoto.png'];
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
 export async function excludeDistributionArtwork(root, renderer) {
@@ -21,7 +21,7 @@ export async function verifyDistributionArtwork(root, directory) {
       else if (entry.isSymbolicLink()) throw new Error(`Unexpected distribution symlink: ${file}`);
       else if (entry.isFile()) {
         const bytes = await readFile(file);
-        if (forbidden.has(digest(bytes)) || /^(cirno(?:-[^.]*)?|mainquest|tanomigoto)\.png$/i.test(entry.name)) {
+        if (forbidden.has(digest(bytes)) || /^(mainquest|tanomigoto)\.png$/i.test(entry.name)) {
           throw new Error(`Unlicensed artwork in distribution: ${file}`);
         }
       }

@@ -17,7 +17,9 @@ test('distribution excludes public artwork and rejects renamed copies of unlicen
     await writeFile(path.join(renderer, 'quests/mainquest.png'), 'unlicensed-1');
     await writeFile(path.join(renderer, 'quests/tanomigoto.png'), 'unlicensed-2');
     await writeFile(path.join(renderer, 'safe.svg'), '<svg/>');
+    await writeFile(path.join(renderer, 'cirno-restored.png'), 'restored-mascot');
     await excludeDistributionArtwork(root, renderer);
+    assert.equal(await readFile(path.join(renderer, 'cirno-restored.png'), 'utf8'), 'restored-mascot');
     await writeFile(path.join(renderer, 'renamed.png'), 'unlicensed-0');
     await assert.rejects(verifyDistributionArtwork(root, renderer), /Unlicensed artwork/);
     await rm(path.join(renderer, 'renamed.png'));
