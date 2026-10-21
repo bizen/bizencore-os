@@ -45,7 +45,8 @@ const checkDesktopUpdate = createDesktopUpdateCheck({ channel: profile.channel, 
 const bundle = path.dirname(path.dirname(path.dirname(root)));
 const updater = profile.channel === 'production' && app.isPackaged ? createDesktopInstaller({
   bundle, arch: config.arch, getRelease: checkDesktopUpdate,
-  fetchData: (url, options) => net.fetch(url, options),
+  // Electron net.fetch cancels manual redirects; Node fetch lets us validate each destination.
+  fetchData: (url, options) => fetch(url, options),
   helperSource: await readFile(path.join(root, 'update-helper.sh'), 'utf8'),
   onProgress: percent => send('bizencore:update-progress', percent),
 }) : null;
