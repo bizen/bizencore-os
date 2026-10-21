@@ -4,7 +4,7 @@ import eyelessImg from '../assets/cirno-eyeless.png';
 
 const EYES = [{ x: 659, y: 697, height: 156 }, { x: 868, y: 652, height: 154 }];
 
-export type MascotMood = 'idle' | 'curious' | 'dragging' | 'expectant' | 'happy';
+export type MascotMood = 'idle' | 'curious' | 'dragging' | 'happy';
 
 export function MascotPortrait({ active = true, mood = 'idle', decorative = false }: { active?: boolean; mood?: MascotMood; decorative?: boolean }) {
     const portrait = useRef<HTMLSpanElement>(null);
@@ -87,7 +87,7 @@ export function MascotPortrait({ active = true, mood = 'idle', decorative = fals
             </g>
         </svg>
         {mood === 'curious' ? <span className="mascot-reaction mascot-question" aria-hidden="true">?</span> : null}
-        {mood === 'dragging' ? <svg className="mascot-reaction mascot-sweat" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2C10 8 3 16 3 21a9 9 0 0 0 18 0C21 16 14 8 12 2Z" fill="#75cefa" stroke="#267bad" strokeWidth="2" /><path d="M8 20v3" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg> : null}
-        {mood === 'expectant' || mood === 'happy' ? <span className="mascot-reaction mascot-sparkle" aria-hidden="true">✦</span> : null}
+        {mood === 'dragging' ? <span className="mascot-sweat-burst" aria-hidden="true">{[0, 1, 2].map(drop => <svg key={drop} className="mascot-reaction mascot-sweat" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2C10 8 3 16 3 21a9 9 0 0 0 18 0C21 16 14 8 12 2Z" fill="#75cefa" stroke="#267bad" strokeWidth="2" /><path d="M8 20v3" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg>)}</span> : null}
+        {mood === 'happy' ? <span className="mascot-reaction mascot-sparkle" aria-hidden="true">✦</span> : null}
     </span>;
 }

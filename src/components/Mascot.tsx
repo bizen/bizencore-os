@@ -45,7 +45,6 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
     const [preferences, setPreferences] = useState(readHandoffPreferences);
     const [intent, setIntent] = useState<HandoffIntent>('consult');
     const [hovered, setHovered] = useState(false);
-    const [overTask, setOverTask] = useState(false);
     const [happy, setHappy] = useState(false);
     const happyTimer = useRef<number | undefined>(undefined);
     const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -101,7 +100,6 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
         gesture.current?.row?.classList.remove('is-mascot-drop-target');
         gesture.current = null;
         setPosition(null);
-        setOverTask(false);
     };
 
     const move = (event: PointerEvent<HTMLButtonElement>) => {
@@ -118,7 +116,6 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
         current.row?.classList.remove('is-mascot-drop-target');
         row?.classList.add('is-mascot-drop-target');
         current.row = row;
-        setOverTask(!!row);
     };
 
     const drop = (event: PointerEvent<HTMLButtonElement>) => {
@@ -225,6 +222,6 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
             onPointerMove={move} onPointerUp={drop} onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}>
             <MascotPortrait active={!position && !panel && !happy} mood={happy ? 'happy' : hovered && !position && !panel ? 'curious' : 'idle'} />
         </button>
-        {position ? <span className="mascot-drag-preview" style={{ left: position.x, top: position.y }}><MascotPortrait active={false} mood={overTask ? 'expectant' : 'dragging'} decorative /></span> : null}
+        {position ? <span className="mascot-drag-preview" style={{ left: position.x, top: position.y }}><MascotPortrait active={false} mood="dragging" decorative /></span> : null}
     </div>;
 }

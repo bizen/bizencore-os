@@ -99,7 +99,7 @@ try {
     await page.mouse.down();
     assert.equal(await page.locator('.mascot-sweat').count(), 0, 'a simple press does not start sweating');
     await page.mouse.move(source.x + source.width / 2, source.y - 35);
-    await page.locator('.mascot-drag-preview .mascot-sweat').waitFor();
+    await page.locator('.mascot-drag-preview .mascot-sweat').first().waitFor();
     await page.mouse.move(destination.x + destination.width / 2, destination.y + Math.min(destination.height / 2, 20), { steps: 12 });
     const offset = await page.locator('.mascot-drag-preview').evaluate(el => {
       const rect = el.getBoundingClientRect();
@@ -131,8 +131,15 @@ try {
 
   await drag('[data-row-id="task-a"] .row-title', async () => {
     assert.equal(await row().evaluate(el => el.classList.contains('is-mascot-drop-target')), true);
-    assert.equal(await page.locator('.mascot-drag-preview [data-mood="expectant"]').count(), 1);
-    assert.equal(await page.locator('.mascot-sweat').count(), 0);
+    assert.equal(await page.locator('.mascot-drag-preview [data-mood="dragging"]').count(), 1);
+    assert.equal(await page.locator('.mascot-sweat').count(), 3, 'sweat continues over tasks');
+    assert.equal(await page.locator('.mascot-drag-preview .mascot-sparkle').count(), 0);
+    const flight = await page.locator('.mascot-sweat').first().evaluate(el => {
+      const animation = el.getAnimations()[0]; animation.pause(); animation.currentTime = 150;
+      const start = getComputedStyle(el).transform; animation.currentTime = 750;
+      const end = getComputedStyle(el).transform; animation.play(); return { start, end };
+    });
+    assert.notEqual(flight.start, flight.end, 'sweat droplets fly outward');
     assert.equal(await page.locator('.is-context-drop-target').count(), 0);
     await page.screenshot({ path: '/private/tmp/bizencore-mascot-drag.png' });
   });
