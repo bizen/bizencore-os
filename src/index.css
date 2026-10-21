@@ -1040,6 +1040,7 @@ body {
 .row {
   --tree-step: 1.4rem;
   --tree-mark-width: 22px;
+  --tree-anchor-y: calc(0.3rem + 12px);
   --indent: calc(var(--depth, 0) * var(--tree-step));
   position: relative;
 }
@@ -1071,13 +1072,17 @@ body {
   top: 0;
   bottom: 0;
   left: calc(0.35rem + var(--tree-mark-width) / 2 + var(--tree-level) * var(--tree-step));
-  width: 1px;
-  transform: translateX(-50%);
-  background: rgba(var(--tree-color), 0.3);
+  width: 1.5px;
+  transform: translateX(-0.75px);
+  background: rgba(var(--tree-color), 0.65);
 }
 
 .row-tree-guide.is-parent,
-.row-tree-stem { background: rgba(var(--tree-color), 0.45); }
+.row-tree-stem { color: rgba(var(--tree-color), 0.85); }
+.row-tree-stem { background: currentColor; }
+.row-tree-guide.is-parent { width: calc(var(--tree-step) - 10px + 0.75px); background: none; }
+.row-tree-branch { position: absolute; inset: 0 0 auto; height: calc(var(--tree-anchor-y) + 0.75px); border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; border-bottom-left-radius: 7px; }
+.row-tree-guide.is-parent.is-continuing::after { content: ""; position: absolute; left: 0; top: calc(var(--tree-anchor-y) - 7px); bottom: 0; border-left: 1.5px solid currentColor; }
 
 .row-tree-stem { top: calc(0.3rem + 2px + max(20px, 1.3rem)); }
 

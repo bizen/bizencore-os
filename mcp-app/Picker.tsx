@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ArrowUpRight, Check, ChevronRight, Filter, LoaderCircle, LockKeyhole, Minus, PanelRight, Plus, RefreshCw, Search, Settings2, X } from 'lucide-react';
 import { Brand } from '../src/components/Brand';
 import { HandoffIntentControl } from '../src/components/task/HandoffIntentControl';
+import { treeContinuations } from '../src/lib/taskTreeGuides';
 import { TaskTreeGuides } from '../src/components/task/TaskTreeGuides';
 import { ContextDocument } from '../src/components/task/ContextDocument';
 import type { HandoffIntent } from '../src/lib/taskWorkPrompt';
@@ -44,8 +45,8 @@ function Dialog({ name, className, onClose, children }: { name: string; classNam
   </div>;
 }
 
-function TaskLine({ row, hasChildren, selected, today, onSelect, onFocusLabel, focused }: {
-  row: Row; hasChildren: boolean; selected?: string; today: string; onSelect: (id: string) => void;
+function TaskLine({ row, hasChildren, continuations, selected, today, onSelect, onFocusLabel, focused }: {
+  row: Row; hasChildren: boolean; continuations: readonly boolean[]; selected?: string; today: string; onSelect: (id: string) => void;
   onFocusLabel: (id: string) => void; focused: string[];
 }) {
   const { item, depth } = row;
@@ -54,7 +55,7 @@ function TaskLine({ row, hasChildren, selected, today, onSelect, onFocusLabel, f
   return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${item.locked ? ' row--locked' : ''}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
     style={{ '--depth': depth, '--label-color': color } as CSSProperties}>
     <div className="row-main">
-      <TaskTreeGuides depth={depth} hasChildren={hasChildren && !label} />
+      <TaskTreeGuides depth={depth} hasChildren={hasChildren && !label} continuations={continuations} />
       <div className="row-mark">
         {label ? <span className="row-section-mark" /> : item.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中"><LockKeyhole size={14} aria-hidden /></span> : <span role="img" aria-label={item.done ? (item.completedBy === 'ai' ? 'AIが完了' : '完了') : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.done && item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
           <span className="check-fill" />{item.done ? <Check className="picker-check" size={14} /> : null}
@@ -189,7 +190,10 @@ export function Picker({ client }: { client: PickerClient }) {
     } catch (e) { setDetailError(`${e instanceof Error ? e.message : '会話へ送信できませんでした。'} タスクID: ${selected}`); }
     finally { setSending(false); }
   };
-  const taskList = (list: Row[]) => <ul className="row-list">{list.map((row, index) => <TaskLine key={row.item.id} row={row} hasChildren={(list[index + 1]?.depth ?? 0) > row.depth} selected={selected} today={today} onSelect={select} onFocusLabel={toggleFocus} focused={focus} />)}</ul>;
+  const taskList = (list: Row[]) => {
+    const continuations = treeContinuations(list);
+    return <ul className="row-list">{list.map((row, index) => <TaskLine key={row.item.id} row={row} continuations={continuations[index]} hasChildren={(list[index + 1]?.depth ?? 0) > row.depth} selected={selected} today={today} onSelect={select} onFocusLabel={toggleFocus} focused={focus} />)}</ul>;
+  };
   const todayCount = pickerRows(items, 'today', today).active.filter((row) => row.item.type === 'task' && !row.item.done).length;
   const openLink = (url: string) => { void client.open(url).catch(() => {
     if (selected) setDetailError('リンクを開けませんでした。');

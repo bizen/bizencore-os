@@ -3,6 +3,7 @@ import { DesktopInspectorContext } from '../lib/desktopInspector';
 import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
 import { TaskInspector } from '../components/task/TaskInspector';
+import { treeContinuations } from '../lib/taskTreeGuides';
 import { TaskRow } from '../components/task/TaskRow';
 import { TaskContextDropProvider } from '../components/task/TaskContextDrop';
 import { LifeWorld } from '../components/task/LifeWorld';
@@ -1074,11 +1075,16 @@ function TasksPageContent() {
     else noteRefs.current.delete(id);
   }, []);
 
-  const renderRow = (row: Row, index = 0, rows: Row[] = []) => (
+  const renderRows = (list: Row[]) => {
+    const continuations = treeContinuations(list);
+    return list.map((row, index) => renderRow(row, index, list, continuations[index]));
+  };
+  const renderRow = (row: Row, index = 0, rows: Row[] = [], continuations: readonly boolean[] = []) => (
     <TaskRow
       key={row.item.id}
       item={row.item}
       depth={row.depth}
+      guideContinuations={continuations}
       hasChildren={(rows[index + 1]?.depth ?? 0) > row.depth}
       collapsed={hiddenCounts.has(row.item.id)}
       hiddenCount={hiddenCounts.get(row.item.id) ?? 0}
@@ -1253,7 +1259,7 @@ function TasksPageContent() {
                   {column.remaining}
                 </span>
               </div>
-              <ul className="row-list board-col-list">{column.rows.map(renderRow)}</ul>
+              <ul className="row-list board-col-list">{renderRows(column.rows)}</ul>
               <button
                 type="button"
                 className="board-add"
@@ -1266,7 +1272,7 @@ function TasksPageContent() {
         </div>
       ) : (
         <>
-          <ul className="row-list">{(view === 'all' && showLife ? activeRows.slice(0, lifeIndex) : activeRows).map(renderRow)}</ul>
+          <ul className="row-list">{renderRows(view === 'all' && showLife ? activeRows.slice(0, lifeIndex) : activeRows)}</ul>
           {view === 'all' && showLife ? <>
             <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null} allRootIds={allRootIds} query={query}
               collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
@@ -1274,7 +1280,7 @@ function TasksPageContent() {
                 registerHeading: el => { lifeHeadingRef.current = el; },
                 moveSection: direction => lifeWorldStore.moveSection(visibleRootIds, direction) }}
               onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} />
-            <ul className="row-list">{activeRows.slice(lifeIndex).map(renderRow)}</ul>
+            <ul className="row-list">{renderRows(activeRows.slice(lifeIndex))}</ul>
           </> : null}
         </>
       )}
@@ -1368,7 +1374,7 @@ function TasksPageContent() {
           </div>
           {shelfOpen ? (
             <>
-              <ul className="row-list done-shelf-list">{doneRows.map(renderRow)}</ul>
+              <ul className="row-list done-shelf-list">{renderRows(doneRows)}</ul>
               {lifeRows.done.length > 0 ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
                 collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
                 allRootIds={view === 'all' ? allRootIds : undefined} query={query} filedOnly

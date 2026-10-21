@@ -6,6 +6,7 @@ import { fitTextarea, useAutoGrow } from '../../lib/useAutoGrow';
 import { focusFirstMeta, handleMetaKeyDown } from '../../lib/metaCursor';
 import { LifeStreak } from './LifeStreak';
 import type { LifeInspection } from './LifeWorldInspector';
+import { treeContinuations } from '../../lib/taskTreeGuides';
 import { TaskTreeGuides } from './TaskTreeGuides';
 import { TaskLockMark } from './TaskLockMark';
 import { collapseRows } from '../../lib/collapsedRows';
@@ -19,7 +20,7 @@ interface LifeNavigation {
   registerHeading: (el: HTMLHeadingElement | null) => void;
 }
 
-function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote, onKeyDown, onNoteKeyDown, onRemove, includeAll, depth, hasChildren, blocked, noteOpen, navigation, context, collapsed, hiddenCount, onToggleCollapse }: {
+function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote, onKeyDown, onNoteKeyDown, onRemove, includeAll, depth, hasChildren, guideContinuations, blocked, noteOpen, navigation, context, collapsed, hiddenCount, onToggleCollapse }: {
   entry: LifeEntry; done: boolean; date: string; open: boolean;
   week: ReturnType<typeof lifeWeek>;
   onOpen: () => void;
@@ -29,7 +30,7 @@ function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote
   onNoteKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>, entry: LifeEntry) => void;
   onRemove: () => void;
   includeAll: boolean;
-  depth: number; hasChildren: boolean; blocked: boolean; noteOpen: boolean;
+  depth: number; hasChildren: boolean; guideContinuations: readonly boolean[]; blocked: boolean; noteOpen: boolean;
   navigation?: LifeNavigation;
   context?: string;
   collapsed: boolean;
@@ -42,7 +43,7 @@ function LifeRow({ entry, done, date, week, open, onOpen, register, registerNote
     <li className={`row row--task${depth === 0 ? ' row--root' : ''} life-row${open || navigation?.activeId === entry.id ? ' is-active' : ''}${done ? ' is-done' : ''}${entry.locked ? ' row--locked' : ''}`}
       style={{ '--depth': depth } as CSSProperties} data-life-id={entry.id}>
       <div className="row-main">
-        <TaskTreeGuides depth={depth} hasChildren={hasChildren} />
+        <TaskTreeGuides depth={depth} hasChildren={hasChildren} continuations={guideContinuations} />
         <div className="row-mark">
           {entry.locked ? <TaskLockMark text={entry.text} hasChildren={hasChildren} hiddenCount={hiddenCount}
             collapsed={collapsed} onToggle={onToggleCollapse} /> : <button type="button" className={`check${done ? ' is-checked' : ''}`}
@@ -121,7 +122,8 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
   const partitions = partitionLifeRows(data, date, !!allRootIds, query);
   const folded = collapseRows(filedOnly ? partitions.done : partitions.active,
     row => !query.trim() && !!row.entry.locked && foldedIds.has(row.entry.id), row => row.entry.id);
-  const rows = folded.rows.map((row, index) => ({ ...row, hasChildren: (folded.rows[index + 1]?.depth ?? 0) > row.depth }));
+  const continuations = treeContinuations(folded.rows);
+  const rows = folded.rows.map((row, index) => ({ ...row, guideContinuations: continuations[index], hasChildren: (folded.rows[index + 1]?.depth ?? 0) > row.depth }));
 
   useLayoutEffect(() => {
     const pending = pendingFocus.current;
@@ -255,12 +257,12 @@ export function LifeWorld({ todayDate, inspectedId, onInspect, onDateChange, all
           disabled={!canUndo} onClick={lifeWorldStore.undo}><Undo2 size={15} aria-hidden /></button>
       </header> : null}
       <ul className="row-list life-list">
-        {rows.map(({ entry, depth, hasChildren, context }) => <LifeRow key={`${date}:${entry.id}`} entry={entry} date={date} week={lifeWeek(data, entry, todayDate)}
+        {rows.map(({ entry, depth, hasChildren, context, guideContinuations }) => <LifeRow key={`${date}:${entry.id}`} entry={entry} date={date} week={lifeWeek(data, entry, todayDate)}
           includeAll={!!allRootIds}
           navigation={navigation}
           collapsed={folded.hiddenCounts.has(entry.id)} hiddenCount={folded.hiddenCounts.get(entry.id) ?? 0}
           onToggleCollapse={query.trim() ? undefined : () => toggleCollapse(entry.id)}
-          depth={depth} hasChildren={hasChildren} context={context} blocked={lifeCompletionBlocked(data, entry.id)} noteOpen={noteOpenId === entry.id}
+          depth={depth} hasChildren={hasChildren} guideContinuations={guideContinuations} context={context} blocked={lifeCompletionBlocked(data, entry.id)} noteOpen={noteOpenId === entry.id}
           done={lifeEntryDone(data, entry, date)} open={inspectedId === entry.id}
           onOpen={() => inspect(entry.id)}
           register={(id, el) => { if (el) titles.current.set(id, el); else titles.current.delete(id); }}

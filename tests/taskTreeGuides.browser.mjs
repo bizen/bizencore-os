@@ -76,7 +76,9 @@ try {
           const mark = row.querySelector('.row-mark').getBoundingClientRect();
           const guides = [...row.querySelectorAll('.row-tree-guide:not(.row-tree-stem)')];
           const stem = row.querySelector('.row-tree-stem');
-          if (guides.length !== Math.max(0, depth - 1)) problems.push('missing ancestor rails at depth ' + depth);
+          const continues = level => { const next = rows.slice(index + 1).find(other => Number(other.style.getPropertyValue('--depth')) <= level + 1); return !!next && Number(next.style.getPropertyValue('--depth')) === level + 1; };
+          const expectedLevels = Array.from({ length: Math.max(0, depth - 1) }, (_, i) => i + 1).filter(level => level === depth - 1 || continues(level));
+          if (guides.length !== expectedLevels.length) problems.push('missing ancestor rails at depth ' + depth);
           if (!!stem !== childStem) problems.push('incorrect visible-child stem');
           const step = parseFloat(getComputedStyle(row).getPropertyValue('--tree-step')) * parseFloat(getComputedStyle(row).fontSize);
           for (const guide of [...guides, ...(stem ? [stem] : [])]) {
@@ -85,9 +87,17 @@ try {
             if (!guide.style.getPropertyValue('--tree-color')) problems.push('missing depth color');
             const box = guide.getBoundingClientRect();
             const expected = mark.x + mark.width / 2 - (depth - level) * step;
-            if (Math.abs(box.x + box.width / 2 - expected) > 1) problems.push('rail not centered on ancestor checkbox');
-            if (box.width !== 1 || box.height <= 0) problems.push('rail is blank or incorrectly sized');
+            if (Math.abs(box.x + 0.75 - expected) > 1) problems.push('rail not centered on ancestor checkbox');
+            if ((!guide.classList.contains('is-parent') && box.width !== 1.5) || box.height <= 0) problems.push('rail is blank or incorrectly sized');
             if (getComputedStyle(guide).pointerEvents !== 'none') problems.push('rail intercepts clicks');
+            if (guide.classList.contains('is-parent')) {
+              const branch = guide.querySelector('.row-tree-branch');
+              const branchBox = branch.getBoundingClientRect();
+              const check = row.querySelector('.check, .row-lock-mark').getBoundingClientRect();
+              if (Math.abs(branchBox.right - check.left) > 1 || Math.abs(branchBox.bottom - 0.75 - (check.top + check.height / 2)) > 1) problems.push('branch misses checkbox');
+              if (getComputedStyle(branch).borderBottomLeftRadius !== '7px') problems.push('branch lacks rounded elbow');
+              if (guide.classList.contains('is-continuing') !== continues(level)) problems.push('incorrect last-child continuation');
+            }
             if (guide === stem) {
               const check = row.querySelector('.check, .row-lock-mark').getBoundingClientRect();
               if (box.y < check.bottom - 1) problems.push('stem overlaps checkbox');
@@ -114,9 +124,9 @@ try {
           await page.getByRole('tab', { name: new RegExp('^' + view) }).click();
           await validate();
           assert.equal(await row('公開を確認する').count(), view === 'today' ? 0 : 1);
-          if (theme === 'black' && (width === 390 || width === 1280) && view === 'all') {
+          if ((theme === 'black' || theme === 'white') && (width === 390 || width === 1280) && view === 'all') {
             await row('UIの見直し').scrollIntoViewIfNeeded();
-            await page.screenshot({ path: '/private/tmp/bizencore-tree-' + host + (width === 390 ? '-mobile' : '-desktop') + '.png', fullPage: true, animations: 'disabled' });
+            await page.screenshot({ path: '/private/tmp/bizencore-tree-' + host + (width === 390 ? '-mobile' : '-desktop') + '-' + theme + '.png', fullPage: true, animations: 'disabled' });
           }
         }
         await page.getByRole('tab', { name: 'all', exact: true }).click();
@@ -136,6 +146,15 @@ try {
           await validate();
           await page.getByRole('tab', { name: 'all', exact: true }).click();
         }
+      }
+      if (host === 'web') {
+        await page.getByRole('tab', { name: 'all', exact: true }).click();
+        await row('UIの見直し').getByRole('button', { name: 'UIの見直しのサブタスクを収納', exact: true }).click();
+        await validate();
+        assert.equal(await row('タスク表示').count(), 0, 'folding removes descendant branches');
+        await row('UIの見直し').getByRole('button', { name: 'UIの見直しのサブタスクを展開', exact: true }).click();
+        await validate();
+        assert.equal(await row('タスク表示').count(), 1, 'expansion restores branches');
       }
     }
   }

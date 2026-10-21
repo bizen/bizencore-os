@@ -98,6 +98,10 @@ try {
   await world.getByRole('button', { name: '生活世界の操作を元に戻す', exact: true }).click();
   assert.equal(await titles.count(), 4);
   await (await getRow('パン')).getByRole('textbox', { name: '生活タスク', exact: true }).fill('買い物の帰りに寄るいつものパン屋で、明日の朝ごはんを買って帰る。'.repeat(3));
+  assert.equal(await world.locator('.row-tree-guide').count(), 0, 'first-level Life World tasks also omit the outer rail');
+  await (await getRow('Milk')).getByRole('textbox', { name: '生活タスク', exact: true }).press('Tab');
+  assert.equal(await (await getRow('Milk')).evaluate(el => el.style.getPropertyValue('--depth')), '2');
+  assert.equal(await (await getRow('Milk')).locator('.row-tree-branch').count(), 1, 'nested life task connects to its checkbox');
   for (const theme of ['black', 'white', 'original']) {
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     for (const width of [1280, 390, 320]) {
