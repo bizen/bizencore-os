@@ -1,7 +1,6 @@
 import { useAuth } from '@clerk/clerk-react';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type PointerEvent } from 'react';
-import cirnoImg from '../assets/cirno.png';
 import { AI_TARGETS, aiConversationLink, buildTaskHandoff, readHandoffPreferences, saveHandoffPreferences, type HandoffPreferences } from '../lib/aiHandoff';
 import { isCloudConfigured } from '../lib/cloudConfig';
 import { useDesktopHandoff } from '../lib/desktopHandoff';
@@ -45,6 +44,10 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
     const [agent, setAgent] = useState(readAgent);
     const [preferences, setPreferences] = useState(readHandoffPreferences);
     const [intent, setIntent] = useState<HandoffIntent>('consult');
+    const [hovered, setHovered] = useState(false);
+    const [overTask, setOverTask] = useState(false);
+    const [happy, setHappy] = useState(false);
+    const happyTimer = useRef<number | undefined>(undefined);
     const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
     const [message, setMessage] = useState('');
     const [manualCopy, setManualCopy] = useState('');
@@ -72,7 +75,9 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
             const error = desktop.assign(null, { taskId, intent, mode: mcpEnabled ? saved.mode : 'text' });
             setMessage(error ?? '');
             setPanel(error ? { taskId } : null);
+            return !error;
         } else setPanel({ taskId });
+        return true;
     };
 
     useEffect(() => {
@@ -88,6 +93,7 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
     useEffect(() => () => {
         gesture.current?.row?.classList.remove('is-mascot-drop-target');
         copyAttempt.current = null;
+        window.clearTimeout(happyTimer.current);
     }, []);
 
     const cancelDrag = () => {
@@ -95,6 +101,7 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
         gesture.current?.row?.classList.remove('is-mascot-drop-target');
         gesture.current = null;
         setPosition(null);
+        setOverTask(false);
     };
 
     const move = (event: PointerEvent<HTMLButtonElement>) => {
@@ -102,6 +109,8 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
         if (!current || current.pointerId !== event.pointerId) return;
         if (!current.moved && Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6) return;
         current.moved = true;
+        setHappy(false);
+        window.clearTimeout(happyTimer.current);
         setPanel(null);
         setPosition({ x: event.clientX, y: event.clientY });
         const row = taskRowAt(event.clientX, event.clientY);
@@ -109,6 +118,7 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
         current.row?.classList.remove('is-mascot-drop-target');
         row?.classList.add('is-mascot-drop-target');
         current.row = row;
+        setOverTask(!!row);
     };
 
     const drop = (event: PointerEvent<HTMLButtonElement>) => {
@@ -117,7 +127,10 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
         if (current.moved) {
             suppressClick.current = true;
             const taskId = taskRowAt(event.clientX, event.clientY)?.dataset.rowId;
-            if (taskId) selectTask(taskId);
+            if (taskId && selectTask(taskId)) {
+                setHappy(true);
+                happyTimer.current = window.setTimeout(() => setHappy(false), 1200);
+            }
         }
         cancelDrag();
     };
@@ -201,6 +214,8 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
                 setPreferences(readHandoffPreferences());
                 setPanel(current => current === (handoff ? 'settings' : 'about') ? null : handoff ? 'settings' : 'about');
             }}
+            onPointerEnter={event => { if (event.pointerType === 'mouse') setHovered(true); }}
+            onPointerLeave={() => setHovered(false)}
             onPointerDown={event => {
                 if (!handoff || event.button !== 0 || !event.isPrimary) return;
                 suppressClick.current = false;
@@ -208,8 +223,8 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
                 event.currentTarget.setPointerCapture(event.pointerId);
             }}
             onPointerMove={move} onPointerUp={drop} onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}>
-            <MascotPortrait active={!position && !panel} />
+            <MascotPortrait active={!position && !panel && !happy} mood={happy ? 'happy' : hovered && !position && !panel ? 'curious' : 'idle'} />
         </button>
-        {position ? <img src={cirnoImg} alt="" className="mascot-drag-preview" style={{ left: position.x, top: position.y }} /> : null}
+        {position ? <span className="mascot-drag-preview" style={{ left: position.x, top: position.y }}><MascotPortrait active={false} mood={overTask ? 'expectant' : 'dragging'} decorative /></span> : null}
     </div>;
 }

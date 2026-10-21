@@ -839,6 +839,7 @@ try {
   assert.equal(await launcher.count(), 0, 'labels, misses and Escape never open launch settings');
   await dragMascot('.row--task .row-title');
   await launcher.waitFor();
+  assert.equal(await page.locator('.mascot-button [data-mood="happy"]').count(), 1, 'accepted desktop drop celebrates');
   assert.equal(await launcher.getByRole('combobox', { name: '担当タスク', exact: true }).inputValue(), '370b6a1f-e4be-4e60-8bb8-8295a4f77e04');
   assert.equal(await launcher.getByRole('button', { name: '検討する', exact: true }).getAttribute('aria-pressed'), 'true');
   assert.equal(await page.getByRole('dialog', { name: 'タスクのハンドオフ', exact: true }).count(), 0, 'drop opens desktop setup directly');
@@ -862,6 +863,7 @@ try {
   await dragMascot('.row--task .row-title');
   await page.getByRole('alert').getByText('このタスクは別のペインに割り当て済みです', { exact: true }).waitFor();
   assert.equal(await launcher.count(), 0, 'duplicate drops do not replace a running pane');
+  assert.equal(await page.locator('[data-mood="happy"]').count(), 0, 'rejected drop never celebrates');
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.__desktopTest.progress());
   await dragMascot('.row--task .row-title');

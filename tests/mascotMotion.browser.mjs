@@ -35,15 +35,18 @@ try {
   const portrait = page.locator('.mascot-portrait'); await portrait.waitFor();
   await page.waitForFunction(() => [...document.images].every(img => img.complete));
   await page.locator('.mascot-face').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).animationName), 'none', 'there is no constant floating');
+  assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).animationName), 'none', 'the source image stays aligned with the face overlay');
   const center = await portrait.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   const state = () => portrait.evaluate(el => ({ rotate: parseFloat(el.style.rotate), gaze: el.querySelector('.mascot-gaze').style.transform }));
   await page.mouse.move(center.x + 50, center.y - 20);
-  let current = await state(); assert.ok(current.rotate > 0 && current.rotate < 3.5); assert.notEqual(current.gaze, 'translate(0px, 0px)');
+  let current = await state(); assert.ok(current.rotate > 3.5 && current.rotate < 9); assert.notEqual(current.gaze, 'translate(0px, 0px)');
   await page.clock.runFor(600);
   await page.screenshot({ path: '/private/tmp/bizencore-cirno-looking.png' });
+  await page.mouse.move(center.x + 220, center.y);
+  assert.ok((await state()).rotate > 0, 'tracking reaches beyond the former 160px radius');
   await page.mouse.move(650, 50);
   current = await state(); assert.equal(current.rotate, 0); assert.equal(current.gaze, 'translate(0px, 0px)');
+  assert.equal(await portrait.evaluate(el => getComputedStyle(el).animationName), 'mascot-idle', 'gentle idle motion resumes away from cursor');
   await page.clock.runFor(3500);
   assert.equal(await page.evaluate(() => blinks.length), 2, 'both eyes blink after four seconds');
   const blink = await page.evaluate(() => blinks[0]); assert.equal(blink.options.duration, 160); assert.equal(blink.frames[1].scale, '1 0.08');
@@ -56,6 +59,7 @@ try {
     await page.evaluate(() => motionChanged);
   };
   await setMotion('reduce');
+  assert.equal(await portrait.evaluate(el => getComputedStyle(el).animationName), 'none', 'reduced motion also disables idle movement');
   const before = await page.evaluate(() => blinks.length);
   await page.clock.runFor(10_000);
   await page.mouse.move(center.x + 40, center.y);
@@ -82,5 +86,5 @@ try {
   assert.equal((await state()).rotate, 0);
   assert.ok(await page.locator('.mascot').evaluate(el => el.complete && el.naturalWidth > 0), 'failed animation asset leaves the original artwork visible');
   assert.deepEqual(errors, []);
-  console.log('Passed: subtle nearby gaze/tilt and reset, irregular blink interval, no idle float, reduced motion, hidden-window pause, drag/menu pause, touch and error-free rendering.');
+  console.log('Passed: wider and stronger gaze/tilt and reset, irregular blink interval, gentle idle motion, reduced motion, hidden-window pause, drag/menu pause, touch and error-free rendering.');
 } finally { await browser.close(); }

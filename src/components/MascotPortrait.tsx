@@ -4,7 +4,9 @@ import eyelessImg from '../assets/cirno-eyeless.png';
 
 const EYES = [{ x: 659, y: 697, height: 156 }, { x: 868, y: 652, height: 154 }];
 
-export function MascotPortrait({ active = true }: { active?: boolean }) {
+export type MascotMood = 'idle' | 'curious' | 'dragging' | 'expectant' | 'happy';
+
+export function MascotPortrait({ active = true, mood = 'idle', decorative = false }: { active?: boolean; mood?: MascotMood; decorative?: boolean }) {
     const portrait = useRef<HTMLSpanElement>(null);
     const gaze = useRef<SVGGElement>(null);
     const eyes = useRef<(SVGGElement | null)[]>([]);
@@ -17,7 +19,10 @@ export function MascotPortrait({ active = true }: { active?: boolean }) {
         let timer: number | undefined;
         const enabled = () => active && ready && !document.hidden && !reducedMotion.matches;
         const reset = () => {
-            if (portrait.current) portrait.current.style.rotate = '0deg';
+            if (portrait.current) {
+                portrait.current.style.rotate = '0deg';
+                delete portrait.current.dataset.near;
+            }
             if (gaze.current) gaze.current.style.transform = 'translate(0px, 0px)';
         };
         const scheduleBlink = () => {
@@ -33,19 +38,21 @@ export function MascotPortrait({ active = true }: { active?: boolean }) {
             window.clearTimeout(timer);
             for (const eye of eyeNodes) eye?.getAnimations().forEach(animation => animation.cancel());
             reset();
+            if (portrait.current) portrait.current.style.animationPlayState = document.hidden ? 'paused' : 'running';
             if (enabled()) scheduleBlink();
         };
         const follow = (event: globalThis.PointerEvent) => {
             if (!enabled() || event.pointerType !== 'mouse' || !portrait.current || !gaze.current) return;
-            const bounds = portrait.current.getBoundingClientRect();
+            const bounds = (portrait.current.closest('button') ?? portrait.current).getBoundingClientRect();
             const dx = event.clientX - (bounds.left + bounds.width / 2);
             const dy = event.clientY - (bounds.top + bounds.height / 2);
             const distance = Math.hypot(dx, dy);
-            const proximity = Math.max(0, 1 - distance / 160);
+            const proximity = Math.max(0, 1 - distance / 300);
             const x = dx / Math.max(48, distance) * proximity;
             const y = dy / Math.max(48, distance) * proximity;
-            gaze.current.style.transform = `translate(${x * 24}px, ${y * 16}px)`;
-            portrait.current.style.rotate = `${x * 3.5}deg`;
+            portrait.current.dataset.near = String(proximity > 0);
+            gaze.current.style.transform = `translate(${x * 44}px, ${y * 30}px)`;
+            portrait.current.style.rotate = `${x * 9}deg`;
         };
         refresh();
         document.addEventListener('pointermove', follow, { passive: true });
@@ -63,8 +70,8 @@ export function MascotPortrait({ active = true }: { active?: boolean }) {
         };
     }, [active, ready]);
 
-    return <span ref={portrait} className="mascot-portrait">
-        <img src={cirnoImg} alt="Cirno" className="mascot" draggable={false} />
+    return <span ref={portrait} className="mascot-portrait" data-mood={mood} data-active={active && ready} aria-hidden={decorative || undefined}>
+        <img src={cirnoImg} alt={decorative ? '' : 'Cirno'} className="mascot" draggable={false} />
         <svg className="mascot-face" viewBox="0 0 1254 1254" aria-hidden="true" focusable="false" style={{ visibility: ready ? 'visible' : 'hidden' }}>
             <defs><clipPath id={patchId}>
                 {EYES.map(eye => <rect key={eye.x} x="-30" y="-84" width="60" height="168" rx="30" transform={`translate(${eye.x} ${eye.y}) rotate(-15)`} />)}
@@ -79,5 +86,8 @@ export function MascotPortrait({ active = true }: { active?: boolean }) {
                 </g>)}
             </g>
         </svg>
+        {mood === 'curious' ? <span className="mascot-reaction mascot-question" aria-hidden="true">?</span> : null}
+        {mood === 'dragging' ? <svg className="mascot-reaction mascot-sweat" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2C10 8 3 16 3 21a9 9 0 0 0 18 0C21 16 14 8 12 2Z" fill="#75cefa" stroke="#267bad" strokeWidth="2" /><path d="M8 20v3" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg> : null}
+        {mood === 'expectant' || mood === 'happy' ? <span className="mascot-reaction mascot-sparkle" aria-hidden="true">✦</span> : null}
     </span>;
 }

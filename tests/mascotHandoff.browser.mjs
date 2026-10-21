@@ -97,6 +97,9 @@ try {
     assert.ok(source && destination);
     await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
     await page.mouse.down();
+    assert.equal(await page.locator('.mascot-sweat').count(), 0, 'a simple press does not start sweating');
+    await page.mouse.move(source.x + source.width / 2, source.y - 35);
+    await page.locator('.mascot-drag-preview .mascot-sweat').waitFor();
     await page.mouse.move(destination.x + destination.width / 2, destination.y + Math.min(destination.height / 2, 20), { steps: 12 });
     const offset = await page.locator('.mascot-drag-preview').evaluate(el => {
       const rect = el.getBoundingClientRect();
@@ -117,6 +120,8 @@ try {
   await row().waitFor();
   assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).scale), 'none', 'provided artwork keeps its original orientation');
   assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).width), '108px', 'mascot is only ten percent smaller');
+  await mascot().hover();
+  await page.locator('.mascot-question').waitFor();
   await openSettings();
   assert.equal(await settings().getByLabel('エージェント', { exact: true }).inputValue(), 'codex');
   assert.equal(await settings().getByLabel('渡し方', { exact: true }).inputValue(), 'mcp');
@@ -126,10 +131,15 @@ try {
 
   await drag('[data-row-id="task-a"] .row-title', async () => {
     assert.equal(await row().evaluate(el => el.classList.contains('is-mascot-drop-target')), true);
+    assert.equal(await page.locator('.mascot-drag-preview [data-mood="expectant"]').count(), 1);
+    assert.equal(await page.locator('.mascot-sweat').count(), 0);
     assert.equal(await page.locator('.is-context-drop-target').count(), 0);
     await page.screenshot({ path: '/private/tmp/bizencore-mascot-drag.png' });
   });
   await handoff().waitFor();
+  assert.equal(await page.locator('.mascot-button [data-mood="happy"]').count(), 1);
+  await page.screenshot({ path: '/private/tmp/bizencore-cirno-joy.png' });
+  await page.waitForFunction(() => !document.querySelector('.mascot-button [data-mood="happy"]'));
   assert.equal(await page.locator('.is-mascot-drop-target, .mascot-drag-preview').count(), 0);
   assert.deepEqual(await counts(), [0, 0], 'dropping only proposes a handoff');
   assert.equal(await handoff().locator('.mascot-task-name').innerText(), 'チルノの操作を確認する');
