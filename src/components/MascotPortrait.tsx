@@ -1,15 +1,32 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import cirnoImg from '../assets/cirno-matte-full.png';
-import eyelessImg from '../assets/cirno-matte-eyeless.png';
+import matteImg from '../assets/cirno-matte-full.png';
+import matteEyeless from '../assets/cirno-matte-eyeless.png';
+import flatImg from '../assets/cirno.png';
+import flatEyeless from '../assets/cirno-eyeless.png';
+import { useMascotStyle, type MascotStyle } from '../lib/mascotStyle';
 
-const EYES = [
-    { x: 658, y: 724, width: 86, height: 166, angle: -31 },
-    { x: 867, y: 664, width: 65, height: 158, angle: -30 },
-];
+const PORTRAITS = {
+    matte: { image: matteImg, eyeless: matteEyeless, eyes: [
+        { x: 658, y: 724, width: 86, height: 166, angle: -31 },
+        { x: 867, y: 664, width: 65, height: 158, angle: -30 },
+    ] },
+    flat: { image: flatImg, eyeless: flatEyeless, eyes: [
+        { x: 659, y: 697, width: 54, height: 156, angle: -15 },
+        { x: 868, y: 652, width: 54, height: 154, angle: -15 },
+    ] },
+};
 
 export type MascotMood = 'idle' | 'curious' | 'dragging' | 'happy';
+type Props = { active?: boolean; mood?: MascotMood; decorative?: boolean };
 
-export function MascotPortrait({ active = true, mood = 'idle', decorative = false }: { active?: boolean; mood?: MascotMood; decorative?: boolean }) {
+export function MascotPortrait(props: Props) {
+    const appearance = useMascotStyle();
+    // Remount the animated layers so a style switch cannot reuse a ready eye patch.
+    return <AnimatedPortrait key={appearance} {...props} appearance={appearance} />;
+}
+
+function AnimatedPortrait({ active = true, mood = 'idle', decorative = false, appearance }: Props & { appearance: MascotStyle }) {
+    const { image: cirnoImg, eyeless: eyelessImg, eyes: EYES } = PORTRAITS[appearance];
     const portrait = useRef<HTMLSpanElement>(null);
     const gaze = useRef<SVGGElement>(null);
     const eyes = useRef<(SVGGElement | null)[]>([]);
@@ -81,7 +98,7 @@ export function MascotPortrait({ active = true, mood = 'idle', decorative = fals
         };
     }, [active, ready]);
 
-    return <span ref={portrait} className="mascot-portrait" data-mood={mood} data-active={active && ready} aria-hidden={decorative || undefined}>
+    return <span ref={portrait} className="mascot-portrait" data-style={appearance} data-mood={mood} data-active={active && ready} aria-hidden={decorative || undefined}>
         <img src={cirnoImg} alt={decorative ? '' : 'Cirno'} className="mascot" draggable={false} />
         <svg className="mascot-face" viewBox="0 0 1254 1254" aria-hidden="true" focusable="false" style={{ visibility: ready ? 'visible' : 'hidden' }}>
             <defs><clipPath id={patchId}>

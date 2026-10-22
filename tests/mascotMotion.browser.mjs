@@ -16,11 +16,15 @@ const { outputFiles } = await build({
   define: { 'process.env.NODE_ENV': '"production"' },
 });
 const css = await readFile('src/index.css', 'utf8');
+const appearance = process.env.MASCOT_STYLE === 'flat' ? 'flat' : 'matte';
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.clock.install();
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(now);
+  await page.addInitScript(appearance => { localStorage.setItem('bizencore.mascotStyle', appearance); }, appearance);
   await page.addInitScript(() => {
     Math.random = () => 0;
     globalThis.blinks = [];
@@ -35,7 +39,8 @@ try {
   const portrait = page.locator('.mascot-portrait'); await portrait.waitFor();
   await page.waitForFunction(() => [...document.images].every(img => img.complete));
   await page.locator('.mascot-face').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('.mascot').getAttribute('src'), `data:image/png;base64,${(await readFile('src/assets/cirno-matte-full.png')).toString('base64')}`, 'the animated mascot uses the approved matte artwork');
+  assert.equal(await portrait.getAttribute('data-style'), appearance);
+  assert.equal(await page.locator('.mascot').getAttribute('src'), `data:image/png;base64,${(await readFile(appearance === 'matte' ? 'src/assets/cirno-matte-full.png' : 'src/assets/cirno.png')).toString('base64')}`, 'the animated mascot uses the selected artwork');
   assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).animationName), 'none', 'the source image stays aligned with the face overlay');
   const center = await portrait.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   const state = () => portrait.evaluate(el => ({ rotate: parseFloat(el.style.rotate), gaze: el.querySelector('.mascot-gaze').style.transform }));
@@ -75,7 +80,7 @@ try {
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
   await page.clock.runFor(2501); assert.equal(await page.evaluate(() => blinks.length), before + 2, 'visibility restores blinking');
   await page.evaluate(() => setPortraitActive(false));
-  await page.waitForFunction(() => document.querySelector('.mascot-portrait').style.rotate === '0deg');
+  await page.waitForFunction(() => document.querySelector('.mascot-portrait').dataset.active === 'false');
   const paused = await page.evaluate(() => blinks.length); await page.clock.runFor(10_000);
   assert.equal(await page.evaluate(() => blinks.length), paused, 'dragging/menu pause stops motion');
   await page.evaluate(() => { Math.random = () => 1; setPortraitActive(true); });

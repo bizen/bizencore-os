@@ -6,6 +6,7 @@ import { api } from '../../convex/_generated/api';
 import { isCloudConfigured } from '../lib/cloudConfig';
 import { isTimeZone } from '../lib/taskDates';
 import type { Theme } from '../lib/theme';
+import { saveMascotStyle, useMascotStyle } from '../lib/mascotStyle';
 import { PartnerSettings } from './PartnerSettings';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
 import { AccountDeletionSetting } from './AccountDeletionSetting';
@@ -95,6 +96,7 @@ const THEMES: { id: Theme; lines: string[] }[] = [
 
 export function SettingsPanel({ onClose, theme, onThemeChange }: { onClose: () => void; theme: Theme; onThemeChange: (theme: Theme) => void }) {
   const { data } = useLifeWorldState();
+  const mascotStyle = useMascotStyle();
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -140,6 +142,13 @@ export function SettingsPanel({ onClose, theme, onThemeChange }: { onClose: () =
                 <span className="theme-option-name">{option.lines.map((line) => <span key={line}>{line}</span>)}</span>
               </button>
             ))}
+          </div>
+          <div className="settings-life-visibility settings-mascot-style">
+            <label htmlFor="settings-mascot-style">チルノのスタイル</label>
+            <select id="settings-mascot-style" value={mascotStyle} onChange={event => saveMascotStyle(event.target.value === 'flat' ? 'flat' : 'matte')}>
+              <option value="matte">マット（標準）</option>
+              <option value="flat">フラット</option>
+            </select>
           </div>
         </section>
         <section className="settings-section" aria-labelledby="settings-life-title">

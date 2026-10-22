@@ -3641,3 +3641,6 @@ a.context-title:hover {
   .partner-invite-link input { min-height: 44px; font-size: 16px; }
   .partner-invite-link .icon-btn { width: 44px; height: 44px; }
 }
+
+.settings-mascot-style { margin-top: 0.75rem; }
+.settings-mascot-style select { padding: 0.4rem 0.6rem; border: 1px solid var(--border-color); border-radius: 5px; background: var(--input-bg); color: inherit; font: inherit; }
