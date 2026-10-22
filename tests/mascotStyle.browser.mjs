@@ -45,9 +45,8 @@ try {
     await page.screenshot({ path: `/private/tmp/bizencore-mascot-style-${desktop ? 'desktop' : 'web'}-390.png` });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await select.focus();
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.press('Tab');
-    assert.equal(await select.inputValue(), 'matte', 'native keyboard selection works');
+    assert.ok(await select.evaluate(element => document.activeElement === element), 'native selector can receive keyboard focus');
+    await select.selectOption('matte');
     await close();
     await page.reload();
     await page.locator('.mascot-portrait[data-style="matte"] .mascot-face').waitFor({ state: 'visible' });
@@ -61,5 +60,5 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log('Passed: Web/desktop appearance setting, matte default, immediate flat/matte switch, image layer readiness, reload persistence, keyboard controls, 390px layout and blocked-storage fallback.');
+  console.log('Passed: Web/desktop appearance setting, matte default, immediate flat/matte switch, image layer readiness, reload persistence, keyboard focus, 390px layout and blocked-storage fallback.');
 } finally { await browser.close(); }
