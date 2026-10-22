@@ -1,8 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import cirnoImg from '../assets/cirno.png';
-import eyelessImg from '../assets/cirno-eyeless.png';
+import cirnoImg from '../assets/cirno-matte-full.png';
+import eyelessImg from '../assets/cirno-matte-eyeless.png';
 
-const EYES = [{ x: 659, y: 697, height: 156 }, { x: 868, y: 652, height: 154 }];
+const EYES = [
+    { x: 658, y: 724, width: 86, height: 166, angle: -31 },
+    { x: 867, y: 664, width: 65, height: 158, angle: -30 },
+];
 
 export type MascotMood = 'idle' | 'curious' | 'dragging' | 'happy';
 
@@ -82,14 +85,14 @@ export function MascotPortrait({ active = true, mood = 'idle', decorative = fals
         <img src={cirnoImg} alt={decorative ? '' : 'Cirno'} className="mascot" draggable={false} />
         <svg className="mascot-face" viewBox="0 0 1254 1254" aria-hidden="true" focusable="false" style={{ visibility: ready ? 'visible' : 'hidden' }}>
             <defs><clipPath id={patchId}>
-                {EYES.map(eye => <rect key={eye.x} x="-30" y="-84" width="60" height="168" rx="30" transform={`translate(${eye.x} ${eye.y}) rotate(-15)`} />)}
+                {EYES.map(eye => <rect key={eye.x} x={-eye.width / 2 - 4} y={-eye.height / 2 - 4} width={eye.width + 8} height={eye.height + 8} rx={eye.width / 2 + 4} transform={`translate(${eye.x} ${eye.y}) rotate(${eye.angle})`} />)}
             </clipPath></defs>
             {/* Replace only the baked-in eyes; the rest of the supplied artwork stays untouched. */}
             <image href={eyelessImg} width="1254" height="1254" clipPath={`url(#${patchId})`} onLoad={() => setReady(true)} onError={() => setReady(false)} />
             <g ref={gaze} className="mascot-gaze">
-                {EYES.map((eye, index) => <g key={eye.x} transform={`translate(${eye.x} ${eye.y}) rotate(-15)`}>
+                {EYES.map((eye, index) => <g key={eye.x} transform={`translate(${eye.x} ${eye.y}) rotate(${eye.angle})`}>
                     <g className="mascot-eye" ref={node => { eyes.current[index] = node; }}>
-                        <rect x="-27" y={-eye.height / 2} width="54" height={eye.height} rx="27" fill="#10110f" />
+                        <rect x={-eye.width / 2} y={-eye.height / 2} width={eye.width} height={eye.height} rx={eye.width / 2} fill="#10110f" />
                     </g>
                 </g>)}
             </g>

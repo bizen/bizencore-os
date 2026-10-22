@@ -35,6 +35,7 @@ try {
   const portrait = page.locator('.mascot-portrait'); await portrait.waitFor();
   await page.waitForFunction(() => [...document.images].every(img => img.complete));
   await page.locator('.mascot-face').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.mascot').getAttribute('src'), `data:image/png;base64,${(await readFile('src/assets/cirno-matte-full.png')).toString('base64')}`, 'the animated mascot uses the approved matte artwork');
   assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).animationName), 'none', 'the source image stays aligned with the face overlay');
   const center = await portrait.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   const state = () => portrait.evaluate(el => ({ rotate: parseFloat(el.style.rotate), gaze: el.querySelector('.mascot-gaze').style.transform }));
@@ -88,6 +89,13 @@ try {
   assert.equal((await state()).rotate, 0, 'touch does not create a lingering gaze');
   await page.clock.runFor(600);
   await page.screenshot({ path: '/private/tmp/bizencore-cirno-idle.png' });
+  await setMotion('reduce');
+  await page.addStyleTag({ content: '.mascot { width: 108px; }' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const theme of ['black', 'white', 'original']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await page.screenshot({ path: `/private/tmp/bizencore-matte-mascot-${theme}.png` });
+  }
   await page.locator('.mascot-face image').evaluate(el => el.setAttribute('href', 'data:image/png;base64,invalid'));
   await page.locator('.mascot-face').waitFor({ state: 'hidden' });
   assert.equal((await state()).rotate, 0);
