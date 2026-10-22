@@ -1342,11 +1342,19 @@ body {
 
 .row-meta {
   display: grid;
-  grid-template-columns: 18px 46px 46px 18px minmax(18px, max-content);
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   align-items: center;
   column-gap: 0.5rem;
   align-self: start;
   padding-top: 4px;
+}
+
+/* 未設定の状態は詳細パネルで変更できるため、一覧では幅を取らない。 */
+.row--task .meta-kind:not(.is-set),
+.row--task .meta-today:not(.is-on) {
+  display: none;
 }
 
 /* ラベルの操作は数が変わるので、入っているぶんだけ横に並べる */
@@ -2887,7 +2895,7 @@ body {
 
   .row--task > .row-main,
   .board .row--task > .row-main {
-    grid-template-columns: 22px minmax(0, 1fr) 28px;
+    grid-template-columns: 22px minmax(0, 1fr) max-content;
   }
 
   .row--task .row-meta,
@@ -2895,14 +2903,21 @@ body {
     display: grid;
     grid-column: 3;
     grid-row: 1;
-    grid-template-columns: 28px;
-    gap: 0;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    column-gap: 0.35rem;
     padding-top: 0;
   }
 
   .row--task .row-meta > :not(.meta-inspect),
   .board .row--task .row-meta > :not(.meta-inspect) {
     display: none;
+  }
+
+  .row--task .row-meta .meta-kind.is-set,
+  .row--task .row-meta .meta-today.is-on {
+    display: grid;
   }
 
   .row--task .row-meta .meta-inspect,
