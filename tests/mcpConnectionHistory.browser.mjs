@@ -4,13 +4,16 @@ import { build } from 'esbuild';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const known = [
-  ['https://chatgpt.com/oauth/codex/client.json', 'Codex'],
+  ['https://chatgpt.com/oauth/codex/client.json', 'Codex（CLI／Desktop未判別）'],
   ['https://chatgpt.com/oauth/client.json', 'ChatGPT'],
-  ['https://claude.ai/oauth/mcp-oauth-client-metadata', 'Claude'],
-  ['https://claude.ai/oauth/claude-code-client-metadata', 'Claude Code'],
+  ['https://claude.ai/oauth/mcp-oauth-client-metadata', 'Claude（Web／Desktop未判別）'],
+  ['https://claude.ai/oauth/claude-code-client-metadata', 'Claude Code CLI'],
+  ['https://antigravity.google/oauth/client-metadata.json', 'Antigravity'],
+  ['desktop-codex', 'Codex CLI（bizencore内）'],
+  ['desktop-claude', 'Claude Code CLI（bizencore内）'],
 ];
 const rows = known.map(([clientId], index) => ({ clientId, lastUsedAt: 1791497700000 - index * 60000,
-  ...(index === 1 ? { clientName: clientId } : index === 2 ? { clientName: '  ' } : {}) }));
+  ...(index === 0 || index === 5 ? { clientName: 'Codex' } : index === 6 ? { clientName: 'Claude Code' } : index === 1 ? { clientName: clientId } : index === 2 ? { clientName: '  ' } : {}) }));
 rows.push({ clientId: 'https://example.test/client.json', clientName: 'Custom client', lastUsedAt: 1791497400000 });
 rows.push({ clientId: 'https://claude.ai.example.test/oauth/mcp-oauth-client-metadata', lastUsedAt: 1791497300000 });
 rows.push({ clientId: '__proto__', lastUsedAt: 1791497200000 });
@@ -63,8 +66,8 @@ try {
     assert.equal(await connections.nth(index).locator('code').textContent(), id);
     assert.equal(await connections.nth(index).locator('time').getAttribute('datetime'), new Date(rows[index].lastUsedAt).toISOString());
   }
-  assert.equal(await connections.nth(4).locator('strong').textContent(), 'Custom client', 'server-supplied names are preserved');
-  for (const index of [5, 6]) {
+  assert.equal(await connections.nth(known.length).locator('strong').textContent(), 'Custom client', 'server-supplied names are preserved');
+  for (const index of [known.length + 1, known.length + 2]) {
     assert.equal(await connections.nth(index).locator('strong').textContent(), rows[index].clientId, 'unknown IDs are not misclassified');
     assert.equal(await connections.nth(index).locator('code').count(), 0, 'unknown IDs are not repeated');
   }
@@ -79,11 +82,15 @@ try {
   }
   await page.evaluate(rows => globalThis.fixtureSetRows(rows.map((row, index) => index === 1 ? { ...row, clientName: 'ChatGPT Team' } : row)), rows);
   assert.equal(await connections.nth(1).locator('strong').textContent(), 'ChatGPT Team', 'a real supplied name takes precedence');
+  for (const name of ['Codex CLI', 'Codex Desktop']) {
+    await page.evaluate(({ rows, name }) => globalThis.fixtureSetRows(rows.map((row, index) => index === 0 ? { ...row, clientName: name } : row)), { rows, name });
+    assert.equal(await connections.nth(0).locator('strong').textContent(), name, 'explicit CLI/Desktop names are retained');
+  }
   for (const [value, message] of [[undefined, '読み込み中...'], [null, '表示するにはサインインしてください。'], [[], '記録されたMCPの利用はまだありません。']]) {
     await page.evaluate(value => globalThis.fixtureSetRows(value), value);
     assert.equal(await history.count(), 0);
     assert.ok(await page.locator('[aria-labelledby="settings-mcp-title"]').getByText(message, { exact: true }).isVisible());
   }
   assert.deepEqual(errors, []);
-  console.log('Passed: real settings history, four client names and IDs, URL/blank name fallback, custom names, unknown IDs, original timestamps, loading/empty/signed-out states, three themes at desktop/mobile; no real accounts or network.');
+  console.log('Passed: accurate CLI/Desktop labels, Antigravity, embedded CLI identification, ambiguous historical clients, custom names, unknown IDs, preserved timestamps, empty/auth states and three themes at 1280/390/320px.');
 } finally { await browser.close(); }

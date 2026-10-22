@@ -1,3 +1,4 @@
+import { mcpClientName } from '../src/lib/mcpClientName.js';
 import { createClerkClient } from '@clerk/backend';
 import type { AuthInfo, ServerContext } from '@modelcontextprotocol/server';
 import { withMcpAuth } from 'mcp-handler';
@@ -56,7 +57,10 @@ async function fetchConvex(
   body: Record<string, unknown>
 ): Promise<unknown> {
   const clientId = ctx.http?.authInfo?.clientId;
-  const clientName = await clientNameOf(clientId);
+  const info = (ctx.mcpReq.envelope as Record<string, unknown> | undefined)?.['io.modelcontextprotocol/clientInfo'];
+  const declaredName = info && typeof info === 'object' && 'name' in info && typeof info.name === 'string' ? info.name : undefined;
+  // Client-reported names affect history display only; authorization still uses OAuth identity.
+  const clientName = clientId && clientId !== 'unknown' ? mcpClientName(clientId, await clientNameOf(clientId), declaredName) : undefined;
   const response = await fetch(`${convexSiteUrl()}/mcp/${path}`, {
     method: 'POST',
     headers: {

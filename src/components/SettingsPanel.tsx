@@ -7,16 +7,10 @@ import { isCloudConfigured } from '../lib/cloudConfig';
 import { isTimeZone } from '../lib/taskDates';
 import type { Theme } from '../lib/theme';
 import { saveMascotStyle, useMascotStyle } from '../lib/mascotStyle';
+import { mcpClientName } from '../lib/mcpClientName';
 import { PartnerSettings } from './PartnerSettings';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
 import { AccountDeletionSetting } from './AccountDeletionSetting';
-
-const KNOWN_MCP_CLIENTS = new Map([
-  ['https://chatgpt.com/oauth/codex/client.json', 'Codex'],
-  ['https://chatgpt.com/oauth/client.json', 'ChatGPT'],
-  ['https://claude.ai/oauth/mcp-oauth-client-metadata', 'Claude'],
-  ['https://claude.ai/oauth/claude-code-client-metadata', 'Claude Code'],
-]);
 
 function McpConnectionHistory() {
   const connections = useQuery(api.sync.listMcpConnections);
@@ -30,8 +24,7 @@ function McpConnectionHistory() {
   return (
     <ul className="settings-connections">
       {connections.map(({ clientId, clientName, lastUsedAt }) => {
-        const name = clientName?.trim();
-        const displayName = (name && name !== clientId ? name : undefined) || KNOWN_MCP_CLIENTS.get(clientId);
+        const displayName = mcpClientName(clientId, clientName);
         return (
           <li key={clientId} className="settings-connection">
             <div className="settings-connection-main">
@@ -40,7 +33,7 @@ function McpConnectionHistory() {
                 最終利用 {new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }).format(lastUsedAt)}
               </time>
             </div>
-            {displayName ? <code>{clientId}</code> : null}
+            {displayName !== clientId ? <code>{clientId}</code> : null}
           </li>
         );
       })}
