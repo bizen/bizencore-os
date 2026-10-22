@@ -12,7 +12,7 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
   };
   if (location.search.includes('automatic')) Object.assign(window.bizencoreDesktop, {
     downloadUpdate: () => { window.fixture.downloads = (window.fixture.downloads || 0) + 1; return new Promise(resolve => { window.fixture.finish = () => resolve({ version: '0.1.19' }); }); },
-    installUpdate: async () => { window.fixture.installs = (window.fixture.installs || 0) + 1; return false; },
+    installUpdate: async () => { window.fixture.installs = (window.fixture.installs || 0) + 1; if (window.fixture.installError) throw Error(window.fixture.installError); return window.fixture.installResult || false; },
     onUpdateProgress: callback => { window.fixture.progress = callback; return () => { window.fixture.progress = null; }; },
   });
   createRoot(document.getElementById('root')).render(<header className="app-header">
@@ -68,5 +68,16 @@ try {
   assert.equal(await page.evaluate(() => window.fixture.installs), 1);
   assert.equal(await page.evaluate(() => window.fixture.opens), 0, 'in-app installation does not open the download page');
   assert.equal(await restart.isEnabled(), true, 'cancelling shutdown retains the downloaded update');
+  const messages=[]; page.on('dialog', dialog => { messages.push(dialog.message()); });
+  await page.evaluate(() => { window.fixture.installError = 'Error invoking remote method: BIZENCORE_UPDATE:更新の準備状態が失われました。'; });
+  await restart.click(); await restart.waitFor();
+  assert.equal(messages.at(-1), '更新の準備状態が失われました。');
+  await page.evaluate(() => { window.fixture.installError = null; });
+  await page.evaluate(() => { window.fixture.installResult = true; });
+  const installsBeforeSuccess = await page.evaluate(() => window.fixture.installs);
+  await restart.evaluate(el => { el.click(); el.click(); });
+  assert.equal(await page.evaluate(() => window.fixture.installs), installsBeforeSuccess + 1, 'rapid repeated clicks launch one install');
+  await page.getByRole('button', {name: 'アプリを更新しています', exact:true}).waitFor();
+  assert.equal(await page.locator('.app-update-btn').isDisabled(), true, 'approved update stays disabled until process exits');
   console.log('Update UI: legacy fallback, progress, explicit restart, upload guard, cancelled restart, offline readiness and responsive layout passed.');
 } finally { await browser.close(); }

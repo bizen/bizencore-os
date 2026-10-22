@@ -17,13 +17,15 @@ case "$owner" in ''|*[!0-9]*) exit 2 ;; esac
 [ -d "$job" ] && [ ! -L "$job" ] && [ -d "$installed" ] && [ ! -L "$installed" ] || exit 2
 [ -d "$job/new.app" ] && [ ! -L "$job/new.app" ] && [ ! -e "$job/previous.app" ] || exit 2
 exec >> "$job/install.log" 2>&1
+echo "helper-armed owner=$owner"
 : > "$job/armed"
 i=0
 while /bin/kill -0 "$owner" 2>/dev/null; do
-  i=$((i + 1)); [ "$i" -lt 120 ] || exit 3
+  i=$((i + 1)); [ "$i" -lt 120 ] || { echo "owner-exit-timeout"; exit 3; }
   /bin/sleep 1
 done
 [ -d "$job" ] && [ -d "$job/new.app" ] && [ ! -e "$job/cancelled" ] || exit 3
+echo "owner-exited; swapping"
 /bin/mv "$installed" "$job/previous.app"
 if ! /bin/mv "$job/new.app" "$installed"; then
   [ -e "$installed" ] || /bin/mv "$job/previous.app" "$installed"
@@ -36,6 +38,7 @@ child=$!
 i=0
 while [ "$i" -lt 60 ]; do
   if [ -f "$job/ready" ]; then
+    echo "new-renderer-ready"
     # Startup acknowledged the new renderer; only now discard the previous bundle.
     /bin/rm -rf "$temporary" "$job"
     exit 0
@@ -43,6 +46,7 @@ while [ "$i" -lt 60 ]; do
   /bin/kill -0 "$child" 2>/dev/null || break
   i=$((i + 1)); /bin/sleep 1
 done
+echo "new-launch-failed; rolling-back"
 # Kill only the process launched by this helper, never another installed copy.
 if [ "$(/bin/ps -p "$child" -o ppid= | /usr/bin/tr -d ' ')" = "$$" ]; then
   /bin/kill -TERM "$child" 2>/dev/null || true

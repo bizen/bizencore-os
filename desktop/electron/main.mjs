@@ -1,3 +1,4 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, net, Notification, powerMonitor, protocol, screen, shell } from 'electron';
 import Store from 'electron-store';
 import { createClerkBridge } from '@clerk/electron';
@@ -32,7 +33,7 @@ import { checkWorkRequest, createTaskOperationGuard, runTaskProcess, taskTreeIds
 import { checkOrchestration, orchestrationPrompt, reviewOrchestration } from './orchestration.mjs';
 import { createShutdownBarrier } from './session-shutdown.mjs';
 import { createDesktopUpdateCheck, DESKTOP_DOWNLOAD_URL } from './desktop-update.mjs';
-import { acknowledgeUpdate, createDesktopInstaller } from './update-install.mjs';
+import { acknowledgeUpdate, createDesktopInstaller, quitForUpdate, updateInstallMessage } from './update-install.mjs';
 import { desktopContentPolicy } from './content-policy.mjs';
 
 // Runtime config contains only public Vite values, never a Clerk secret key.
@@ -44,8 +45,14 @@ const windowTitle = `${profile.name} ${config.version}${profile.channel === 'pre
 const checkDesktopUpdate = createDesktopUpdateCheck({ channel: profile.channel, arch: config.arch,
   version: config.version, fetchRelease: (url, options) => net.fetch(url, options) });
 const bundle = path.dirname(path.dirname(path.dirname(root)));
+const updateLog = event => {
+  try {
+    const directory = app.getPath('logs'); mkdirSync(directory, { recursive: true });
+    appendFileSync(path.join(directory, 'desktop-update.log'), JSON.stringify({ at: new Date().toISOString(), ...event }) + '\n', { mode: 0o600 });
+  } catch { /* A logging failure must not interrupt a verified update. */ }
+};
 const updater = profile.channel === 'production' && app.isPackaged ? createDesktopInstaller({
-  bundle, arch: config.arch, getRelease: checkDesktopUpdate,
+  bundle, arch: config.arch, getRelease: checkDesktopUpdate, onEvent: updateLog,
   // Electron net.fetch cancels manual redirects; Node fetch lets us validate each destination.
   fetchData: (url, options) => fetch(url, options),
   helperSource: await readFile(path.join(root, 'update-helper.sh'), 'utf8'),
@@ -269,8 +276,8 @@ command('download-update', async event => {
 });
 command('install-update', async () => {
   if (!updater || !lifecycle) throw Error('更新の準備ができていません');
-  try { return await updater.install({ requestQuit: options => lifecycle.requestQuit(options), quit: () => app.quit() }); }
-  catch { throw Error('更新できませんでした。保存容量を確認し、アプリを書き込み可能なApplicationsフォルダに置いて再試行してください。'); }
+  try { return await updater.install({ requestQuit: options => lifecycle.requestQuit(options), quit: () => quitForUpdate(app, () => lifecycle.canExit(), () => updateLog({ stage: 'approved-exit-fallback' })) }); }
+  catch (error) { updateLog({ stage: 'install-ipc-failed', code: String(error.code ?? error.message) }); throw Error('BIZENCORE_UPDATE:' + updateInstallMessage(error)); }
 });
 command('agents', async event => {
   const generation = accessState.generation;

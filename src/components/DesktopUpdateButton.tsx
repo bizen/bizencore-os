@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { prepareAppReload } from '../lib/prepareAppReload';
 
@@ -13,6 +13,7 @@ const updateBridge = () => (window as Window & { bizencoreDesktop?: UpdateBridge
 type UpdateState = { version: string | null; stage: 'available' | 'downloading' | 'ready' | 'installing'; percent: number };
 
 export function DesktopUpdateButton() {
+  const inFlight = useRef(false);
   const [state, setState] = useState<UpdateState>({ version: null, stage: 'available', percent: 0 });
   useEffect(() => {
     const bridge = updateBridge();
@@ -56,14 +57,24 @@ export function DesktopUpdateButton() {
   const busy = state.stage === 'downloading' || state.stage === 'installing';
   return <button type="button" className="app-settings-btn app-update-btn" aria-label={label} title={label}
     disabled={busy} aria-busy={busy} onClick={async () => {
+      if (inFlight.current) return;
       if (!automatic) { try { await bridge?.openUpdate?.(); } catch { window.alert('配布ページを開けませんでした。'); } return; }
       if (state.stage === 'ready') {
         if (!prepareAppReload()) return;
+        inFlight.current = true;
         setState(current => ({ ...current, stage: 'installing' }));
-        try { await bridge.installUpdate!(); }
-        catch { window.alert('更新できませんでした。保存容量とアプリの保存先の書き込み権限を確認して再試行してください。'); }
-        setState(current => ({ ...current, stage: 'ready' }));
+        let approved = false;
+        try { approved = await bridge.installUpdate!(); }
+        catch (error) {
+          const message = error instanceof Error ? error.message : '';
+          const marker = 'BIZENCORE_UPDATE:';
+          window.alert(message.includes(marker) ? message.slice(message.indexOf(marker) + marker.length)
+            : message.includes('サインイン') ? '更新前にサインインを確認してください。アプリを開き直してから再試行してください。'
+            : '更新処理を完了できませんでした。更新ログ（desktop-update.log）を確認してください。');
+        }
+        if (!approved) { inFlight.current = false; setState(current => ({ ...current, stage: 'ready' })); }
       } else {
+        inFlight.current = true;
         setState(current => ({ ...current, stage: 'downloading', percent: 0 }));
         try {
           const release = await bridge.downloadUpdate!();
@@ -71,7 +82,7 @@ export function DesktopUpdateButton() {
         } catch {
           setState(current => ({ ...current, stage: 'available' }));
           window.alert('新版を取得できませんでした。通信と保存容量を確認して再試行してください。');
-        }
+        } finally { inFlight.current = false; }
       }
     }}><RefreshCw size={17} aria-hidden />{state.stage === 'downloading' ? <span aria-live="polite">{state.percent}%</span> : null}</button>;
 }

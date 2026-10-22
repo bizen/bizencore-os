@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, rm, access, mkdir, symlink } from 'node:f
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { downloadUpdate, verifyUpdateBundle, acknowledgeUpdate } from '../desktop/electron/update-install.mjs';
+import { downloadUpdate, verifyUpdateBundle, acknowledgeUpdate, quitForUpdate, updateInstallMessage } from '../desktop/electron/update-install.mjs';
 import { validateUpdateArchive } from '../desktop/electron/update-archive.mjs';
 
 const temp = () => mkdtemp(path.join(tmpdir(), 'bizencore-update-test-'));
@@ -110,4 +110,24 @@ test('external helper waits for exit, replaces safely, preserves user files and 
       }
     } finally { oldPid.kill(); await rm(parent, { recursive: true, force: true }); await rm(temporary, { recursive: true, force: true }); }
   }
+});
+
+test('approved update exit recovers a cancelled native quit but never exits with live work', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const calls = []; let approved = true;
+  const app = { quit: () => calls.push('quit'), exit: code => calls.push(['exit', code]) };
+  assert.throws(() => quitForUpdate(app, () => false), /not approved/);
+  assert.deepEqual(calls, []);
+  quitForUpdate(app, () => approved, () => calls.push('fallback'));
+  t.mock.timers.tick(1499); assert.deepEqual(calls, ['quit']);
+  t.mock.timers.tick(1); assert.deepEqual(calls, ['quit', 'fallback', ['exit', 0]]);
+  calls.length = 0; quitForUpdate(app, () => approved); approved = false;
+  t.mock.timers.tick(1500); assert.deepEqual(calls, ['quit']);
+});
+test('update errors identify actual failure without blaming capacity for unrelated errors', () => {
+  assert.match(updateInstallMessage({code:'ENOSPC'}), /空き容量/);
+  assert.match(updateInstallMessage({code:'EPERM'}), /書き込めません/);
+  assert.match(updateInstallMessage(Error('Move the app to a writable Applications folder')), /一時隔離/);
+  assert.match(updateInstallMessage(Error('Update is not ready')), /準備状態/);
+  assert.doesNotMatch(updateInstallMessage(Error('unexpected')), /容量|権限/);
 });
