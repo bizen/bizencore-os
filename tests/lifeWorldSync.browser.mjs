@@ -6,11 +6,13 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE_PATH || 'playwri
 // Exercise the real React sync bridge with a deterministic, network-isolated transport.
 const cloud = `
   import { useSyncExternalStore } from 'react';
+  import { convexToJson, jsonToConvex } from 'convex/values';
   import { emptyLifeData, mergeLifeData, lifeCheckKey } from './src/lib/lifeWorldModel';
   const listeners = new Set();
   let auth = { isLoaded: true, isSignedIn: true, userId: 'fixture-a' };
   const data = { 'fixture-a': emptyLifeData(), 'fixture-b': emptyLifeData() };
   globalThis.fixtureLifeCloud = data;
+  globalThis.fixtureLifeCalls = 0;
   const send = () => listeners.forEach(fn => fn());
   let offline = false;
   const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -21,12 +23,17 @@ const cloud = `
     return useSyncExternalStore(subscribe, () => args === 'skip' ? undefined : args.accountId === auth.userId ? data[args.accountId] : null);
   }
   async function push(args) {
+    globalThis.fixtureLifeCalls++;
     if (offline) throw new Error('fixture offline');
     if (args.accountId !== auth.userId) throw new Error('fixture unauthorized');
-    data[args.accountId] = mergeLifeData(data[args.accountId], { version: 1,
+    const next = jsonToConvex(convexToJson(mergeLifeData(data[args.accountId], { version: 1,
       entries: Object.fromEntries(args.entries.map(e => [e.id, e])), checks: Object.fromEntries(args.checks.map(c => [lifeCheckKey(c.entryId, c.date), c])),
-      ...(args.preferences ? { preferences: args.preferences } : {}) });
-    send();
+      ...(args.preferences ? { preferences: args.preferences } : {}) })));
+    // An unchanged server result does not invalidate the subscribed query.
+    if (JSON.stringify(next) !== JSON.stringify(data[args.accountId])) {
+      data[args.accountId] = next;
+      send();
+    }
     return { ok: true };
   }
   export function useMutation() { return push; }
@@ -85,6 +92,9 @@ try {
   await page.getByRole('button', { name: 'Show in All', exact: true }).click();
   await synced();
   assert.equal(await page.evaluate(() => globalThis.fixtureLifeCloud['fixture-a'].preferences.showInAll), true, 'preference-only changes are uploaded');
+  const idleCalls = await page.evaluate(() => globalThis.fixtureLifeCalls);
+  await page.waitForTimeout(60_000);
+  assert.equal(await page.evaluate(() => globalThis.fixtureLifeCalls), idleCalls, 'no uploads during 60 seconds after preference sync');
   await page.getByRole('button', { name: 'Move label up', exact: true }).click(); await synced();
   assert.equal(await page.evaluate(() => globalThis.fixtureLifeCloud['fixture-a'].preferences.beforeId), 'root-b');
   await page.getByRole('button', { name: '今日やりたいこと', exact: true }).click();

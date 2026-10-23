@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { build } from 'esbuild';
+import { convexToJson, jsonToConvex } from 'convex/values';
 
 async function load(path) {
   const { outputFiles } = await build({ entryPoints: [path], bundle: true, platform: 'node', format: 'esm', write: false });
@@ -305,4 +306,24 @@ test('locked life containers retain collapse across reload and devices without o
   assert.equal(a.getSnapshot().data.entries[id].collapsed, undefined);
   assert.equal(a.getSnapshot().data.entries[id].note, 'Concurrent note');
   assert.deepEqual(lifePendingChanges(a.getSnapshot().data, expanded), { entries: [], checks: [] });
+});
+
+
+test('Convex preference serialization stays clean regardless of key order and detects every changed field', async () => {
+  const preferences = { showInAll: true, beforeId: null, updatedAt: 100, visibilityStamp: 100, placementStamp: 0 };
+  const local = { ...emptyLifeData(), preferences };
+  const remote = jsonToConvex(convexToJson(local));
+  assert.deepEqual(remote.preferences, preferences);
+  assert.notDeepEqual(Object.keys(remote.preferences), Object.keys(preferences), 'exercise the actual wire key order');
+  const device = createLifeWorldStore(storage()); device.setAccount('user-a');
+  for (let cycle = 0; cycle < 10; cycle++) {
+    device.mergeRemote(remote, 'user-a');
+    assert.deepEqual(lifePendingChanges(device.getSnapshot().data, remote), { entries: [], checks: [] });
+  }
+  for (const [field, value] of Object.entries({ showInAll: false, beforeId: 'other', updatedAt: 101, visibilityStamp: 99, placementStamp: 1 })) {
+    const changed = { ...local, preferences: { ...preferences, [field]: value } };
+    assert.deepEqual(lifePendingChanges(changed, remote), { preferences: changed.preferences, entries: [], checks: [] }, field);
+  }
+  assert.deepEqual(lifePendingChanges(local, emptyLifeData()), { preferences, entries: [], checks: [] });
+  assert.deepEqual(lifePendingChanges(emptyLifeData(), remote), { entries: [], checks: [] });
 });

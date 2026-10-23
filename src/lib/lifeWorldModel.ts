@@ -399,12 +399,15 @@ export function mergeLifeData(a: LifeData, b: LifeData): LifeData {
 }
 
 export function lifePendingChanges(local: LifeData, remote: LifeData) {
+  const preferenceKey = (preferences: LifePreferences | undefined) => preferences && JSON.stringify([
+    preferences.showInAll, preferences.beforeId, preferences.updatedAt, preferences.visibilityStamp, preferences.placementStamp,
+  ]);
   const entryKey = (entry: LifeEntry) => JSON.stringify([entry.id, entry.text, entry.note, entry.startDate,
     entry.repeat, entry.order, entry.updatedAt, entry.deletedAt, entry.locked === true, entry.collapsed === true, entry.parentId ?? null,
     LIFE_ENTRY_GROUPS.map(group => lifeEntryStamp(entry, group))]);
   const checkKey = (check: LifeCheck) => JSON.stringify([check.entryId, check.date, check.done, check.updatedAt, check.filed === true, check.cleared === true]);
   return {
-    ...(local.preferences && JSON.stringify(local.preferences) !== JSON.stringify(remote.preferences) ? { preferences: local.preferences } : {}),
+    ...(local.preferences && preferenceKey(local.preferences) !== preferenceKey(remote.preferences) ? { preferences: local.preferences } : {}),
     entries: Object.values(local.entries).filter(entry => !Object.hasOwn(remote.entries, entry.id) || entryKey(entry) !== entryKey(remote.entries[entry.id])),
     checks: Object.values(local.checks).filter(check => {
       const key = lifeCheckKey(check.entryId, check.date);
