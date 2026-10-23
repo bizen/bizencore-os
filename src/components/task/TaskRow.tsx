@@ -1,6 +1,6 @@
 import { Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
 import { fitTextarea, useAutoGrow } from '../../lib/useAutoGrow';
-import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
+import { LABEL_COLORS, isTodayItem, todayCarryDays, type Item, type LabelColor } from '../../lib/taskModel';
 import { liveAttachments } from '../../lib/attachments';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
 import { QUEST_LABEL } from '../../lib/quests';
@@ -23,6 +23,7 @@ export interface TaskRowProps {
   /** 親から離れて棚に置かれたサブタスクに添える親の名前 */
   context?: string;
   todayDate: string;
+  timeZone?: string | null;
   todayTime: string;
   todayNumber?: number;
   isActive: boolean;
@@ -97,7 +98,8 @@ export function TaskRow(props: TaskRowProps) {
   const titleRef = useAutoGrow(item.text);
   const noteRef = useAutoGrow(item.note ?? '');
   const isSection = item.type === 'section';
-  const isToday = item.assignedDate === todayDate;
+  const isToday = isTodayItem(item, todayDate, props.timeZone);
+  const carryDays = todayCarryDays(item, todayDate);
   const isOverdue = !item.done && !!item.dueDate && (item.dueDate < todayDate || (item.dueDate === todayDate && !!item.dueTime && item.dueTime < todayTime));
   const contextCount = liveAttachments(item.attachments).length;
   const contextDrop = useTaskContextDrop(item.id);
@@ -252,10 +254,10 @@ export function TaskRow(props: TaskRowProps) {
                 onFocus={() => onFocusRow(item.id)}
                 tabIndex={-1}
                 aria-pressed={isToday}
-                aria-label={isToday ? 'today から外す' : 'today に入れる'}
-                title="⌥T"
+                aria-label={isToday ? `today から外す${carryDays > 0 ? `（${carryDays}日持ち越し）` : ''}` : 'today に入れる'}
+                title={carryDays > 0 ? `Todayから${carryDays}日持ち越し（⌥T）` : '⌥T'}
               >
-                today
+                today{carryDays > 0 ? <span className="today-carry">+{carryDays}</span> : null}
               </button>
 
               <DeadlineField

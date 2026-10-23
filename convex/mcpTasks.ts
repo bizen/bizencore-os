@@ -7,7 +7,7 @@ import { cleanupFiles } from "./fileCleanup";
 import { requireActiveAccount } from './accountAccess';
 import { dateInTimeZone, isDateString, isTimeString } from "../src/lib/taskDates";
 import { coerceStamps, restamp, type Stamps } from "../src/lib/itemMerge";
-import { compareItems, isLabelColor, type Item } from "../src/lib/taskModel";
+import { compareItems, isLabelColor, isTodayItem, type Item } from "../src/lib/taskModel";
 import {
     MAX_ATTACHMENTS,
     MAX_ATTACHMENT_TEXT,
@@ -363,6 +363,7 @@ export const list = internalQuery({
         if (query && query.length > 200) throw new ConvexError("query must be at most 200 characters");
         const term = query?.trim().toLocaleLowerCase();
         const todayDate = await resolveToday(ctx, userId, today);
+        const preference = todayDate && includeDone ? await ctx.db.query("userPreferences").withIndex("by_user", (q) => q.eq("userId", userId)).unique() : null;
 
         const items = await loadItems(ctx, userId);
         const byId = new Map(items.map((i) => [i.id, i]));
@@ -390,7 +391,7 @@ export const list = internalQuery({
             const parent = item.parentId ? byId.get(item.parentId) : undefined;
             if (todayDate) {
                 // today はサブタスクにも付くので、深さによらず拾う
-                if (item.assignedDate !== todayDate) continue;
+                if (!isTodayItem(item, todayDate, preference?.timeZone ?? "UTC")) continue;
             } else if (!term && !flat && parent?.type === "task") {
                 // サブタスクは親の下にまとめて出すので、単体では並べない
                 continue;

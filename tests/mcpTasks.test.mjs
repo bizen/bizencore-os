@@ -257,6 +257,16 @@ test('list_tasks today: true uses the saved account time zone', async () => {
   assert.equal(result.tasks[0].text, 'Due today');
 });
 
+test('list_tasks Today includes unfinished carryovers but excludes completed carryovers', async () => {
+  const { ctx, rows } = memoryContext();
+  await add._handler(ctx, { userId: 'user-1', text: 'Carried' });
+  const item = JSON.parse(rows.syncItems[0].payload);
+  rows.syncItems[0].payload = JSON.stringify({ ...item, assignedDate: '2026-10-21' });
+  assert.equal((await list._handler(ctx, { userId: 'user-1', today: '2026-10-23' })).tasks.length, 1);
+  rows.syncItems[0].payload = JSON.stringify({ ...item, assignedDate: '2026-10-21', done: true, stamps: { done: Date.parse('2026-10-22T12:00:00Z') } });
+  assert.equal((await list._handler(ctx, { userId: 'user-1', today: '2026-10-23', includeDone: true })).tasks.length, 0);
+});
+
 test('list_tasks searches subtasks and returns bounded pages', async () => {
   const { ctx, rows } = memoryContext();
   const parent = await add._handler(ctx, { userId: 'user-1', text: 'Launch plan' });

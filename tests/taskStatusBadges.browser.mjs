@@ -24,7 +24,7 @@ const { outputFiles } = await build({
       return <main style={{ padding: 12 }}><button id="reset" onClick={() => setSelected(true)}>Reset</button><button id="view" onClick={() => setBoard(!board)}>View</button>
         <div className={board ? 'board' : ''}><section className={board ? 'board-col' : ''}><ul className="row-list">
           <TaskRow {...common} depth={0} item={{ ...seed, id: 'plain' }} />
-          <TaskRow {...common} depth={0} item={{ ...seed, id: 'selected', kind: selected ? 'main' : undefined, assignedDate: selected ? '2026-10-22' : '2026-10-21' }} />
+          <TaskRow {...common} depth={0} item={{ ...seed, id: 'selected', kind: selected ? 'main' : undefined, assignedDate: selected ? '2026-10-20' : undefined }} />
         </ul></section></div></main>;
     }
     createRoot(document.getElementById('root')).render(<Fixture />);
@@ -50,6 +50,8 @@ try {
         for (const badge of ['.meta-kind', '.meta-today']) assert.equal(await plain.locator(badge).isVisible(), false, 'inactive badges never occupy space, including focused/hovered rows');
         assert.equal(await selected.locator('.meta-kind').isVisible(), true);
         assert.equal(await selected.locator('.meta-today').isVisible(), true);
+        assert.equal(await selected.locator('.today-carry').innerText(), '+2');
+        assert.match(await selected.locator('.meta-today').getAttribute('aria-label'), /2日持ち越し/);
         assert.ok((await plain.locator('.row-title').boundingBox()).width > (await selected.locator('.row-title').boundingBox()).width + 40, 'unset statuses release their width to the title');
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
         if (width === 390 && touch) await page.screenshot({ path: '/private/tmp/bizencore-status-badges-' + theme + '.png' });

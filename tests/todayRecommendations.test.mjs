@@ -24,7 +24,7 @@ test('completed, filed, deleted, locked, unnamed, invalid and distant tasks are 
 
 test('Today descendants are excluded even without their own assignment date', () => {
   const items = map(item('parent', { assignedDate: '2026-10-05' }), item('child', { parentId: 'parent' }), item('grandchild', { parentId: 'child' }), item('previous', { assignedDate: '2026-10-04' }));
-  assert.deepEqual(recommend(items).map(c => c.item.id), ['previous']);
+  assert.deepEqual(recommend(items).map(c => c.item.id), [], 'carried tasks already belong to Today');
 });
 
 test('actionable children replace containers and preserve label and parent context', () => {

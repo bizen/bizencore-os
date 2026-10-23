@@ -14,6 +14,7 @@ import {
   flattenAll,
   isLabelColor,
   isLive,
+  isTodayItem,
   needsRebalance,
   newId,
   nextKind,
@@ -497,10 +498,10 @@ export const taskStore = {
     commit(withPatches(patches));
   },
 
-  toggleToday(id: string, todayDate: string): void {
+  toggleToday(id: string, todayDate: string, timeZone: string | null = null): void {
     const current = state.items[id];
     if (!isLive(current) || current.type !== 'task') return;
-    const assignedDate = current.assignedDate === todayDate ? undefined : todayDate;
+    const assignedDate = isTodayItem(current, todayDate, timeZone) ? undefined : todayDate;
     commit(withPatches([{ ...current, assignedDate }]));
   },
 

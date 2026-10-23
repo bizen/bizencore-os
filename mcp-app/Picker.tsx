@@ -6,7 +6,7 @@ import { treeContinuations } from '../src/lib/taskTreeGuides';
 import { TaskTreeGuides } from '../src/components/task/TaskTreeGuides';
 import { ContextDocument } from '../src/components/task/ContextDocument';
 import type { HandoffIntent } from '../src/lib/taskWorkPrompt';
-import { LABEL_COLORS, childrenOf, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
+import { LABEL_COLORS, childrenOf, isTodayItem, todayCarryDays, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
 import { applyTheme, readTheme, saveTheme, type Theme } from '../src/lib/theme';
 import { boardGroups, filterDue, handoffMessage, pickerRows, taskPath, type DueFilter, type View } from './model';
 
@@ -50,6 +50,8 @@ function TaskLine({ row, hasChildren, continuations, selected, today, onSelect, 
   onFocusLabel: (id: string) => void; focused: string[];
 }) {
   const { item, depth } = row;
+  const isToday = isTodayItem(item, today);
+  const carryDays = todayCarryDays(item, today);
   const label = item.type === 'section';
   const color = item.color ? LABEL_COLORS[item.color] : undefined;
   return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${item.locked ? ' row--locked' : ''}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
@@ -65,8 +67,8 @@ function TaskLine({ row, hasChildren, continuations, selected, today, onSelect, 
         {label ? <span className="row-title row-title--section">{item.text || '（無題）'}</span>
           : <button className="row-title picker-title" onClick={() => onSelect(item.id)}>{item.text || '（無題）'}</button>}
         {item.note ? <p className="row-note">{item.note}</p> : null}
-        {!label && (item.completionCriteria || item.dueDate || item.assignedDate === today) ? <div className="row-details">
-          {item.assignedDate === today ? <span>Today</span> : null}
+        {!label && (item.completionCriteria || item.dueDate || isToday) ? <div className="row-details">
+          {isToday ? <span title={carryDays > 0 ? `${carryDays}日持ち越し` : undefined}>Today{carryDays > 0 ? ` +${carryDays}` : ''}</span> : null}
           {item.dueDate ? <time className={item.dueDate < today && !item.done ? 'is-overdue' : ''}>{item.dueDate.slice(5).replace('-', '/')} {item.dueTime}</time> : null}
           {item.completionCriteria ? <span className="row-criteria">完了条件: {item.completionCriteria}</span> : null}
         </div> : null}

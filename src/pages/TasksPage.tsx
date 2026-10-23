@@ -300,7 +300,7 @@ function TasksPageContent() {
   const showLife = view === 'today' || (view === 'all' && lifeData.preferences?.showInAll === true);
   if (!showLife && lifeInspector) setLifeInspector(null);
   const allRootIds = useMemo(() => allRows.filter(row => row.depth === 0).map(row => row.item.id), [allRows]);
-  const todayRows = useMemo(() => flattenToday(items, todayDate), [items, todayDate]);
+  const todayRows = useMemo(() => flattenToday(items, todayDate, timeZone), [items, todayDate, timeZone]);
   const focusedLabelId = view.startsWith('label:') ? view.slice(6) : null;
   const focusedLabels = useMemo(
     () => focusedLabelIds.map((id) => items[id]).filter((item): item is Item => isLive(item) && item.type === 'section'),
@@ -1003,7 +1003,7 @@ function TasksPageContent() {
     if (event.altKey && !mod) {
       if (event.code === 'KeyT' && item.type === 'task') {
         event.preventDefault();
-        taskStore.toggleToday(item.id, todayDate);
+        taskStore.toggleToday(item.id, todayDate, timeZone);
         return;
       }
       if (event.code === 'KeyE' && item.type === 'task') {
@@ -1091,6 +1091,7 @@ function TasksPageContent() {
       onToggleCollapse={query.trim() ? undefined : toggleCollapse}
       context={row.context}
       todayDate={todayDate}
+      timeZone={timeZone}
       todayTime={todayTime}
       todayNumber={view === 'today' ? todayNumbers.get(row.item.id) : undefined}
       burstIndex={burstOrder.get(row.item.id)}
@@ -1108,7 +1109,7 @@ function TasksPageContent() {
       onTextChange={taskStore.setText}
       onNoteChange={taskStore.setNote}
       onToggleDone={toggleDone}
-      onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
+      onToggleToday={(id) => taskStore.toggleToday(id, todayDate, timeZone)}
       onCycleKind={taskStore.cycleKind}
       onSetDeadline={taskStore.setDeadline}
       onDeadlineOpenChange={handleDeadlineOpenChange}
@@ -1496,12 +1497,13 @@ function TasksPageContent() {
           items={items}
           initialFocus={inspector?.focus ?? 'title'}
           todayDate={todayDate}
+          timeZone={timeZone}
           onClose={closeInspector}
           onTextChange={taskStore.setText}
           onNoteChange={taskStore.setNote}
           onCompletionCriteriaChange={taskStore.setCompletionCriteria}
           onSetDeadline={taskStore.setDeadline}
-          onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
+          onToggleToday={(id) => taskStore.toggleToday(id, todayDate, timeZone)}
           onSetLocked={taskStore.setLocked}
           onSetEstimate={taskStore.setEstimate}
           onSetKind={taskStore.setKind}

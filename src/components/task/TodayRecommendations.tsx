@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { todayRecommendations } from '../../lib/todayRecommendations';
 import { taskStore } from '../../lib/taskStore';
-import type { ItemMap } from '../../lib/taskModel';
+import { isTodayItem, type ItemMap } from '../../lib/taskModel';
 
 export function TodayRecommendations({ items, todayDate, todayTime }: {
   items: ItemMap; todayDate: string; todayTime: string;
@@ -41,7 +41,7 @@ export function TodayRecommendations({ items, todayDate, todayTime }: {
                 aria-label={`${item.text}をTodayに追加`} title="Todayに追加"
                 onClick={event => {
                   const current = taskStore.getState().items[item.id];
-                  if (!current || current.deletedAt || current.done || current.locked || current.assignedDate === todayDate) return;
+                  if (!current || current.deletedAt || current.done || current.locked || isTodayItem(current, todayDate)) return;
                   if (document.activeElement === event.currentTarget) pendingFocus.current = index;
                   setHasAdded(true);
                   taskStore.toggleToday(item.id, todayDate);

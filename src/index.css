@@ -1424,8 +1424,9 @@ body {
 
 .meta-today {
   position: relative;
-  width: 46px;
-  padding: 0.16rem 0;
+  min-width: 46px;
+  width: max-content;
+  padding: 0.16rem 0.35rem;
   border: 1px solid transparent;
   border-radius: 999px;
   background: none;
@@ -3659,3 +3660,5 @@ a.context-title:hover {
 
 .settings-mascot-style { margin-top: 0.75rem; }
 .settings-mascot-style select { padding: 0.4rem 0.6rem; border: 1px solid var(--border-color); border-radius: 5px; background: var(--input-bg); color: inherit; font: inherit; }
+
+.today-carry { margin-left: 0.3em; letter-spacing: 0; font-variant-numeric: tabular-nums; }

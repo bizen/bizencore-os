@@ -9,7 +9,7 @@ import { showDatePicker } from '../../lib/nativeDatePicker';
 import { QUEST_KINDS, QUEST_LABEL } from '../../lib/quests';
 import { QuestIcon } from './QuestIcon';
 import { estimateInputValue, parseEstimate } from '../../lib/taskEstimate';
-import type { Item, ItemMap, TaskKind } from '../../lib/taskModel';
+import { isTodayItem, todayCarryDays, type Item, type ItemMap, type TaskKind } from '../../lib/taskModel';
 import { TaskFileInput, TaskFileLink } from './TaskFileContext';
 import { HandoffIntentControl } from './HandoffIntentControl';
 import { ContextDocument } from './ContextDocument';
@@ -22,6 +22,7 @@ export interface TaskInspectorProps {
   items: ItemMap;
   initialFocus: 'title' | 'estimate';
   todayDate: string;
+  timeZone?: string | null;
   onClose: () => void;
   onTextChange: (id: string, text: string) => void;
   onNoteChange: (id: string, note: string) => void;
@@ -262,7 +263,8 @@ export function TaskInspector(props: TaskInspectorProps) {
   const [contextError, setContextError] = useState('');
   const contextRef = useAutoGrow();
   const attachments = liveAttachments(item.attachments);
-  const isToday = item.assignedDate === todayDate;
+  const isToday = isTodayItem(item, todayDate, props.timeZone);
+  const carryDays = todayCarryDays(item, todayDate);
 
   // 通常は本文へ。⌥E から開いたときは想定時間へ直行する
   useEffect(() => {
@@ -480,9 +482,9 @@ export function TaskInspector(props: TaskInspectorProps) {
             className={`meta-today${isToday ? ' is-on' : ''}`}
             onClick={() => onToggleToday(item.id)}
             aria-pressed={isToday}
-            title="⌥T"
+            title={carryDays > 0 ? `Todayから${carryDays}日持ち越し（⌥T）` : '⌥T'}
           >
-            today
+            today{carryDays > 0 ? <span className="today-carry">+{carryDays}</span> : null}
           </button>
         </div>
 

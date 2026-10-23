@@ -5,6 +5,7 @@
  * - 並び順は兄弟内の fractional order。同期しても衝突しにくい。
  */
 
+import { dateInTimeZone, isDateString, localDateString } from './taskDates';
 import type { Attachment } from './attachments';
 import type { Stamps } from './itemMerge';
 
@@ -188,8 +189,8 @@ export function rowsForLabel(rows: Row[], labelId: string): Row[] {
   return rows.slice(start, end);
 }
 
-/** today 割り当てタスクとその子孫だけを、today を深さ0として並べ直す */
-export function flattenToday(items: ItemMap, todayDate: string): Row[] {
+/** today の未完了・当日完了タスクとその子孫を、today を深さ0として並べ直す */
+export function flattenToday(items: ItemMap, todayDate: string, timeZone: string | null = null): Row[] {
   const rows: Row[] = [];
   let baseDepth: number | null = null;
 
@@ -199,7 +200,7 @@ export function flattenToday(items: ItemMap, todayDate: string): Row[] {
       continue;
     }
     baseDepth = null;
-    if (row.item.type === 'task' && row.item.assignedDate === todayDate) {
+    if (isTodayItem(row.item, todayDate, timeZone)) {
       baseDepth = row.depth;
       rows.push({ item: row.item, depth: 0 });
     }
@@ -269,8 +270,18 @@ export function needsRebalance(prev?: number, next?: number): boolean {
   return Math.abs(next - prev) < MIN_ORDER_GAP;
 }
 
-export function isTodayItem(item: Item, todayDate: string): boolean {
-  return item.type === 'task' && item.assignedDate === todayDate;
+export function isTodayItem(item: Pick<Item, 'type' | 'assignedDate' | 'done' | 'stamps'>, todayDate: string, timeZone: string | null = null): boolean {
+  if (item.type !== 'task' || !item.assignedDate || !isDateString(item.assignedDate) || !isDateString(todayDate) || item.assignedDate > todayDate) return false;
+  if (!item.done || item.assignedDate === todayDate) return true;
+  // Reuse the synced completion stamp so carried tasks remain visible on their completion day.
+  const completedAt = item.stamps?.done;
+  return completedAt !== undefined && Number.isFinite(new Date(completedAt).getTime()) &&
+    (timeZone ? dateInTimeZone(timeZone, completedAt) : localDateString(completedAt)) === todayDate;
+}
+
+export function todayCarryDays(item: Item, todayDate: string): number {
+  if (item.type !== 'task' || item.done || !item.assignedDate || !isDateString(item.assignedDate) || !isDateString(todayDate)) return 0;
+  return Math.max(0, Math.round((Date.parse(`${todayDate}T12:00:00Z`) - Date.parse(`${item.assignedDate}T12:00:00Z`)) / 86_400_000));
 }
 
 /** なし → 頼みごと（オレンジ）→ メインクエスト（青）→ なし */
