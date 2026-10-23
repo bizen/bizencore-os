@@ -42,8 +42,9 @@ test('preferences are account/environment scoped and handle corrupt or unavailab
 
 test('completion notifications require a done transition for the same assigned task and pane', () => {
   const before = { paneId: 'pane', taskId: 'task', title: 'Task', done: false };
-  const done = { ...before, done: true };
+  const done = { ...before, done: true, completedBy: 'ai' };
   assert.deepEqual(completedAssignments([before], [done]), [done]);
+  assert.deepEqual(completedAssignments([before], [{ ...done, completedBy: 'user' }]), []);
   assert.deepEqual(completedAssignments([], [done]), [], 'no completion on restore or initial sync');
   assert.deepEqual(completedAssignments([done], [done]), [], 'no repeated notification');
   assert.deepEqual(completedAssignments([before], [{ ...done, taskId: 'another' }]), []);

@@ -10,6 +10,7 @@ import { saveMascotStyle, useMascotStyle } from '../lib/mascotStyle';
 import { mcpClientName } from '../lib/mcpClientName';
 import { PartnerSettings } from './PartnerSettings';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
+import { NotificationSettings } from './NotificationSettings';
 import { AccountDeletionSetting } from './AccountDeletionSetting';
 
 function McpConnectionHistory() {
@@ -165,6 +166,10 @@ export function SettingsPanel({ onClose, theme, onThemeChange }: { onClose: () =
               <SignedOut><p className="settings-muted">保存するにはサインインしてください。</p></SignedOut>
             </>
           ) : <p className="settings-muted">クラウド接続が設定されていません。</p>}
+        </section>
+        <section className="settings-section" aria-labelledby="settings-notifications-title">
+          <h3 id="settings-notifications-title">通知</h3>
+          {isCloudConfigured ? <><SignedIn><NotificationSettings /></SignedIn><SignedOut><p className="settings-muted">通知にはサインインが必要です。</p></SignedOut></> : <p className="settings-muted">通知にはクラウド接続が必要です。</p>}
         </section>
         <section className="settings-section" aria-labelledby="settings-mcp-title">
           <h3 id="settings-mcp-title">MCP接続履歴</h3>

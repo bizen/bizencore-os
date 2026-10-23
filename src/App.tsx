@@ -9,6 +9,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { SyncBridge } from './components/SyncBridge';
 import { isCloudConfigured } from './lib/cloudConfig';
 import { CountPage } from './pages/CountPage';
+import { TaskNotificationBridge } from './components/TaskNotificationBridge';
 import { TasksPage } from './pages/TasksPage';
 import { applyTheme, readTheme, saveTheme, type Theme } from './lib/theme';
 import { Brand } from './components/Brand';
@@ -118,7 +119,7 @@ export default function App({ desktop = false }: { desktop?: boolean }) {
       {splashState !== 'gone' && <SplashScreen fadingOut={splashState === 'fading'} desktop={desktop} />}
 
       <AccountDeletionBoundary>
-      <SyncBridge />
+      <><SyncBridge /><TaskNotificationBridge /></>
 
       <div className={`app-shell${taskScroll ? ' app-shell--task-scroll' : ''}`}>
         {desktop && headerHost ? createPortal(header, headerHost) : header}

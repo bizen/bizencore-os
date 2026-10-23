@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('bizencoreDesktop', {
   agentDiagnostics: () => invoke('agent-diagnostics'),
   conversations: (agent, cwd) => invoke('conversations', agent, cwd),
   notify: value => invoke('notify', value),
+  notifyTask: value => invoke('notify-task', value),
+  onOpenTask: callback => subscribe('bizencore:open-task', callback),
   openExternal: url => invoke('open-external', url),
   folder: () => invoke('folder'),
   taskRun: args => invoke('task-run', args),

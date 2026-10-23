@@ -2,7 +2,16 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 
+import { notificationPreferences, pushSubscription, noticeFields } from './notificationFields';
+
 export default defineSchema({
+    notificationDevices: defineTable({ userId: v.string(), deviceId: v.string(), platform: v.union(v.literal('web'), v.literal('desktop')),
+        preferences: notificationPreferences, subscription: v.optional(pushSubscription), enabledAt: v.number(), nextCheckAt: v.optional(v.number()),
+    }).index('by_user', ['userId']).index('by_user_device', ['userId', 'deviceId']).index('by_next', ['nextCheckAt'])
+      .index('by_endpoint', ['subscription.endpoint']),
+    notificationDeliveries: defineTable({ userId: v.string(), device: v.id('notificationDevices'), ...noticeFields,
+        status: v.union(v.literal('pending'), v.literal('sent'), v.literal('failed')), attempts: v.number(),
+    }).index('by_user', ['userId']).index('by_device_key', ['device', 'key']).index('by_device_status', ['device', 'status', 'expiresAt']).index('by_expiry', ['expiresAt']),
     // Keep only an account ID tombstone so old sessions cannot recreate deleted data.
     accountDeletions: defineTable({
         userId: v.string(),

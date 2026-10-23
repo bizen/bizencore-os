@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, u
 import { DesktopInspectorContext } from '../lib/desktopInspector';
 import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
+import { notificationDesktop } from '../lib/notificationClient';
 import { TaskInspector } from '../components/task/TaskInspector';
 import { treeContinuations } from '../lib/taskTreeGuides';
 import { TaskRow } from '../components/task/TaskRow';
@@ -254,12 +255,31 @@ function TasksPageContent() {
   const [helpOpen, setHelpOpen] = useState(false);
   /** 詳細パネルで開いているタスク */
   const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean } | null>(null);
+  const [notificationTaskId, setNotificationTaskId] = useState<string | null | undefined>(undefined);
   const [lifeInspector, setLifeInspector] = useState<LifeInspection | null>(null);
   const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean }) => {
     revealTask(selection.id);
     setLifeInspector(null);
     setInspector(selection);
   }, [revealTask]);
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('task') ?? notificationTaskId;
+    const showToday = params.get('view') === 'today' || notificationTaskId === null;
+    if (!showToday && (!id || items[id]?.type !== 'task' || items[id].deletedAt)) return;
+    // Treat the external URL/native request as an event after task sync settles.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (showToday) setView('today');
+      else if (id) openInspector({ id, focus: 'title' });
+      setNotificationTaskId(undefined);
+      params.delete('task'); params.delete('view');
+      window.history.replaceState(null, '', `${window.location.pathname}${params.size ? '?' + params : ''}${window.location.hash}`);
+    });
+    return () => { cancelled = true; };
+  }, [items, openInspector, notificationTaskId]);
+  useEffect(() => notificationDesktop()?.onOpenTask?.(setNotificationTaskId), []);
   const registerTaskOpener = useContext(DesktopInspectorContext)?.registerTaskOpener;
   useEffect(() => {
     if (!registerTaskOpener) return;

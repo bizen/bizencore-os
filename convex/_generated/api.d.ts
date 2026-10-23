@@ -19,6 +19,9 @@ import type * as lifeWorldFields from "../lifeWorldFields.js";
 import type * as mcpTasks from "../mcpTasks.js";
 import type * as migrations from "../migrations.js";
 import type * as partners from "../partners.js";
+import type * as notifications from "../notifications.js";
+import type * as pushNotifications from "../pushNotifications.js";
+import type * as notificationFields from "../notificationFields.js";
 import type * as sync from "../sync.js";
 
 import type {
@@ -39,6 +42,9 @@ declare const fullApi: ApiFromModules<{
   mcpTasks: typeof mcpTasks;
   migrations: typeof migrations;
   partners: typeof partners;
+  notifications: typeof notifications;
+  pushNotifications: typeof pushNotifications;
+  notificationFields: typeof notificationFields;
   sync: typeof sync;
 }>;
 

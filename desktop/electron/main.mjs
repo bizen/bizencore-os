@@ -304,6 +304,15 @@ command('conversations', async (event, agent, cwd) => {
 });
 command('open-external', (_event, url) => shell.openExternal(externalWebUrl(url)));
 command('notify', (_event, value) => notifications.notify(value));
+command('notify-task', (_event, value) => {
+  const generation = accessState.generation;
+  return notifications.notifyTask(value, () => {
+    try { accessState.require(); } catch { return; }
+    if (accessState.generation !== generation || !window || window.isDestroyed()) return;
+    if (window.isMinimized()) window.restore(); window.show(); window.focus();
+    send('bizencore:open-task', value.taskId ?? null);
+  });
+});
 command('folder', async event => {
   const generation = accessState.generation;
   const result = await dialog.showOpenDialog(window, { title: '作業フォルダを選択', properties: ['openDirectory'] });

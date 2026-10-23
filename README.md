@@ -276,3 +276,9 @@ convex/
   countStocks.ts              count のストック
   schema.ts
 ```
+
+### Task notifications
+
+Notifications are opt-in per signed-in account and installation, in Settings → 通知. The backend uses the saved account timezone. A minute scheduler sends time-specific deadlines within 30 minutes, a morning Today summary (count, carryover count and first actionable title), and synchronized `completedBy: ai` transitions since opt-in. Manual checks and old completions do not notify. The first actionable task title is included in the notification text; opening it shows Today. The morning send window is 30 minutes; date-only deadlines do not notify. Desktop notices require the app to be running; mobile Web Push works in the background after browser permission (iOS/iPadOS: install on the Home Screen).
+
+Before deploying the notification backend, run `node scripts/create-push-keys.mjs` once. It creates an ignored, mode-0600 `.env.web-push.local`. Set `WEB_PUSH_PUBLIC_KEY` and `WEB_PUSH_PRIVATE_KEY` in the target Convex deployment using that file; never copy the private key into Vite variables or client code, and preserve the pair on later releases. The notification UI remains unavailable for Web Push until both server variables are present. Deploy `convex/crons.ts`, `convex/notifications.ts`, `convex/pushNotifications.ts` and the additive schema with the web/desktop clients. Serve `/notifications-sw.js` directly as JavaScript, before the SPA fallback. This worker does not intercept fetches or cache the app. Check real iOS/Android/macOS permission and background delivery after deployment; do not use another user's subscription to test.

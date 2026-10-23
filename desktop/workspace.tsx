@@ -465,17 +465,23 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
   const registerTaskOpener = useCallback((opener: ((id: string) => void) | null) => setTaskOpener(() => opener), []);
   const panesRef = useRef(panes);
   useEffect(() => { panesRef.current = panes; }, [panes]);
+  const [managedCompletion, setManagedCompletion] = useState(false);
+  useEffect(() => {
+    const changed = (event: Event) => setManagedCompletion((event as CustomEvent).detail === true);
+    window.addEventListener('bizencore:managed-completion', changed);
+    return () => window.removeEventListener('bizencore:managed-completion', changed);
+  }, []);
   const previousAssigned = useRef<Parameters<typeof completedAssignments>[0]>([]);
   useEffect(() => {
     const current = panes.flatMap(pane => (pane.assignments ?? []).flatMap(assignment => {
       const task = items[assignment.taskId];
-      return isLive(task) && task.type === 'task' ? [{ paneId: pane.id, taskId: task.id, title: task.text || '（無題）', done: task.done === true }] : [];
+      return isLive(task) && task.type === 'task' ? [{ paneId: pane.id, taskId: task.id, title: task.text || '（無題）', done: task.done === true, completedBy: task.completedBy }] : [];
     }));
     const completed = completedAssignments(previousAssigned.current, current);
     previousAssigned.current = current;
-    if (!account || !prefs.completionNotifications || !bridge.notificationsSupported) return;
+    if (!account || managedCompletion || !prefs.completionNotifications || !bridge.notificationsSupported) return;
     for (const task of completed) void bridge.notify({ paneId: task.paneId, title: 'タスク完了', body: task.title }).catch(failure => setError(message(failure)));
-  }, [items, panes, account, prefs.completionNotifications]);
+  }, [items, panes, account, prefs.completionNotifications, managedCompletion]);
   useEffect(() => bridge.onFocusPane(id => {
     if (!panesRef.current.some(pane => pane.id === id)) return;
     setDraft(null); setActiveId(id); setZoomId(value => value ? id : null);

@@ -104,7 +104,7 @@ function parsePayload(row: SyncRow): StoredItem | null {
     }
 }
 
-async function loadItems(ctx: QueryCtx | MutationCtx, userId: string): Promise<StoredItem[]> {
+export async function loadItems(ctx: QueryCtx | MutationCtx, userId: string): Promise<StoredItem[]> {
     await requireActiveAccount(ctx, userId);
     const rows = await ctx.db
         .query("syncItems")
