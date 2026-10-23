@@ -300,6 +300,65 @@ try {
   await page.keyboard.press('Escape');
   await drag('[data-row-id="task-a"] .row-title');
   assert.equal(await page.evaluate(() => fixtureAssignments.at(-1).mode), 'text', 'unavailable desktop MCP falls back to text');
+  // Advance a real browser clock to exercise idle scheduling without a minute-long test.
+  await page.addInitScript(() => { if (location.search.includes('idle')) Math.random = () => 0; });
+  const idleNow = new Date('2026-10-23T00:00:00Z');
+  await page.clock.install({ time: idleNow });
+  await page.clock.pauseAt(idleNow);
+  for (const desktop of [false, true]) for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('https://mascot.test/?idle' + (desktop ? '&desktop' : ''));
+    await page.clock.runFor(2000);
+    await row().waitFor();
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, width === 390 ? 'white' : 'black');
+    await page.mouse.move(width - 10, 10);
+    await page.evaluate(() => {
+      document.activeElement?.blur();
+      fixtureStore.setText('task-a', '長いタスク名とても大事な作業の内容を確認して最後まで進める'.repeat(12));
+    });
+    assert.equal(await page.locator('.mascot-idle-thought').count(), 0);
+    await page.clock.runFor(28_100);
+    const idle = page.locator('.mascot-idle-thought');
+    await idle.waitFor();
+    assert.match(await idle.innerText(), /いつやるのかな/);
+    const layout = await idle.evaluate(el => {
+      const title = el.querySelector('.mascot-thought-title');
+      const r = el.getBoundingClientRect();
+      return { inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0,
+        x: r.x, y: r.y, right: r.right, viewport: innerWidth, desktop: true, height: r.height, overflow: el.scrollWidth > el.clientWidth + 1,
+        clamped: title.scrollHeight > title.clientHeight, lines: title.clientHeight / 20 };
+    });
+    assert.ok(layout.inside, JSON.stringify(layout));
+    assert.ok(layout.clamped && layout.lines <= 2 && layout.height <= 84, JSON.stringify(layout));
+    assert.equal(layout.overflow, false);
+    if (width === 1280 || width === 320) await page.screenshot({ path: '/private/tmp/bizencore-idle-' + desktop + '-' + width + '.png' });
+    await idle.focus();
+    await page.clock.runFor(6000);
+    assert.equal(await idle.count(), 1, 'focused bubble stays available for keyboard activation');
+    if (width === 390) await idle.click();
+    else await page.keyboard.press('Enter');
+    await page.getByRole('dialog').waitFor();
+    assert.equal(await page.getByRole('dialog').getByRole('textbox', { name: 'タスク', exact: true }).inputValue(), '長いタスク名とても大事な作業の内容を確認して最後まで進める'.repeat(12));
+    await page.clock.runFor(60_000);
+    assert.equal(await idle.count(), 0, 'inspector suppresses idle thoughts');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.activeElement?.blur());
+    await mascot().hover();
+    await page.clock.runFor(60_000);
+    assert.equal(await idle.count(), 0, 'agent tooltip takes precedence');
+    await page.getByRole('tooltip').waitFor();
+    await page.mouse.move(width - 10, 10);
+    await row().getByRole('textbox', { name: 'タスク', exact: true }).focus();
+    await page.clock.runFor(60_000);
+    assert.equal(await idle.count(), 0, 'typing suppresses idle thoughts');
+    await page.evaluate(() => document.activeElement?.blur());
+    for (let tick = 0; tick < 14 && !await idle.count(); tick++) await page.clock.runFor(2500);
+    await idle.waitFor();
+    await page.evaluate(() => {
+      for (const item of Object.values(fixtureStore.getState().items)) fixtureStore.update(item.id, { deletedAt: Date.now() });
+    });
+    assert.equal(await idle.count(), 0, 'deleted tasks disappear immediately from a visible thought');
+  }
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  console.log('Passed: shared App mascot, mouse/touch drag/drop/escape/miss, no immediate web handoff or task mutation, agent settings/persistence, consult/execute prompts, four existing targets, Web/app links, clipboard failure and stale results, sign-out/account changes/deleted tasks, count page, three themes and mobile widths. No external services called.');
+  console.log('Passed: shared App mascot, mouse/touch drag/drop/escape/miss, no immediate web handoff or task mutation, agent settings/persistence, consult/execute prompts, four existing targets, Web/app links, clipboard failure and stale results, sign-out/account changes/deleted tasks, count page, three themes and mobile widths. Idle thoughts: Web/desktop, 3-line name clipping, click/keyboard navigation, dark/light mobile widths, hover/inspector/input suppression and deleted tasks. No external services called.');
 } finally { await browser.close(); }

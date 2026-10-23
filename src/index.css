@@ -2657,7 +2657,14 @@ body {
 .mascot-portrait[data-mood="happy"] .mascot-eye { scale: 1.1 0.3; }
 .mascot-reaction { position: absolute; top: 22%; right: -3%; pointer-events: none; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.35)); }
 .mascot-question { font: 700 24px/1 system-ui; color: var(--text-primary); rotate: 12deg; }
-.mascot-thought { position: absolute; left: calc(100% - 12px); bottom: calc(100% - 26px); z-index: 1; width: max-content; max-width: min(180px, calc(100vw - 110px)); padding: 8px 14px; border: 1px solid var(--border-color); border-radius: 50%; background: var(--popover-bg); color: var(--text-primary); font: 500 12px/1.5 var(--font-family); overflow-wrap: anywhere; box-shadow: 0 3px 12px rgba(0,0,0,.12); pointer-events: none; }
+.mascot-thought { position: absolute; left: calc(100% - 12px); bottom: calc(100% - 26px); z-index: 1; width: max-content; max-width: min(180px, calc(100vw - 110px)); padding: 8px 14px; border: 1px solid var(--border-color); border-radius: 16px 16px 16px 8px; background: var(--popover-bg); color: var(--text-primary); font: 500 12px/1.5 var(--font-family); text-align: left; overflow-wrap: anywhere; box-shadow: 0 5px 20px rgba(0,0,0,.14); pointer-events: none; }
+.mascot-idle-thought { width: min(244px, calc(100vw - 140px)); max-width: none; padding: 11px 15px; line-height: 20px; }
+button.mascot-idle-thought { pointer-events: auto; cursor: pointer; }
+button.mascot-idle-thought:hover { border-color: var(--text-secondary); }
+button.mascot-idle-thought:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 4px; }
+.mascot-thought-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.mascot-idle-thought > span:last-child { display: block; white-space: nowrap; }
+@media (max-width: 380px) { .mascot-idle-thought { left: 18px; bottom: calc(100% + 8px); width: calc(100vw - 68px); } }
 .mascot-thought::before, .mascot-thought::after { content: ""; position: absolute; border: 1px solid var(--border-color); border-radius: 50%; background: var(--popover-bg); }
 .mascot-thought::before { width: 8px; height: 8px; left: 10px; bottom: -7px; }
 .mascot-thought::after { width: 4px; height: 4px; left: 3px; bottom: -13px; }
@@ -2745,6 +2752,7 @@ body {
 }
 
 .mascot-container--handoff {
+  width: max-content;
   left: 2rem;
   right: auto;
   align-items: flex-start;

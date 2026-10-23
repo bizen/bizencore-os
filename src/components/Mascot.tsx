@@ -9,6 +9,7 @@ import { taskStore, useTaskState } from '../lib/taskStore';
 import type { HandoffIntent } from '../lib/taskWorkPrompt';
 import { HandoffIntentControl } from './task/HandoffIntentControl';
 import { MascotPortrait } from './MascotPortrait';
+import { MascotIdleThought } from './MascotIdleThought';
 
 const AGENT_KEY = 'bizencore.mascotAgent';
 type Panel = 'about' | 'settings' | { taskId: string } | null;
@@ -228,6 +229,7 @@ function MascotContent({ handoff, canUseMcp }: { handoff: boolean; canUseMcp: bo
             {curious ? handoff ? <span id={thoughtId} role="tooltip" className="mascot-thought">{handoffAgentName}？</span>
                 : <span className="mascot-reaction mascot-question" aria-hidden="true">?</span> : null}
         </button>
+        {handoff ? <MascotIdleThought paused={hovered || !!position || !!panel || happy} /> : null}
         {position ? <span className="mascot-drag-preview" style={{ left: position.x, top: position.y }}><MascotPortrait active={false} mood="dragging" decorative /></span> : null}
     </div>;
 }

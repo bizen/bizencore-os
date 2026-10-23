@@ -280,6 +280,13 @@ function TasksPageContent() {
     return () => { cancelled = true; };
   }, [items, openInspector, notificationTaskId]);
   useEffect(() => notificationDesktop()?.onOpenTask?.(setNotificationTaskId), []);
+  useEffect(() => {
+    const open = (event: Event) => {
+      if (event instanceof CustomEvent && typeof event.detail === 'string') setNotificationTaskId(event.detail);
+    };
+    window.addEventListener('bizencore:inspect-task', open);
+    return () => window.removeEventListener('bizencore:inspect-task', open);
+  }, []);
   const registerTaskOpener = useContext(DesktopInspectorContext)?.registerTaskOpener;
   useEffect(() => {
     if (!registerTaskOpener) return;
