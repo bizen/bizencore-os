@@ -4,7 +4,7 @@ import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
 import { notificationDesktop } from '../lib/notificationClient';
 import { TaskInspector } from '../components/task/TaskInspector';
-import { treeContinuations } from '../lib/taskTreeGuides';
+import { firstTaskDepths, treeContinuations } from '../lib/taskTreeGuides';
 import { TaskRow } from '../components/task/TaskRow';
 import { TaskContextDropProvider } from '../components/task/TaskContextDrop';
 import { LifeWorld } from '../components/task/LifeWorld';
@@ -1104,14 +1104,16 @@ function TasksPageContent() {
 
   const renderRows = (list: Row[]) => {
     const continuations = treeContinuations(list);
-    return list.map((row, index) => renderRow(row, index, list, continuations[index]));
+    const taskDepths = firstTaskDepths(list);
+    return list.map((row, index) => renderRow(row, index, list, continuations[index], taskDepths[index]));
   };
-  const renderRow = (row: Row, index = 0, rows: Row[] = [], continuations: readonly boolean[] = []) => (
+  const renderRow = (row: Row, index = 0, rows: Row[] = [], continuations: readonly boolean[] = [], firstTaskDepth = 0) => (
     <TaskRow
       key={row.item.id}
       item={row.item}
       depth={row.depth}
       guideContinuations={continuations}
+      firstTaskDepth={firstTaskDepth}
       hasChildren={(rows[index + 1]?.depth ?? 0) > row.depth}
       collapsed={hiddenCounts.has(row.item.id)}
       hiddenCount={hiddenCounts.get(row.item.id) ?? 0}

@@ -37,7 +37,13 @@ const { outputFiles } = await build({
       taskStore.toggleToday(root, today);
       const standalone = taskStore.insertAfter(null);
       taskStore.setText(standalone, 'ラベルなし');
-      add(standalone, '単独リストの子');
+      const standaloneChild = add(standalone, '単独リストの子');
+      const standaloneGrandchild = add(standaloneChild, '単独リストの孫');
+      const standaloneFourth = add(standaloneGrandchild, '単独リストの4段目');
+      // Preserve a legacy fifth level without creating new over-limit data.
+      taskStore.replaceAll([...Object.values(taskStore.getState().items), {
+        ...taskStore.getState().items[standaloneFourth], id: 'legacy-fifth', parentId: standaloneFourth, text: '既存の5段目',
+      }]);
       flushPersist();
     }
     const items = taskStore.getState().items;
@@ -67,23 +73,27 @@ try {
       const problems = [];
       for (const list of lists) {
         const rows = [...list.children].filter(el => el.matches('.row'));
+        let firstTaskDepth = Number(rows[0]?.style.getPropertyValue('--depth') || 0);
         rows.forEach((row, index) => {
           const depth = Number(row.style.getPropertyValue('--depth'));
           const nextDepth = Number(rows[index + 1]?.style.getPropertyValue('--depth') || 0);
-          const childStem = depth > 0 && nextDepth > depth && !row.matches('.row--section');
+          if (depth === 0) firstTaskDepth = row.matches('.row--section') ? 1 : 0;
+          const childStem = nextDepth > depth && !row.matches('.row--section');
           const main = row.querySelector('.row-main');
           const rect = main.getBoundingClientRect();
           const mark = row.querySelector('.row-mark').getBoundingClientRect();
           const guides = [...row.querySelectorAll('.row-tree-guide:not(.row-tree-stem)')];
           const stem = row.querySelector('.row-tree-stem');
           const continues = level => { const next = rows.slice(index + 1).find(other => Number(other.style.getPropertyValue('--depth')) <= level + 1); return !!next && Number(next.style.getPropertyValue('--depth')) === level + 1; };
-          const expectedLevels = Array.from({ length: Math.max(0, depth - 1) }, (_, i) => i + 1).filter(level => level === depth - 1 || continues(level));
+          const expectedLevels = Array.from({ length: Math.max(0, depth - firstTaskDepth) }, (_, i) => i + firstTaskDepth).filter(level => level === depth - 1 || continues(level));
           if (guides.length !== expectedLevels.length) problems.push('missing ancestor rails at depth ' + depth);
           if (!!stem !== childStem) problems.push('incorrect visible-child stem');
           const step = parseFloat(getComputedStyle(row).getPropertyValue('--tree-step')) * parseFloat(getComputedStyle(row).fontSize);
           for (const guide of [...guides, ...(stem ? [stem] : [])]) {
             const level = Number(guide.style.getPropertyValue('--tree-level'));
-            if (level === 0) problems.push('outermost rail must be absent');
+            if (level < firstTaskDepth) problems.push('label-to-task rail must be absent');
+            const colors = ['59, 130, 203', '39, 148, 108', '181, 124, 35', '151, 91, 194'];
+            if (guide.style.getPropertyValue('--tree-color') !== colors[Math.min(level - firstTaskDepth, 3)]) problems.push('incorrect task-relative color');
             if (!guide.style.getPropertyValue('--tree-color')) problems.push('missing depth color');
             const box = guide.getBoundingClientRect();
             const expected = mark.x + mark.width / 2 - (depth - level) * step;

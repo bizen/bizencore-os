@@ -399,7 +399,7 @@ export const taskStore = {
       }
     }
 
-    if (type === 'task' && parentId && depthOf(items, parentId) + 1 > MAX_DEPTH) {
+    for (let depth = parentId ? depthOf(items, parentId) + 1 : 0; type === 'task' && parentId && depth > MAX_DEPTH; depth--) {
       parentId = items[parentId]?.parentId ?? null;
       index = siblings(items, parentId).length;
     }

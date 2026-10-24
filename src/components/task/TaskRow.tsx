@@ -17,6 +17,7 @@ export interface TaskRowProps {
   depth: number;
   hasChildren?: boolean;
   guideContinuations?: readonly boolean[];
+  firstTaskDepth?: number;
   collapsed?: boolean;
   hiddenCount?: number;
   onToggleCollapse?: (id: string) => void;
@@ -61,6 +62,7 @@ export function TaskRow(props: TaskRowProps) {
     depth,
     hasChildren = false,
     guideContinuations,
+    firstTaskDepth,
     collapsed = false,
     hiddenCount = 0,
     onToggleCollapse,
@@ -140,7 +142,7 @@ export function TaskRow(props: TaskRowProps) {
       }
     >
       <div className="row-main">
-        <TaskTreeGuides depth={depth} hasChildren={hasChildren && !isSection} continuations={guideContinuations} />
+        <TaskTreeGuides depth={depth} hasChildren={hasChildren && !isSection} continuations={guideContinuations} firstTaskDepth={firstTaskDepth} />
         <div className="row-mark">
           {isSection ? (
             <span className="row-section-mark" aria-hidden />

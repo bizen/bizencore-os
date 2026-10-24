@@ -9,7 +9,8 @@ import { dateInTimeZone, isDateString, localDateString } from './taskDates';
 import type { Attachment } from './attachments';
 import type { Stamps } from './itemMerge';
 
-export const MAX_DEPTH = 4;
+/** Zero-based task depth: labels do not consume one of the four task levels. */
+export const MAX_DEPTH = 3;
 
 export type TaskKind = 'main' | 'tanomi';
 /** UI では「ラベル」と呼ぶ。保存済みデータとの互換のため値は 'section' のまま */
@@ -226,15 +227,16 @@ export function subtreeIds(items: ItemMap, rootId: string): string[] {
   return ids;
 }
 
+/** Task depth for limits, separate from the display indentation in Row.depth. */
 export function depthOf(items: ItemMap, id: string): number {
-  let depth = 0;
   let current = items[id];
+  let depth = current?.type === 'section' ? -1 : 0;
   const seen = new Set<string>();
   while (current && current.parentId && !seen.has(current.id)) {
     seen.add(current.id);
     const parent = items[current.parentId];
     if (!isLive(parent)) break;
-    depth += 1;
+    if (parent.type === 'task') depth += 1;
     current = parent;
   }
   return depth;

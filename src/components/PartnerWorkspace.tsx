@@ -6,6 +6,7 @@ import { api } from '../../convex/_generated/api';
 import { isCloudConfigured } from '../lib/cloudConfig';
 import { partnerDisplayRows, type PartnerItem } from '../lib/partnerModel';
 import { LABEL_COLORS } from '../lib/taskModel';
+import { firstTaskDepths, treeContinuations } from '../lib/taskTreeGuides';
 import { TaskTreeGuides } from './task/TaskTreeGuides';
 
 interface WorkspaceProps {
@@ -47,11 +48,14 @@ function Workspace({ accountId, children, side, onSideChange }: WorkspaceProps &
 function PartnerList({ name, items }: { name: string; items: PartnerItem[] }) {
   const [shelfOpen, setShelfOpen] = useState(false);
   const { active, done } = partnerDisplayRows(items);
-  const rows = (list: typeof active) => list.map(({ item, depth, hasChildren }) => <li key={item.id}
+  const rows = (list: typeof active) => {
+    const taskDepths = firstTaskDepths(list);
+    const continuations = treeContinuations(list);
+    return list.map(({ item, depth, hasChildren }, index) => <li key={item.id}
     className={`row ${item.type === 'section' ? 'row--section' : 'row--task'}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}`}
     style={{ '--depth': depth, ...(item.color ? { '--label-color': LABEL_COLORS[item.color] } : {}) } as CSSProperties}>
     <div className="row-main">
-      <TaskTreeGuides depth={depth} hasChildren={hasChildren && item.type !== 'section'} />
+      <TaskTreeGuides depth={depth} hasChildren={hasChildren && item.type !== 'section'} firstTaskDepth={taskDepths[index]} continuations={continuations[index]} />
       <div className="row-mark">{item.type === 'section' ? <span className="row-section-mark" aria-hidden />
         : item.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中"><LockKeyhole size={14} aria-hidden /></span>
         : <span className={`check partner-check${item.done ? ' is-checked' : ''}`} role="img" aria-label={item.done ? '完了' : '未完了'}>
@@ -62,6 +66,7 @@ function PartnerList({ name, items }: { name: string; items: PartnerItem[] }) {
       </div>
     </div>
   </li>);
+  };
   return <section className="partner-list" aria-label={`${name}の共有タスク`} data-partner-surface>
     <h2 className="partner-column-heading"><span>{name}</span><span className="partner-readonly">閲覧のみ</span></h2>
     <ul className="row-list">{rows(active)}</ul>

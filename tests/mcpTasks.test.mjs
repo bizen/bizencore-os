@@ -9,7 +9,7 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { add, addMany, attach, updateContext, complete, get, list, taskView, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { add, addMany, attach, updateContext, complete, get, list, taskView, previewDelete, recordProgress, remove, addLabel, move, labelToTask } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
 test('MCP documents are readable and replace/append without accumulating attachments', async () => {
   const { ctx, rows } = memoryContext();
@@ -449,4 +449,27 @@ test('record_task_progress rejects foreign children and premature parent-subtask
     userId: 'user-1', taskId: parent.id, completedSubtaskIds: [child.id, grandchild.id], remainingSubtasks: [],
   });
   assert.equal((await get._handler(ctx, { userId: 'user-1', taskId: parent.id })).task.done, false);
+});
+
+test('MCP counts four task levels independently of labels across add, plan, progress and moves', async () => {
+  for (const labeled of [false, true]) {
+    const { ctx, rows } = memoryContext();
+    if (labeled) await addLabel._handler(ctx, { userId: 'user-1', name: '分類' });
+    await addLabel._handler(ctx, { userId: 'user-1', name: '移動先' });
+    const root = await add._handler(ctx, { userId: 'user-1', text: '1', ...(labeled ? { label: '分類' } : {}) });
+    let parent = root.id;
+    for (let level = 2; level <= 4; level++) parent = (await add._handler(ctx, { userId: 'user-1', text: String(level), parentId: parent })).id;
+    const before = JSON.stringify(rows.syncItems);
+    await assert.rejects(add._handler(ctx, { userId: 'user-1', text: '5', parentId: parent }), /too deep/);
+    await assert.rejects(addMany._handler(ctx, { userId: 'user-1', parentId: parent, tasks: [{ text: '5' }] }), /too deep/);
+    await assert.rejects(recordProgress._handler(ctx, { userId: 'user-1', taskId: parent, completedSubtaskIds: [], remainingSubtasks: [{ text: '5' }] }), /maximum depth/);
+    assert.equal(JSON.stringify(rows.syncItems), before);
+    if (labeled) await assert.rejects(labelToTask._handler(ctx, { userId: 'user-1', label: '分類' }), /too deep/);
+    await move._handler(ctx, { userId: 'user-1', taskId: root.id, label: '移動先' });
+    assert.equal((await get._handler(ctx, { userId: 'user-1', taskId: root.id })).task.subtasks[0].subtasks[0].subtasks.length, 1);
+    await assert.rejects(move._handler(ctx, { userId: 'user-1', taskId: root.id, parentTaskId: parent }), /itself/);
+    const newParent = await add._handler(ctx, { userId: 'user-1', text: 'New parent' });
+    await assert.rejects(move._handler(ctx, { userId: 'user-1', taskId: root.id, parentTaskId: newParent.id }), /too deep/);
+    if (labeled) await labelToTask._handler(ctx, { userId: 'user-1', label: '分類' });
+  }
 });

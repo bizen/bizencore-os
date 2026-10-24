@@ -7,7 +7,7 @@ import { cleanupFiles } from "./fileCleanup";
 import { requireActiveAccount } from './accountAccess';
 import { dateInTimeZone, isDateString, isTimeString } from "../src/lib/taskDates";
 import { coerceStamps, restamp, type Stamps } from "../src/lib/itemMerge";
-import { compareItems, isLabelColor, isTodayItem, type Item } from "../src/lib/taskModel";
+import { MAX_DEPTH, compareItems, isLabelColor, isTodayItem, type Item } from "../src/lib/taskModel";
 import {
     MAX_ATTACHMENTS,
     MAX_ATTACHMENT_TEXT,
@@ -664,6 +664,8 @@ export const add = internalMutation({
             parent = found.id;
         }
 
+        if (parent && depthOf(byId, parent) + 1 > MAX_DEPTH) throw new ConvexError("too deep");
+
         const now = stampAfter(items);
         const item: StoredItem = {
             id: crypto.randomUUID(),
@@ -882,22 +884,19 @@ export const attachFile = internalMutation({
     },
 });
 
-/** クライアントの MAX_DEPTH（src/lib/taskModel.ts）と揃える。ラベルが深さ0 */
-const MAX_DEPTH = 4;
-
 function findLabel(items: StoredItem[], name: string): StoredItem | undefined {
     const wanted = name.trim().toLowerCase();
     return items.find((i) => i.type === "section" && i.text.trim().toLowerCase() === wanted);
 }
 
 function depthOf(byId: Map<string, StoredItem>, id: string): number {
-    let depth = 0;
     let current = byId.get(id);
+    let depth = current?.type === "section" ? -1 : 0;
     const seen = new Set<string>();
     while (current?.parentId && byId.has(current.parentId) && !seen.has(current.id)) {
         seen.add(current.id);
         current = byId.get(current.parentId);
-        depth++;
+        if (current?.type === "task") depth++;
     }
     return depth;
 }
@@ -1013,7 +1012,7 @@ export const labelToTask = internalMutation({
 
         const parent = resolveDestination(items, byId, intoLabel, undefined);
         if (parent === source.id) throw new ConvexError("cannot move a label into itself");
-        const depth = parent ? 1 : 0;
+        const depth = parent ? depthOf(byId, parent) + 1 : 0;
         if (depth + subtreeHeight(items, source.id) > MAX_DEPTH) {
             throw new ConvexError("too deep");
         }

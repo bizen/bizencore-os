@@ -10,3 +10,12 @@ export function treeContinuations(rows: readonly { depth: number }[]): boolean[]
   }
   return result;
 }
+
+/** Labels occupy a display level, but only task-to-task edges get rails. */
+export function firstTaskDepths(rows: readonly { depth: number; item: { type: string } }[]): number[] {
+  let firstTaskDepth = rows[0]?.depth ?? 0;
+  return rows.map(row => {
+    if (row.depth === 0) firstTaskDepth = row.item.type === 'section' ? 1 : 0;
+    return firstTaskDepth;
+  });
+}
