@@ -24,6 +24,7 @@ try {
     const open = async () => {
       await page.locator('.app-settings-btn').click();
       await page.getByRole('dialog', { name: '設定', exact: true }).waitFor();
+      await page.getByRole('button', { name: '外観', exact: true }).click();
     };
     const close = () => page.getByRole('dialog', { name: '設定', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
     await page.goto(url);

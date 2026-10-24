@@ -58,6 +58,7 @@ try {
   await page.route('**/*', route => route.request().url() === 'https://mcp-history.test/'
     ? route.fulfill({ contentType: 'text/html', body: `<style>${css}</style><div id="root"></div><script>${outputFiles[0].text.replaceAll('</script', '<\\/script')}</script>` }) : route.abort());
   await page.goto('https://mcp-history.test/');
+  await page.getByRole('button', { name: '接続', exact: true }).click();
   const history = page.locator('.settings-connections');
   await history.waitFor();
   const connections = history.locator('.settings-connection');

@@ -98,6 +98,7 @@ try {
   await page.locator('[data-row-id="own-task"]').waitFor();
   assert.equal(await page.locator('.partner-list').count(), 0);
   await page.getByRole('button', { name: '設定を開く' }).click();
+  await page.getByRole('button', { name: 'パートナー', exact: true }).click();
   await page.getByRole('button', { name: '招待リンクを作る' }).click();
   assert.match(await page.getByLabel('自分の招待リンク').inputValue(), /#partner-invite=a{64}$/);
   await page.evaluate(() => globalThis.fixturePatch({ state: { ...globalThis.fixture.state, invite: null } }));
@@ -182,6 +183,7 @@ try {
   await page.evaluate(() => globalThis.fixturePatch({ list: { ...globalThis.fixture.list, items: [] } }));
   assert.equal(await partner.getByText('公開されたラベルはありません。', { exact: true }).count(), 1);
   await page.getByRole('button', { name: '設定を開く' }).click();
+  await page.getByRole('button', { name: 'パートナー', exact: true }).click();
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'パートナーとの接続を解除', exact: true }).click();
   await page.getByRole('button', { name: '招待リンクを作る' }).waitFor();
@@ -193,6 +195,7 @@ try {
   await page.evaluate(() => globalThis.fixtureAccount({ isSignedIn: false, userId: null }));
   assert.equal(await partner.count(), 0);
   await page.getByRole('button', { name: '設定を開く' }).click();
+  await page.getByRole('button', { name: 'パートナー', exact: true }).click();
   await page.getByRole('button', { name: 'サインイン', exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log('Passed: explicit invite consent, revocation, sharing success/failure, disconnect, account isolation, read-only partner trees, no local persistence, All-only layout, 3 themes at desktop/390/320px, full titles, mobile tabs and keyboard/search isolation. No real accounts or network.');
