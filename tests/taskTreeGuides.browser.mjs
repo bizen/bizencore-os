@@ -82,6 +82,9 @@ try {
           const main = row.querySelector('.row-main');
           const rect = main.getBoundingClientRect();
           const mark = row.querySelector('.row-mark').getBoundingClientRect();
+          const offset = Number(row.style.getPropertyValue('--tree-offset') || 0);
+          const origin = rows.find(other => Number(other.style.getPropertyValue('--depth')) === 0);
+          if (depth === offset && !row.matches('.row--section') && origin && Math.abs(mark.x - origin.querySelector('.row-mark').getBoundingClientRect().x) > 1) problems.push('top-level task is indented beneath its label');
           const guides = [...row.querySelectorAll('.row-tree-guide:not(.row-tree-stem)')];
           const stem = row.querySelector('.row-tree-stem');
           const continues = level => { const next = rows.slice(index + 1).find(other => Number(other.style.getPropertyValue('--depth')) <= level + 1); return !!next && Number(next.style.getPropertyValue('--depth')) === level + 1; };
@@ -159,6 +162,11 @@ try {
       }
       if (host === 'web') {
         await page.getByRole('tab', { name: 'all', exact: true }).click();
+        await row('OSビルド').getByRole('textbox', { name: 'ラベル', exact: true }).press('Enter');
+        const created = page.locator('.row-title:focus');
+        await created.fill('ラベルのEnterで作成');
+        assert.equal(await created.evaluate(el => Number(el.closest('.row').style.getPropertyValue('--depth')) - Number(el.closest('.row').style.getPropertyValue('--tree-offset'))), 0);
+        await validate();
         await row('UIの見直し').getByRole('button', { name: 'UIの見直しのサブタスクを収納', exact: true }).click();
         await validate();
         assert.equal(await row('タスク表示').count(), 0, 'folding removes descendant branches');

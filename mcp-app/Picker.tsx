@@ -54,8 +54,8 @@ function TaskLine({ row, hasChildren, continuations, firstTaskDepth, selected, t
   const carryDays = todayCarryDays(item, today);
   const label = item.type === 'section';
   const color = item.color ? LABEL_COLORS[item.color] : undefined;
-  return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${item.locked ? ' row--locked' : ''}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
-    style={{ '--depth': depth, '--label-color': color } as CSSProperties}>
+  return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${item.locked ? ' row--locked' : ''}${depth <= firstTaskDepth ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
+    style={{ '--depth': depth, '--tree-offset': firstTaskDepth, '--label-color': color } as CSSProperties}>
     <div className="row-main">
       <TaskTreeGuides depth={depth} hasChildren={hasChildren && !label} continuations={continuations} firstTaskDepth={firstTaskDepth} />
       <div className="row-mark">

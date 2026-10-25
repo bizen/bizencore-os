@@ -1041,7 +1041,7 @@ body {
   --tree-step: 1.4rem;
   --tree-mark-width: 22px;
   --tree-anchor-y: calc(0.3rem + 12px);
-  --indent: calc(var(--depth, 0) * var(--tree-step));
+  --indent: calc(max(0, var(--depth, 0) - var(--tree-offset, 0)) * var(--tree-step));
   position: relative;
 }
 
@@ -1071,7 +1071,7 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(0.35rem + var(--tree-mark-width) / 2 + var(--tree-level) * var(--tree-step));
+  left: calc(0.35rem + var(--tree-mark-width) / 2 + (var(--tree-level) - var(--tree-offset, 0)) * var(--tree-step));
   width: 1.5px;
   transform: translateX(-0.75px);
   background: rgba(var(--tree-color), 0.65);

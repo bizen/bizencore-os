@@ -52,8 +52,8 @@ function PartnerList({ name, items }: { name: string; items: PartnerItem[] }) {
     const taskDepths = firstTaskDepths(list);
     const continuations = treeContinuations(list);
     return list.map(({ item, depth, hasChildren }, index) => <li key={item.id}
-    className={`row ${item.type === 'section' ? 'row--section' : 'row--task'}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}`}
-    style={{ '--depth': depth, ...(item.color ? { '--label-color': LABEL_COLORS[item.color] } : {}) } as CSSProperties}>
+    className={`row ${item.type === 'section' ? 'row--section' : 'row--task'}${depth <= taskDepths[index] ? ' row--root' : ''}${item.done ? ' is-done' : ''}`}
+    style={{ '--depth': depth, '--tree-offset': taskDepths[index], ...(item.color ? { '--label-color': LABEL_COLORS[item.color] } : {}) } as CSSProperties}>
     <div className="row-main">
       <TaskTreeGuides depth={depth} hasChildren={hasChildren && item.type !== 'section'} firstTaskDepth={taskDepths[index]} continuations={continuations[index]} />
       <div className="row-mark">{item.type === 'section' ? <span className="row-section-mark" aria-hidden />

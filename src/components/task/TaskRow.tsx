@@ -62,7 +62,7 @@ export function TaskRow(props: TaskRowProps) {
     depth,
     hasChildren = false,
     guideContinuations,
-    firstTaskDepth,
+    firstTaskDepth = 0,
     collapsed = false,
     hiddenCount = 0,
     onToggleCollapse,
@@ -123,7 +123,7 @@ export function TaskRow(props: TaskRowProps) {
         'row',
         isSection ? 'row--section' : 'row--task',
         item.locked ? 'row--locked' : '',
-        depth === 0 ? 'row--root' : '',
+        depth <= firstTaskDepth ? 'row--root' : '',
         item.done ? 'is-done' : '',
         isActive ? 'is-active' : '',
         !isSection && contextDrop.active ? 'is-context-drop-target' : '',
@@ -136,6 +136,7 @@ export function TaskRow(props: TaskRowProps) {
       style={
         {
           '--depth': depth,
+          '--tree-offset': firstTaskDepth,
           '--burst-i': Math.min(burstIndex ?? 0, 6),
           ...(item.color ? { '--label-color': LABEL_COLORS[item.color] } : null),
         } as React.CSSProperties

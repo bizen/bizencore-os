@@ -9,7 +9,7 @@ async function load(path) {
 const { MAX_DEPTH, depthOf, flattenAll } = await load('src/lib/taskModel.ts');
 const { taskStore } = await load('src/lib/taskStore.ts');
 
-test('four task levels are available with or without a label; indentation still includes labels', () => {
+test('four task levels are available with or without a label; structural depth still preserves label ownership', () => {
   assert.equal(MAX_DEPTH, 3);
   for (const labeled of [false, true]) {
     taskStore.replaceAll([]);
