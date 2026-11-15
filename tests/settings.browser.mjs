@@ -25,7 +25,6 @@ try {
   await close.press('Shift+Tab');
   assert.equal(await page.getByRole('button', { name: 'この端末に合わせる' }).evaluate(e => e === document.activeElement), true);
   await page.keyboard.press('Tab'); assert.equal(await close.evaluate(e => e === document.activeElement), true);
-  await page.getByRole('checkbox', { name: 'Allに表示する', exact: true }).check();
   await category('外観');
   await page.getByRole('radio', { name: 'フロストホワイト' }).click();
   assert.equal(await page.getByRole('radio', { name: 'フロストホワイト' }).evaluate(e => e === document.activeElement), true);
@@ -34,7 +33,6 @@ try {
   const morning = page.getByRole('checkbox', { name: '朝のTodayまとめ（先頭タスク名も表示）' });
   await morning.check();
   await category('一般');
-  assert.equal(await page.getByRole('checkbox', { name: 'Allに表示する', exact: true }).isChecked(), true);
   await category('通知'); assert.equal(await morning.isChecked(), true, 'unsaved notification choices survive navigation');
   await page.getByRole('button', { name: 'この端末に保存' }).click();
   await page.getByText('この端末の通知設定を保存しました。').waitFor();

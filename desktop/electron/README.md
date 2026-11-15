@@ -715,7 +715,7 @@ when the task column scrolls or agents are expanded; global navigation returns
 to the task column. Task, detail and agent toolbars share a 54 px row beneath
 it. No header or agent process is duplicated to achieve this layout.
 
-Docked task and life details use the exact workspace background for all three
+Docked task details use the exact workspace background for all three
 themes, with no overlay shadow. Their header/close action stays fixed while
 the content scrolls independently. Web/MCP Apps overlay details keep their
 existing background and structure. Browser checks cover all theme backgrounds,
@@ -1037,12 +1037,12 @@ The shared page detects its actual scroll ancestor, tracks that ancestor's scrol
 position and size, and compares anchors using the same scroll-margin landing
 offset as label navigation. This avoids window-only scroll tracking, stale
 current-label highlights and fractional-position drift. Web window scrolling
-remains supported. The All label index includes Life World when shown there.
+remains supported.
 
 `tests/taskFeatureParity.browser.mjs` verifies both Web and desktop rendering:
 label jumps, settled current-label tracking, manual top/end scrolling, nested
 scroll isolation, column resizing, independent center details, focus shortcuts,
-All/Board/Today, search-to-row/details and Life World filing/deletion. It uses
+All/Board/Today and search-to-row/details. It uses
 mock IPC and disposable browser data, never a real account or CLI agent.
 The final 329-test suite, focused lint, desktop workspace browser regression,
 mock-auth boundary regression and Electron builds passed. The preview's native
@@ -1063,8 +1063,7 @@ ordinary task, subtask or locked container. Drops use the existing context model
 and authenticated upload endpoint; they never replace the task title or note.
 The file chooser and row drops share sequential uploads, 10 MB/50 attachment
 limits and account/task/unmount guards. Links are deduplicated; partial failures
-remain visible. Folders and non-Web URLs are not accepted. Life World has a
-separate model without context attachments and is not a drop target.
+remain visible. Folders and non-Web URLs are not accepted.
 
 `tests/taskContextDrop.browser.mjs` and `tests/taskFiles.browser.mjs` verify these
 flows with disposable browser data and isolated authentication/storage mocks.

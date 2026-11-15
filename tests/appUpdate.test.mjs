@@ -118,7 +118,7 @@ test('watcher checks startup, visible polling and resume; handles offline, rollb
   }
 });
 
-test('reload preparation preserves current task/life/count edits and refuses unsaved drafts, uploads and storage failure', async () => {
+test('reload preparation preserves current task/count edits and refuses unsaved drafts, uploads and storage failure', async () => {
   const original = { document: globalThis.document, window: globalThis.window, storage: globalThis.localStorage };
   const storage = new Map();
   let fail = false, draft = '', uploading = false, consent = false;
@@ -132,32 +132,23 @@ test('reload preparation preserves current task/life/count edits and refuses uns
       querySelector: selector => selector.startsWith('.context-upload-btn') ? (uploading ? {} : null) : { value: draft },
       querySelectorAll: () => [{ dataset: { reloadStorageKey: 'chrct.count.text' }, value: 'Current count input' }],
     });
-    const { prepareAppReload, taskStore, lifeWorldStore, flushPersist, restamp } = await load(`
+    const { prepareAppReload, taskStore, flushPersist, restamp } = await load(`
       export * from './src/lib/prepareAppReload';
       export { taskStore, flushPersist } from './src/lib/taskStore';
-      export { lifeWorldStore } from './src/lib/lifeWorldStore';
       export { restamp } from './src/lib/itemMerge';
     `);
     const item = { id: 'reload-test', text: 'Typing just now', type: 'task', parentId: null, order: 0, done: false, updatedAt: 1, createdAt: 1 };
     taskStore.mergeRemote([{ itemId: item.id, updatedAt: 1, payload: JSON.stringify(item) }]);
-    const lifeId = lifeWorldStore.add('2026-10-07'); lifeWorldStore.setText(lifeId, 'Pho');
     assert.equal(prepareAppReload(), true);
     assert.equal(JSON.parse(storage.get('chrct.tasks.v2'))[0].text, 'Typing just now');
-    assert.equal(JSON.parse(storage.get('bizencore.life-world.local.v1')).entries[lifeId].text, 'Pho');
     assert.equal(storage.get('chrct.count.text'), 'Current count input');
     const current = taskStore.getState().items[item.id];
     const later = Date.now() + 10_000;
     const otherTab = restamp(current, { ...current, note: 'Other tab note' }, later);
     storage.set('chrct.tasks.v2', JSON.stringify([otherTab, { ...item, id: 'another-tab' }]));
-    const lifeData = JSON.parse(storage.get('bizencore.life-world.local.v1'));
-    lifeData.entries[lifeId].note = 'Other tab life note';
-    lifeData.entries[lifeId].updatedAt = later;
-    lifeData.entries[lifeId].stamps.note = later;
-    storage.set('bizencore.life-world.local.v1', JSON.stringify(lifeData));
     assert.equal(prepareAppReload(), true);
     assert.equal(JSON.parse(storage.get('chrct.tasks.v2')).find(entry => entry.id === item.id).note, 'Other tab note');
     assert.ok(JSON.parse(storage.get('chrct.tasks.v2')).some(entry => entry.id === 'another-tab'));
-    assert.equal(JSON.parse(storage.get('bizencore.life-world.local.v1')).entries[lifeId].note, 'Other tab life note');
     draft = 'Unattached text'; assert.equal(prepareAppReload(), false);
     consent = true; assert.equal(prepareAppReload(), true);
     uploading = true; assert.equal(prepareAppReload(), false); assert.match(alerts.at(-1), /アップロード/);

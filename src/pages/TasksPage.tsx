@@ -8,8 +8,6 @@ import { firstTaskDepths, treeContinuations } from '../lib/taskTreeGuides';
 import { TaskRow } from '../components/task/TaskRow';
 import { LabelGrokBotProvider } from '../components/task/LabelGrokBot';
 import { TaskContextDropProvider } from '../components/task/TaskContextDrop';
-import { LifeWorld } from '../components/task/LifeWorld';
-import { LifeWorldInspector, type LifeInspection } from '../components/task/LifeWorldInspector';
 import { TodayRecommendations } from '../components/task/TodayRecommendations';
 import { PartnerWorkspace } from '../components/PartnerWorkspace';
 import { focusFirstMeta } from '../lib/metaCursor';
@@ -30,8 +28,6 @@ import {
   completionBlockedIds,
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
-import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
-import { LIFE_SECTION_ID, lifeCompletedEntries, lifeEntriesForDate, lifeParentIds, lifeSectionIndex, partitionLifeRows } from '../lib/lifeWorldModel';
 import { collapseRows } from '../lib/collapsedRows';
 import { FocusedLabelsProvider } from '../components/FocusedLabelsProvider';
 import { useFocusedLabels } from '../lib/focusedLabelsContext';
@@ -207,7 +203,6 @@ export function TasksPage() {
 function TasksPageContent() {
   const pageRef = useRef<HTMLElement>(null);
   const { items } = useTaskState();
-  const { data: lifeData } = useLifeWorldState();
   const timeZone = useUserTimeZone();
   const { todayDate, todayTime } = useTodayClock(timeZone);
 
@@ -222,32 +217,24 @@ function TasksPageContent() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [partnerSide, setPartnerSide] = useState<'self' | 'partner'>('self');
   const [activeId, setActiveId] = useState<string | null>(null);
-  const collapsedIds = useMemo(() => new Set([
-    ...Object.values(items).filter(item => item.collapsed).map(item => item.id),
-    ...Object.values(lifeData.entries).filter(entry => entry.collapsed).map(entry => entry.id),
-  ]), [items, lifeData.entries]);
+  const collapsedIds = useMemo(() => new Set(
+    Object.values(items).filter(item => item.collapsed).map(item => item.id),
+  ), [items]);
   const toggleCollapse = useCallback((id: string) => {
     setActiveId(id);
     const item = taskStore.getState().items[id];
     if (item) taskStore.setCollapsed(id, !item.collapsed);
-    else {
-      const entry = lifeWorldStore.getSnapshot().data.entries[id];
-      if (entry) lifeWorldStore.setCollapsed(id, !entry.collapsed);
-    }
   }, []);
   const revealTask = useCallback((id: string) => {
     const tasks = taskStore.getState().items;
-    const life = lifeWorldStore.getSnapshot().data;
-    const parents = tasks[id] ? null : lifeParentIds(life);
     const ancestors = new Set<string>();
-    let parent = tasks[id]?.parentId ?? parents?.get(id) ?? null;
+    let parent = tasks[id]?.parentId ?? null;
     while (parent && !ancestors.has(parent)) {
       ancestors.add(parent);
-      parent = tasks[parent]?.parentId ?? parents?.get(parent) ?? null;
+      parent = tasks[parent]?.parentId ?? null;
     }
     for (const parent of ancestors) {
       if (tasks[parent]?.collapsed) taskStore.setCollapsed(parent, false);
-      else if (life.entries[parent]?.collapsed) lifeWorldStore.setCollapsed(parent, false);
     }
   }, []);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
@@ -257,10 +244,8 @@ function TasksPageContent() {
   /** 詳細パネルで開いているタスク */
   const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean } | null>(null);
   const [notificationTaskId, setNotificationTaskId] = useState<string | null | undefined>(undefined);
-  const [lifeInspector, setLifeInspector] = useState<LifeInspection | null>(null);
   const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean }) => {
     revealTask(selection.id);
-    setLifeInspector(null);
     setInspector(selection);
   }, [revealTask]);
   useEffect(() => {
@@ -300,23 +285,11 @@ function TasksPageContent() {
     });
     return () => registerTaskOpener(null);
   }, [registerTaskOpener, openInspector]);
-  const openLifeInspector = useCallback((selection: LifeInspection) => {
-    revealTask(selection.id);
-    setInspector(null);
-    setLifeInspector(selection);
-  }, [revealTask]);
-  const closeLifeInspector = useCallback(() => {
-    setLifeInspector(null);
-    if (lifeInspector) requestAnimationFrame(() => {
-      if (!document.querySelector('.inspector') && (document.activeElement === document.body || !document.activeElement?.isConnected)) lifeInspector.restoreFocus();
-    });
-  }, [lifeInspector]);
   const [completedOpen, setCompletedOpen] = useState(loadShelfOpen);
   /** 完了した瞬間だけ演出を出す行。値は上から数えた順番（点灯のずらし用） */
   const [burstOrder, setBurstOrder] = useState<ReadonlyMap<string, number>>(EMPTY_BURST);
 
   const titleRefs = useRef(new Map<string, HTMLTextAreaElement>());
-  const lifeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const noteRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const searchRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -325,9 +298,6 @@ function TasksPageContent() {
   const pendingFocus = useRef<PendingFocus | null>(null);
 
   const allRows = useMemo(() => flattenAll(items), [items]);
-  const showLife = view === 'today' || (view === 'all' && lifeData.preferences?.showInAll === true);
-  if (!showLife && lifeInspector) setLifeInspector(null);
-  const allRootIds = useMemo(() => allRows.filter(row => row.depth === 0).map(row => row.item.id), [allRows]);
   const todayRows = useMemo(() => flattenToday(items, todayDate, timeZone), [items, todayDate, timeZone]);
   const focusedLabelId = view.startsWith('label:') ? view.slice(6) : null;
   const focusedLabels = useMemo(
@@ -352,21 +322,9 @@ function TasksPageContent() {
     };
   }, [view, focusedLabelId, focusRows, todayRows, allRows, items, burstOrder, query, collapsedIds]);
 
-  const lifeRows = useMemo(() => {
-    if (!showLife) return { active: [], done: [] };
-    const parts = partitionLifeRows(lifeData, todayDate, view === 'all', query);
-    return { ...parts, active: collapseRows(parts.active,
-      row => !query.trim() && !!row.entry.locked && collapsedIds.has(row.entry.id), row => row.entry.id).rows };
-  }, [showLife, lifeData, todayDate, view, query, collapsedIds]);
-  const doneCount = doneRows.filter(row => row.item.type === 'task').length + lifeRows.done.length;
-  const fileCompleted = useCallback(() => {
-    taskStore.fileCompleted();
-    lifeWorldStore.fileCompleted(todayDate);
-  }, [todayDate]);
-  const clearCompleted = useCallback(() => {
-    taskStore.clearCompleted();
-    lifeWorldStore.clearCompleted(todayDate);
-  }, [todayDate]);
+  const doneCount = doneRows.filter(row => row.item.type === 'task').length;
+  const fileCompleted = useCallback(() => { taskStore.fileCompleted(); }, []);
+  const clearCompleted = useCallback(() => { taskStore.clearCompleted(); }, []);
 
   const boardColumns = useMemo(
     () => {
@@ -378,14 +336,10 @@ function TasksPageContent() {
     [view, activeRows, unfoldedActiveRows]
   );
 
-  const lifeIndex = lifeSectionIndex(activeRows, lifeData.preferences?.beforeId);
   const indexLabels = useMemo(() => {
     if (view !== 'all') return [];
-    const withLife = [...activeRows];
-    if (showLife) withLife.splice(lifeIndex, 0, { depth: 0, item: { id: LIFE_SECTION_ID,
-      type: 'section', parentId: null, order: 0, text: '生活世界', done: false, createdAt: 0, updatedAt: 0 } });
-    return withLife.filter(row => row.depth === 0 && row.item.type === 'section');
-  }, [activeRows, view, showLife, lifeIndex]);
+    return activeRows.filter(row => row.depth === 0 && row.item.type === 'section');
+  }, [activeRows, view]);
   const [currentLabelId, setCurrentLabelId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -468,30 +422,11 @@ function TasksPageContent() {
     () => (shelfOpen ? [...activeRows, ...doneRows] : activeRows),
     [shelfOpen, activeRows, doneRows]
   );
-  const navigationIds = useMemo(() => {
-    const ids = activeRows.map(row => row.item.id);
-    if (view === 'all' && showLife) ids.splice(lifeIndex, 0, LIFE_SECTION_ID, ...lifeRows.active.map(row => row.entry.id));
-    return shelfOpen ? [...ids, ...doneRows.map(row => row.item.id), ...(view === 'all' ? lifeRows.done.map(row => row.entry.id) : [])] : ids;
-  }, [activeRows, doneRows, shelfOpen, view, showLife, lifeIndex, lifeRows]);
-  const visibleRootIds = useMemo(() => activeRows.filter(row => row.depth === 0).map(row => row.item.id), [activeRows]);
+  const navigationIds = useMemo(() => rows.map(row => row.item.id), [rows]);
   const searchResults = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle ? rows.filter((row) => matchesQuery(row.item, needle)) : [];
   }, [query, rows]);
-  const lifeSearchResults = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return showLife && needle ? lifeEntriesForDate(lifeData, todayDate, view === 'all')
-      .filter(entry => `${entry.text}\n${entry.note}`.toLowerCase().includes(needle)) : [];
-  }, [query, showLife, lifeData, todayDate, view]);
-  const chooseLifeSearchResult = (id: string) => {
-    if (lifeRows.done.some(row => row.entry.id === id)) setCompletedOpen(true);
-    setSearchOpen(false);
-    setQuery('');
-    openLifeInspector({ id, date: todayDate, accountId: lifeWorldStore.getSnapshot().accountId,
-      initialFocus: 'title', includeAll: view === 'all', restoreFocus: () => {
-        document.querySelector<HTMLTextAreaElement>(`[data-life-id="${CSS.escape(id)}"] .row-title`)?.focus();
-      } });
-  };
 
   const closeSearch = () => {
     setSearchOpen(false);
@@ -543,17 +478,11 @@ function TasksPageContent() {
     }
     return { remaining, remainingMinutes, completed, fileable };
   }, [allRows, todayRows, focusRows, focusedLabelId, view]);
-  const canClearCompleted = stats.completed > 0 || lifeCompletedEntries(lifeData, todayDate).length > 0;
+  const canClearCompleted = stats.completed > 0;
 
   const completionBlocked = useMemo(() => completionBlockedIds(items), [items]);
 
   const applyFocus = useCallback((pending: PendingFocus): boolean => {
-    if (pending.id === LIFE_SECTION_ID) {
-      const heading = lifeHeadingRef.current;
-      if (!heading) return false;
-      heading.focus();
-      return true;
-    }
     const map = pending.target === 'note' ? noteRefs.current : titleRefs.current;
     const el = map.get(pending.id);
     if (!el) return false;
@@ -712,7 +641,6 @@ function TasksPageContent() {
   );
 
   const setViewMode = useCallback((next: ViewMode) => {
-    setLifeInspector(null);
     setView(next);
     setDeadlineOpenId(null);
     setColorOpenId(null);
@@ -792,14 +720,6 @@ function TasksPageContent() {
           event.preventDefault();
           searchRef.current?.focus();
           searchRef.current?.select();
-        }
-        return;
-      }
-
-      if (lifeInspector) {
-        if (event.key === 'Escape' && !event.isComposing) {
-          event.preventDefault();
-          closeLifeInspector();
         }
         return;
       }
@@ -921,8 +841,6 @@ function TasksPageContent() {
     setViewMode,
     focusedLabels,
     inspector,
-    lifeInspector,
-    closeLifeInspector,
     fileCompleted,
     clearCompleted,
   ]);
@@ -982,16 +900,6 @@ function TasksPageContent() {
     if (mod && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       event.preventDefault();
       const direction = event.key === 'ArrowUp' ? -1 : 1;
-      const rootIndex = visibleRootIds.indexOf(item.id);
-      const sectionIndex = lifeSectionIndex(activeRows, lifeData.preferences?.beforeId);
-      const lifeRootIndex = activeRows.slice(0, sectionIndex).filter(row => row.depth === 0).length;
-      if (view === 'all' && showLife && rootIndex >= 0 &&
-          (direction === -1 ? rootIndex === lifeRootIndex : rootIndex === lifeRootIndex - 1)) {
-        // Crossing the separate list remounts the title; restore focus after that render.
-        pendingFocus.current = { id: item.id, target: 'title', caret, misses: 0 };
-        lifeWorldStore.moveSection(visibleRootIds, direction === -1 ? 1 : -1);
-        return;
-      }
       taskStore.move(item.id, direction);
       requestFocus(item.id, 'title', caret);
       return;
@@ -1302,18 +1210,7 @@ function TasksPageContent() {
           ))}
         </div>
       ) : (
-        <>
-          <ul className="row-list">{renderRows(view === 'all' && showLife ? activeRows.slice(0, lifeIndex) : activeRows)}</ul>
-          {view === 'all' && showLife ? <>
-            <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null} allRootIds={allRootIds} query={query}
-              collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
-              navigation={{ activeId, onFocus: setActiveId, moveFocus, registerTitle,
-                registerHeading: el => { lifeHeadingRef.current = el; },
-                moveSection: direction => lifeWorldStore.moveSection(visibleRootIds, direction) }}
-              onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} />
-            <ul className="row-list">{renderRows(activeRows.slice(lifeIndex))}</ul>
-          </> : null}
-        </>
+        <ul className="row-list">{renderRows(activeRows)}</ul>
       )}
 
       {activeRows.length === 0 ? (
@@ -1329,10 +1226,6 @@ function TasksPageContent() {
       {view === 'today' && todayCleared ? (
         <p className="today-cleared">today は全部完了</p>
       ) : null}
-
-      {view === 'today' ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
-        collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
-        onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} /> : null}
 
       <div className="tasks-footer">
         {view === 'today' ? <TodayRecommendations items={items} todayDate={todayDate} todayTime={todayTime} /> : null}
@@ -1372,7 +1265,7 @@ function TasksPageContent() {
               className="ghost-btn"
               onClick={clearCompleted}
               disabled={!canClearCompleted}
-              title="完了したタスクを削除。生活世界の習慣は当日分のみ非表示にし、習慣と達成履歴を残す（⌥⇧C）"
+              title="完了したタスクを削除（⌥⇧C）"
             >
               完了を削除（⌥⇧C）
             </button>
@@ -1404,16 +1297,7 @@ function TasksPageContent() {
             </button>
           </div>
           {shelfOpen ? (
-            <>
-              <ul className="row-list done-shelf-list">{renderRows(doneRows)}</ul>
-              {lifeRows.done.length > 0 ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
-                collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
-                allRootIds={view === 'all' ? allRootIds : undefined} query={query} filedOnly
-                navigation={view === 'all' ? { activeId, onFocus: setActiveId, moveFocus, registerTitle,
-                  registerHeading: el => { lifeHeadingRef.current = el; },
-                  moveSection: direction => lifeWorldStore.moveSection(visibleRootIds, direction) } : undefined}
-                onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} /> : null}
-            </>
+            <ul className="row-list done-shelf-list">{renderRows(doneRows)}</ul>
           ) : null}
         </section>
       ) : null}
@@ -1457,9 +1341,7 @@ function TasksPageContent() {
                   if (event.key === 'Enter' && searchResults[0]) {
                     event.preventDefault();
                     chooseSearchResult(searchResults[0]);
-                  } else if (event.key === 'Enter' && lifeSearchResults[0]) {
-                    event.preventDefault(); chooseLifeSearchResult(lifeSearchResults[0].id);
-                  } else if (event.key === 'ArrowDown' && (searchResults.length > 0 || lifeSearchResults.length > 0)) {
+                  } else if (event.key === 'ArrowDown' && searchResults.length > 0) {
                     event.preventDefault();
                     searchPanelRef.current?.querySelector<HTMLButtonElement>('.task-search-result')?.focus();
                   }
@@ -1472,9 +1354,9 @@ function TasksPageContent() {
             </div>
             {query.trim() ? (
               <div className="task-search-matches">
-                {searchResults.length > 0 || lifeSearchResults.length > 0 ? (
+                {searchResults.length > 0 ? (
                   <>
-                    <p className="task-search-count">{searchResults.length + lifeSearchResults.length} 件</p>
+                    <p className="task-search-count">{searchResults.length} 件</p>
                     <ul className="task-search-results">
                       {searchResults.map((row) => (
                         <li key={row.item.id}>
@@ -1498,19 +1380,6 @@ function TasksPageContent() {
                           </button>
                         </li>
                       ))}
-                      {lifeSearchResults.map(entry => <li key={`life:${entry.id}`}>
-                        <button type="button" className="task-search-result" onClick={() => chooseLifeSearchResult(entry.id)}
-                          onKeyDown={event => {
-                            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-                            event.preventDefault();
-                            const buttons = Array.from(searchPanelRef.current?.querySelectorAll<HTMLButtonElement>('.task-search-result') ?? []);
-                            const next = buttons[buttons.indexOf(event.currentTarget) + (event.key === 'ArrowDown' ? 1 : -1)];
-                            (next ?? (event.key === 'ArrowUp' ? searchRef.current : event.currentTarget))?.focus();
-                          }}>
-                          <span className="task-search-result-title">{entry.text.trim() || '無題'}</span>
-                          <span className="task-search-result-meta">生活世界</span>
-                        </button>
-                      </li>)}
                     </ul>
                   </>
                 ) : <p className="task-search-empty">一致するタスクはありません。</p>}
@@ -1544,9 +1413,6 @@ function TasksPageContent() {
           onAddAttachment={taskStore.addAttachment}
           onRemoveAttachment={taskStore.removeAttachment}
         />
-      ) : null}
-      {showLife && lifeInspector ? (
-        <LifeWorldInspector selection={lifeInspector} todayDate={todayDate} onClose={closeLifeInspector} onSelect={openLifeInspector} />
       ) : null}
     </section>
   );

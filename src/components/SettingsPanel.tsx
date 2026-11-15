@@ -11,7 +11,6 @@ import { mcpClientName } from '../lib/mcpClientName';
 import { initialPartnerInvite } from '../lib/partnerModel';
 import { SETTINGS_PAGES, findSettingsPages, type SettingsPage } from '../lib/settingsNavigation';
 import { PartnerSettings } from './PartnerSettings';
-import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
 import { NotificationSettings } from './NotificationSettings';
 import { AccountDeletionSetting } from './AccountDeletionSetting';
 
@@ -101,7 +100,6 @@ export function SettingsPanel({
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
 }) {
-  const { data } = useLifeWorldState();
   const mascotStyle = useMascotStyle();
   const [page, setPage] = useState<SettingsPage>(() =>
     initialPartnerInvite() ? 'partner' : 'general',
@@ -171,32 +169,6 @@ export function SettingsPanel({
   const contents: Record<SettingsPage, ReactNode> = {
     general: (
       <>
-        <section
-          className="settings-section"
-          aria-labelledby="settings-life-title"
-        >
-          <h3 id="settings-life-title">生活世界</h3>
-          <div className="settings-group settings-block">
-            <label className="settings-life-visibility">
-              <span className="settings-row-copy">
-                <strong>Allに表示する</strong>
-                <span className="settings-muted" id="settings-life-description">
-                  生活世界のタスクを、Allの一覧に含めます。
-                </span>
-              </span>
-              <input
-                className="settings-toggle"
-                type="checkbox"
-                aria-label="Allに表示する"
-                aria-describedby="settings-life-description"
-                checked={data.preferences?.showInAll ?? false}
-                onChange={(event) =>
-                  lifeWorldStore.setShowInAll(event.target.checked)
-                }
-              />
-            </label>
-          </div>
-        </section>
         <section
           className="settings-section"
           aria-labelledby="settings-timezone-title"

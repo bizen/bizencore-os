@@ -8,8 +8,6 @@ const { outputFiles } = await build({
     import { createRoot } from 'react-dom/client';
     import { SettingsPanel } from './src/components/SettingsPanel';
     import { AccountDeletionBoundary } from './src/components/AccountDeletionBoundary';
-    import { lifeWorldStore } from './src/lib/lifeWorldStore';
-    import { lifeStorageKey } from './src/lib/lifeWorldStore';
     globalThis.fixtureListeners = new Set(); globalThis.fixtureRevision = 0;
     globalThis.fixture = { auth: { isLoaded: true, isSignedIn: true, userId: 'alice', sessionId: 'session-a' }, status: { userId: 'alice', phase: 'active', available: true }, calls: [] };
     globalThis.fixtureNotify = () => { globalThis.fixtureRevision++; globalThis.fixtureListeners.forEach(fn => fn()); };
@@ -17,9 +15,7 @@ const { outputFiles } = await build({
     localStorage.setItem('chrct.tasks.v2', '[{"id":"guest-task","text":"Shared task"}]');
     localStorage.setItem('chrct.count.text', 'Shared text'); localStorage.setItem('chrct.count.stocks', '["Shared stock"]');
     localStorage.setItem('chrct.tasks.synced.alice', '{}'); localStorage.setItem('chrct.tasks.synced.bob', 'other-sync');
-    lifeWorldStore.setAccount('alice'); const id = lifeWorldStore.add('2026-10-09'); lifeWorldStore.setText(id, 'Alice private');
-    localStorage.setItem(lifeStorageKey('bob'), 'other-life');
-    globalThis.fixtureLife = () => lifeWorldStore.getSnapshot();
+    localStorage.setItem('bizencore.life-world.account.alice.v1', 'retired-life'); localStorage.setItem('bizencore.life-world.account.bob.v1', 'other-life');
     createRoot(document.getElementById('root')).render(<AccountDeletionBoundary>
       <div id="editable-app">Editing enabled</div><SettingsPanel onClose={() => {}} theme="black" onThemeChange={() => {}} />
     </AccountDeletionBoundary>);
@@ -112,7 +108,6 @@ try {
   assert.equal(await page.evaluate(() => localStorage.getItem('bizencore.life-world.account.bob.v1')), 'other-life');
   assert.equal(await page.evaluate(() => localStorage.getItem('chrct.tasks.synced.alice')), null);
   assert.equal(await page.evaluate(() => localStorage.getItem('bizencore.life-world.account.alice.v1')), null);
-  assert.deepEqual(await page.evaluate(() => globalThis.fixtureLife().data.entries), {});
   await page.evaluate(() => globalThis.fixturePatch({ status: { userId: 'alice', phase: 'identity', retrying: true, available: true } }));
   assert.ok(await page.getByText('通信エラーのため自動で再試行しています。').isVisible());
   assert.equal(await page.getByRole('heading', { name: 'アカウントを削除しました' }).count(), 0, 'acceptance never reports completion');

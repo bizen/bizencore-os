@@ -6,7 +6,6 @@ import { isCloudConfigured } from '../lib/cloudConfig';
 import type { Item } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 import { setUserTimeZone } from '../lib/userTimeZone';
-import { LifeWorldSyncBridge } from './LifeWorldSyncBridge';
 
 const PUSH_DELAY_MS = 700;
 const IMPORT_RETRY_DELAY_MS = 3000;
@@ -54,7 +53,7 @@ function toRemote(item: Item) {
  */
 export function SyncBridge() {
   if (!isCloudConfigured) return null;
-  return <><SyncBridgeInner /><LifeWorldSyncBridge /></>;
+  return <SyncBridgeInner />;
 }
 
 function SyncBridgeInner() {

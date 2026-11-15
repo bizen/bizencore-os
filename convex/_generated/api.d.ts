@@ -15,7 +15,6 @@ import type * as fileCleanup from "../fileCleanup.js";
 import type * as focusedLabels from "../focusedLabels.js";
 import type * as http from "../http.js";
 import type * as lib_desktopMcp from "../lib/desktopMcp.js";
-import type * as lifeWorldFields from "../lifeWorldFields.js";
 import type * as mcpTasks from "../mcpTasks.js";
 import type * as migrations from "../migrations.js";
 import type * as partners from "../partners.js";
@@ -40,7 +39,6 @@ declare const fullApi: ApiFromModules<{
   focusedLabels: typeof focusedLabels;
   http: typeof http;
   "lib/desktopMcp": typeof lib_desktopMcp;
-  lifeWorldFields: typeof lifeWorldFields;
   mcpTasks: typeof mcpTasks;
   migrations: typeof migrations;
   partners: typeof partners;

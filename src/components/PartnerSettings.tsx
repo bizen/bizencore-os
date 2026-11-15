@@ -56,7 +56,7 @@ function AccountSettings({ accountId }: { accountId: string }) {
           }}><Unplug size={16} aria-hidden /></button>
       </div>
       <h4 className="inspector-label">公開するラベル</h4>
-      <p className="settings-muted">メモ・完了条件・添付・生活世界は非公開</p>
+      <p className="settings-muted">メモ・完了条件・添付は非公開</p>
       <ul className="partner-labels">{state.labels.map(label => <li key={label.id}>
         <label><input type="checkbox" checked={state.sharedLabelIds.includes(label.id)} disabled={busy}
           onChange={event => { void run(() => shareLabel({ accountId, labelId: label.id, shared: event.target.checked }), '公開設定を保存しました。'); }} />

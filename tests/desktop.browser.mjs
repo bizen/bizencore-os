@@ -10,7 +10,6 @@ const { outputFiles } = await build({
     import { MemoryRouter } from 'react-router-dom';
     import App from './src/App';
     import { taskStore } from './src/lib/taskStore';
-    import { lifeWorldStore } from './src/lib/lifeWorldStore';
     import { setUserTimeZone } from './src/lib/userTimeZone';
     import { Terminal } from '@xterm/xterm';
     window.__desktopTest = { calls: [], channels: new Map(), folder: '/smoke/project' };
@@ -26,8 +25,6 @@ const { outputFiles } = await build({
       return openTerminal.call(this, host);
     };
     setUserTimeZone('UTC');
-    const lifeId = lifeWorldStore.add(new Date().toISOString().slice(0, 10));
-    lifeWorldStore.setText(lifeId, 'Desktop life task');
     fixture.progress = () => {
       const now = Date.now() + 10000;
       taskStore.mergeRemote([{
@@ -307,16 +304,6 @@ try {
   assert.ok(await inspector.getByRole('textbox', { name: '想定時間', exact: true }).evaluate(element => element === document.activeElement), 'estimate shortcut focuses its field after the center column appears');
   await page.keyboard.press('Escape');
   await inspector.waitFor({ state: 'detached' });
-  await page.getByRole('tab', { name: /today/ }).click();
-  await page.getByRole('textbox', { name: '生活タスク', exact: true }).first().press('Control+i');
-  const lifeInspector = page.getByRole('dialog', { name: '生活タスクの詳細', exact: true });
-  await lifeInspector.waitFor();
-  assert.equal(await lifeInspector.evaluate(element => getComputedStyle(element).backgroundColor), await page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor), 'life details inherit the same docked surface');
-  assert.ok(await lifeInspector.evaluate(element => element.parentElement.classList.contains('desktop-inspector')), 'life task details use the same center column');
-  assert.ok(await lifeInspector.getByRole('textbox', { name: '生活タスクのタイトル', exact: true }).evaluate(element => element === document.activeElement), 'life details retain initial title focus');
-  await assertSeparateColumns();
-  await lifeInspector.getByRole('button', { name: '閉じる（Esc）', exact: true }).click();
-  await page.getByRole('tab', { name: 'all', exact: true }).click();
   const launcher = page.getByRole('form', { name: 'エージェントを起動する', exact: true });
   {
     assert.equal(await launcher.locator('.agent-launcher-field').count(), 4);

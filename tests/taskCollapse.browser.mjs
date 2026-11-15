@@ -8,7 +8,6 @@ const { outputFiles } = await build({
     import { createRoot } from 'react-dom/client';
     import { TasksPage } from './src/pages/TasksPage';
     import { taskStore } from './src/lib/taskStore';
-    import { lifeWorldStore } from './src/lib/lifeWorldStore';
     import { setUserTimeZone } from './src/lib/userTimeZone';
     import { applyTheme } from './src/lib/theme';
     const date = '2026-10-14'; Date.now = () => Date.parse(date + 'T12:00:00Z');
@@ -24,18 +23,7 @@ const { outputFiles } = await build({
       { id: 'locked-leaf', text: '子なしの見出し', parentId: 'label', order: 2, locked: true },
     ];
     taskStore.mergeRemote(items.map(item => ({ itemId: item.id, updatedAt: 1, payload: JSON.stringify({ type: 'task', done: false, createdAt: 1, updatedAt: 1, ...item }) })));
-    let { root, nested: nestedLife, grandchild: grandchildLife, bread } = JSON.parse(sessionStorage.getItem('fixtureLifeIds') || '{}');
-    if (!root) {
-    root = lifeWorldStore.add(date); lifeWorldStore.setText(root, '買い物'); lifeWorldStore.setLocked(root, true, date);
-    nestedLife = lifeWorldStore.add(date, root, true, true); lifeWorldStore.setText(nestedLife, '食料品'); lifeWorldStore.setLocked(nestedLife, true, date);
-    grandchildLife = lifeWorldStore.add(date, nestedLife, true, true); lifeWorldStore.setText(grandchildLife, '生活の孫');
-    bread = lifeWorldStore.add(date, nestedLife, true); lifeWorldStore.setText(bread, 'パン');
-    for (let i = 0; i < 9; i++) { const id = lifeWorldStore.add(date, root, true, true); lifeWorldStore.setText(id, '買う物 ' + i); }
-    lifeWorldStore.setShowInAll(true);
-    sessionStorage.setItem('fixtureLifeIds', JSON.stringify({ root, nested: nestedLife, grandchild: grandchildLife, bread }));
-    }
-    globalThis.fixtureLifeIds = { root, nested: nestedLife, grandchild: grandchildLife, bread };
-    globalThis.fixtureData = () => JSON.parse(JSON.stringify({ tasks: taskStore.getState().items, life: lifeWorldStore.getSnapshot().data }, (key, value) => ['collapsed', 'stamps', 'updatedAt'].includes(key) ? undefined : value));
+    globalThis.fixtureData = () => JSON.parse(JSON.stringify({ tasks: taskStore.getState().items }, (key, value) => ['collapsed', 'stamps', 'updatedAt'].includes(key) ? undefined : value));
     createRoot(document.getElementById('root')).render(<div className="app-shell"><main className="app-main"><TasksPage /></main></div>);
   ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', loader: { '.png': 'dataurl' },
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
@@ -48,9 +36,7 @@ try {
   await page.route('**/*', route => route.request().url() === 'https://task-collapse.test/'
     ? route.fulfill({ contentType: 'text/html', body: `<style>${css}</style><div id="root"></div><script>${outputFiles[0].text}</script>` }) : route.abort());
   await page.goto('https://task-collapse.test/');
-  const life = await page.evaluate(() => globalThis.fixtureLifeIds);
   const row = id => page.locator(`[data-row-id="${id}"]`);
-  const lifeRow = id => page.locator(`[data-life-id="${id}"]`);
   const parent = row('parent'), nested = row('nested'), grandchild = row('grandchild');
   const before = await page.evaluate(() => globalThis.fixtureData());
   const remaining = await page.locator('.tasks-count').textContent();
@@ -93,19 +79,6 @@ try {
   await search.press('Enter');
   assert.equal(await grandchild.locator('.row-title').evaluate(el => el === document.activeElement), true, 'choosing a search hit expands its locked ancestors');
   await parent.locator('.row-lock-toggle').click();
-  await lifeRow(life.nested).locator('.row-lock-toggle').click();
-  await lifeRow(life.root).locator('.row-lock-toggle').click();
-  assert.equal(await lifeRow(life.root).locator('.row-lock-count').textContent(), '12');
-  assert.equal(await lifeRow(life.grandchild).count(), 0);
-  await lifeRow(life.root).locator('.row-title').press('ArrowDown');
-  assert.equal(await lifeRow(life.root).locator('.row-title').evaluate(el => el === document.activeElement), true, 'last visible life row stays selected');
-  await page.getByRole('button', { name: '検索', exact: true }).click(); await search.fill('生活の孫'); await search.press('Enter');
-  const lifePanel = page.getByRole('dialog', { name: '生活タスクの詳細', exact: true });
-  await lifePanel.waitFor();
-  assert.equal(await lifePanel.getByRole('textbox', { name: '生活タスクのタイトル' }).inputValue(), '生活の孫');
-  await lifePanel.getByRole('button', { name: '閉じる（Esc）', exact: true }).click();
-  await lifeRow(life.grandchild).waitFor();
-  await lifeRow(life.root).locator('.row-lock-toggle').click();
   await parent.getByRole('button', { name: '詳細を開く', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'タスクの詳細', exact: true });
   await panel.getByRole('switch', { name: 'タスクロック', exact: true }).click();
@@ -117,22 +90,19 @@ try {
   await parent.locator('.row-lock-count').waitFor();
   await page.reload();
   await parent.locator('.row-lock-count').waitFor();
-  await lifeRow(life.root).locator('.row-lock-count').waitFor();
   assert.equal(await grandchild.count(), 0, 'task collapse survives reload');
-  assert.equal(await lifeRow(life.grandchild).count(), 0, 'life collapse survives reload');
   await parent.locator('.row-lock-toggle').click(); await grandchild.waitFor();
-  await lifeRow(life.root).locator('.row-lock-toggle').click(); await lifeRow(life.grandchild).waitFor();
   await page.reload();
-  await grandchild.waitFor(); await lifeRow(life.grandchild).waitFor();
+  await grandchild.waitFor();
   assert.equal(await parent.locator('.row-lock-toggle').getAttribute('aria-expanded'), 'true', 'task expansion survives reload');
-  assert.equal(await lifeRow(life.root).locator('.row-lock-toggle').getAttribute('aria-expanded'), 'true', 'life expansion survives reload');
-  await parent.locator('.row-lock-toggle').click(); await lifeRow(life.root).locator('.row-lock-toggle').click();
+  await parent.locator('.row-lock-toggle').click();
   for (const theme of ['black', 'white', 'original']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 960 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${theme}/${width}: no horizontal overflow`);
-      for (const container of [parent, lifeRow(life.root)]) {
+      {
+        const container = parent;
         const lock = await container.locator('.row-lock-mark').evaluate(el => {
           const box = el.getBoundingClientRect(), icon = el.querySelector('svg').getBoundingClientRect(), style = getComputedStyle(el);
           return { width: box.width, height: box.height, border: parseFloat(style.borderTopWidth), radius: style.borderRadius,
@@ -152,5 +122,5 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('Passed: locked task and life subtrees, nested/12-item badges, unchanged locks/data, leaf marks, Enter/Space, arrow navigation, All/Board/Today/focus, board counts, search-to-child expansion, unlock restoration and 3 themes/desktop/mobile. No accounts or external network.');
+  console.log('Passed: locked task subtrees, nested/12-item badges, unchanged locks/data, leaf marks, Enter/Space, arrow navigation, All/Board/Today/focus, board counts, search-to-child expansion, unlock restoration and 3 themes/desktop/mobile. No accounts or external network.');
 } finally { await browser.close(); }

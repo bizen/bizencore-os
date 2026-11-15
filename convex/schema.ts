@@ -1,6 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 
 import { notificationPreferences, pushSubscription, noticeFields } from './notificationFields';
 
@@ -25,11 +24,6 @@ export default defineSchema({
     partnerInvites: defineTable({
         ownerId: v.string(), code: v.string(), expiresAt: v.number(),
     }).index('by_owner', ['ownerId']).index('by_code', ['code']),
-    lifeEntries: defineTable({ userId: v.string(), ...lifeEntryFields })
-        .index('by_user', ['userId']).index('by_user_entry', ['userId', 'id']),
-    lifeChecks: defineTable({ userId: v.string(), ...lifeCheckFields })
-        .index('by_user', ['userId']).index('by_user_entry_date', ['userId', 'entryId', 'date']),
-    lifePreferences: defineTable({ userId: v.string(), ...lifePreferenceFields }).index('by_user', ['userId']),
     /**
      * タスクツリーの同期用ストア。
      * クライアント（localStorage）が正で、ここは任意サインイン時のミラー。
@@ -167,4 +161,25 @@ export default defineSchema({
         order: v.number(),
         createdAt: v.number(),
     }).index("by_user", ["userId"]),
+
+    /** 廃止した生活世界のデータ。既存ドキュメントを有効なまま保つためだけに残し、アカウント削除時に消す */
+    lifeEntries: defineTable({
+        userId: v.string(), id: v.string(), text: v.string(), note: v.string(), startDate: v.string(),
+        repeat: v.union(v.literal('once'), v.literal('daily'), v.literal('weekdays')),
+        order: v.number(), updatedAt: v.number(), deletedAt: v.optional(v.number()),
+        locked: v.optional(v.boolean()),
+        collapsed: v.optional(v.boolean()),
+        parentId: v.optional(v.union(v.string(), v.null())),
+        stamps: v.optional(v.object({ text: v.optional(v.number()), note: v.optional(v.number()),
+            schedule: v.optional(v.number()), order: v.optional(v.number()), deletion: v.optional(v.number()), lock: v.optional(v.number()), collapse: v.optional(v.number()), hierarchy: v.optional(v.number()) })),
+    }).index('by_user', ['userId']),
+    lifeChecks: defineTable({
+        userId: v.string(), entryId: v.string(), date: v.string(), done: v.boolean(), updatedAt: v.number(),
+        filed: v.optional(v.boolean()),
+        cleared: v.optional(v.boolean()),
+    }).index('by_user', ['userId']),
+    lifePreferences: defineTable({
+        userId: v.string(), showInAll: v.boolean(), beforeId: v.union(v.string(), v.null()), updatedAt: v.number(),
+        visibilityStamp: v.number(), placementStamp: v.number(),
+    }).index('by_user', ['userId']),
 });

@@ -13,7 +13,6 @@ const stocks = await load('convex/countStocks.ts');
 const partners = await load('convex/partners.ts');
 const mcp = await load('convex/mcpTasks.ts');
 const { default: schema } = await load('convex/schema.ts');
-const { createLifeWorldStore } = await load('src/lib/lifeWorldStore.ts');
 
 function server() {
   const rows = Object.fromEntries(Object.keys(schema.tables).map(table => [table, []]));
@@ -155,7 +154,7 @@ test('pending and completed deletion block stale sync, imports, MCP, partner wri
   for (const phase of ['data', 'identity', 'complete']) {
     s.rows.accountDeletions[0].phase = phase;
     for (const [fn, args] of [[sync.push, { items: [] }], [sync.importLegacy, {}],
-      [sync.setTimeZone, { timeZone: 'UTC', automatic: true }], [sync.lifeWorldPush, { accountId: 'alice', entries: [], checks: [] }],
+      [sync.setTimeZone, { timeZone: 'UTC', automatic: true }],
       [sync.touchMcpConnection, { userId: 'alice', clientId: 'codex' }],
       [stocks.add, { text: 'stale' }], [stocks.mergeLocalStocks, { entries: [] }], [stocks.remove, { id: 'foreign' }],
       [partners.createInvite, { accountId: 'alice' }], [partners.setLabelSharing, { accountId: 'alice', labelId: 'label', shared: true }],
@@ -164,7 +163,6 @@ test('pending and completed deletion block stale sync, imports, MCP, partner wri
       await assert.rejects(fn._handler(s.ctx, args), /削除中、または削除済み/);
     }
     assert.equal(await sync.pull._handler(s.ctx, {}), null);
-    assert.equal(await sync.lifeWorldPull._handler(s.ctx, { accountId: 'alice' }), null);
     assert.equal(await sync.listMcpConnections._handler(s.ctx, {}), null);
     assert.deepEqual(await stocks.list._handler(s.ctx, {}), []);
     assert.equal(await partners.state._handler(s.ctx, { accountId: 'alice' }), null);
@@ -172,20 +170,6 @@ test('pending and completed deletion block stale sync, imports, MCP, partner wri
   }
   s.identify('bob'); await stocks.add._handler(s.ctx, { text: 'untouched account' });
   assert.equal(s.rows.countStocks[0].userId, 'bob');
-});
-
-test('account-specific life cache clears its undo history without deleting guest or another account', () => {
-  const map = new Map();
-  const store = createLifeWorldStore({ getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) });
-  const guest = store.add('2026-10-09'); store.setText(guest, 'Guest');
-  store.setAccount('alice'); const alice = store.add('2026-10-09'); store.setText(alice, 'Private');
-  store.setAccount('bob'); const bob = store.add('2026-10-09'); store.setText(bob, 'Other');
-  const bobBefore = map.get('bizencore.life-world.account.bob.v1');
-  const guestBefore = map.get('bizencore.life-world.local.v1');
-  store.setAccount('alice'); store.clearAccount('alice'); store.undo();
-  assert.deepEqual(store.getSnapshot().data.entries, {}); assert.equal(store.getSnapshot().canUndo, false);
-  assert.equal(map.get('bizencore.life-world.account.bob.v1'), bobBefore);
-  assert.equal(map.get('bizencore.life-world.local.v1'), guestBefore);
 });
 
 test('watchdog recovers a crashed action without bypassing retry backoff and stops after completion', async () => {

@@ -1,4 +1,3 @@
-import { lifeWorldStore } from './lifeWorldStore';
 import { saveTasksBeforeReload } from './taskStore';
 
 export const BEFORE_APP_RELOAD_EVENT = 'bizencore:before-reload';
@@ -11,7 +10,6 @@ export function prepareAppReload(): boolean {
   const draft = document.querySelector<HTMLTextAreaElement>('.context-input');
   if (draft?.value.trim() && !window.confirm('まだ添付していない文章は失われます。新版に更新しますか？')) return false;
   const tasksSaved = saveTasksBeforeReload();
-  const lifeSaved = lifeWorldStore.saveBeforeReload();
   let otherInputsSaved = true;
   try {
     for (const input of document.querySelectorAll<HTMLTextAreaElement>('[data-reload-storage-key]')) {
@@ -20,7 +18,7 @@ export function prepareAppReload(): boolean {
     }
   } catch { otherInputsSaved = false; }
   const workspaceSaved = window.dispatchEvent(new Event(BEFORE_APP_RELOAD_EVENT, { cancelable: true }));
-  if (!tasksSaved || !lifeSaved || !otherInputsSaved || !workspaceSaved) {
+  if (!tasksSaved || !otherInputsSaved || !workspaceSaved) {
     window.alert('端末への保存に失敗したため、更新を中止しました。入力内容を控えて、端末の保存容量などを確認してください。');
     return false;
   }

@@ -1,4 +1,3 @@
-import { lifeWorldStore, lifeStorageKey } from './lifeWorldStore';
 import { convexUrl } from './cloudConfig';
 import { focusCacheKey } from './focusedLabels';
 
@@ -17,11 +16,11 @@ export function rememberAccountDeletion(userId: string) {
 
 export function clearDeletedAccountCache(userId: string): boolean {
   let cleared = true;
-  try { lifeWorldStore.clearAccount(userId); } catch { cleared = false; }
   // The task/text caches are shared across accounts: never erase them here.
   try {
     localStorage.removeItem(`chrct.tasks.synced.${userId}`);
-    localStorage.removeItem(lifeStorageKey(userId));
+    // Retired Life World cache of the deleted account; the feature no longer reads it.
+    localStorage.removeItem(`bizencore.life-world.account.${userId}.v1`);
     localStorage.removeItem(focusCacheKey(convexUrl ?? 'local', userId));
   } catch { cleared = false; }
   return cleared;

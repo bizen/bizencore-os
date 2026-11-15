@@ -36,7 +36,7 @@ function Confirmation({ userId }: { userId: string }) {
 
   return (
     <div className="settings-account-delete">
-      <p className="settings-muted">このアカウントのタスク・生活世界・コンテキスト資料と添付ファイル・保存テキスト・設定・MCP接続履歴をサーバーから削除し、パートナーとの共有も解除します。</p>
+      <p className="settings-muted">このアカウントのタスク・コンテキスト資料と添付ファイル・保存テキスト・設定・MCP接続履歴をサーバーから削除し、パートナーとの共有も解除します。</p>
       <p className="settings-muted">Googleアカウントや、パートナー自身のデータは削除しません。このブラウザ内の共通のタスク・保存テキストは残ります。削除は取り消せません。</p>
       {status === undefined ? <p className="settings-muted">読み込み中...</p> : !available ? <p className="settings-muted">現在、アカウント削除を利用できません。</p> : null}
       {!expanded ? (

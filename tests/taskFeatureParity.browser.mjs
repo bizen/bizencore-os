@@ -9,7 +9,6 @@ const { outputFiles } = await build({
     import { MemoryRouter } from 'react-router-dom';
     import App from './src/App';
     import { taskStore } from './src/lib/taskStore';
-    import { lifeWorldStore } from './src/lib/lifeWorldStore';
     import { setUserTimeZone } from './src/lib/userTimeZone';
     const date = '2026-10-14'; Date.now = () => Date.parse(date + 'T12:00:00Z'); setUserTimeZone('UTC');
     const rows = Array.from({ length: 4 }, (_, group) => [
@@ -19,9 +18,6 @@ const { outputFiles } = await build({
     ]).flat();
     taskStore.mergeRemote(rows.map(item => ({ itemId: item.id, updatedAt: 1,
       payload: JSON.stringify({ done: false, createdAt: 1, updatedAt: 1, ...item }) })));
-    const wish = lifeWorldStore.add(date); lifeWorldStore.setText(wish, '今日の買い物');
-    const habit = lifeWorldStore.add(date); lifeWorldStore.setText(habit, '散歩'); lifeWorldStore.setRepeat(habit, 'daily');
-    lifeWorldStore.setShowInAll(true);
     globalThis.parityFixture = { calls: [] };
     window.bizencoreDesktop = {
       integratedTitlebar: true, mcpSupported: false,
@@ -68,7 +64,7 @@ try {
       }), 'index cannot overlay the agents or center detail column');
     };
     await assertIndex('column');
-    assert.equal(await index.getByRole('button').count(), 5, 'Life World also appears in the shared index');
+    assert.equal(await index.getByRole('button').count(), 4);
     await index.getByRole('button', { name: 'ラベル 3', exact: true }).click();
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await page.waitForFunction(() => document.querySelector('[aria-label="ラベルの目次"] button[aria-current]')?.textContent === 'ラベル 3');
@@ -78,7 +74,7 @@ try {
     await scroller.evaluate(element => { element.scrollTop = 0; });
     await page.waitForFunction(() => document.querySelector('[aria-label="ラベルの目次"] button[aria-current]')?.textContent === 'ラベル 1');
     await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
-    await page.waitForFunction(() => document.querySelector('[aria-label="ラベルの目次"] button[aria-current]')?.textContent === '生活世界');
+    await page.waitForFunction(() => document.querySelector('[aria-label="ラベルの目次"] button[aria-current]')?.textContent === 'ラベル 4');
     await scroller.evaluate(element => { element.scrollTop = 0; });
     if (desktop) {
       await page.getByRole('button', { name: 'エージェントを追加', exact: true }).click();
@@ -127,12 +123,12 @@ try {
     assert.equal(await inspector.getByRole('textbox', { name: 'タスク', exact: true }).inputValue(), '作業 2 / 1');
     await inspector.getByRole('button', { name: '閉じる（Esc）', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: '完了を削除（⌥⇧C）', exact: true }).isDisabled(), true);
-    await page.locator('.life-world').getByRole('button', { name: '今日の買い物を完了にする', exact: true }).click();
+    await page.locator('[data-row-id="task-1-0"]').getByRole('button', { name: '完了にする', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: '完了を削除（⌥⇧C）', exact: true }).isEnabled(), true);
     await page.getByRole('button', { name: '完了を整理（⌥C）', exact: true }).click();
-    assert.equal(await page.locator('.done-shelf .life-row').count(), 1);
+    await page.locator('.done-shelf [data-row-id="task-1-0"]').waitFor();
     await page.getByRole('button', { name: '完了を削除（⌥⇧C）', exact: true }).click();
-    assert.equal(await page.locator('.done-shelf .life-row').count(), 0);
+    await page.locator('[data-row-id="task-1-0"]').waitFor({ state: 'detached' });
     for (const [theme, width] of [['black', 1440], ['white', 900], ['original', 860]]) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
@@ -143,5 +139,5 @@ try {
     }
     assert.deepEqual(errors, []); await page.close();
   }
-  console.log('Passed: shared Web/desktop label navigation, scroll tracking, nested scrolling, column-width adaptation, non-overlay details, focus shortcuts, All/Board/Today, search and Life World filing/deletion. Mock IPC only, no real accounts or agents.');
+  console.log('Passed: shared Web/desktop label navigation, scroll tracking, nested scrolling, column-width adaptation, non-overlay details, focus shortcuts, All/Board/Today, search and completed-task filing/deletion. Mock IPC only, no real accounts or agents.');
 } finally { await browser.close(); }
