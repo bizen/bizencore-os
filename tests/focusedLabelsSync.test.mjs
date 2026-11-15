@@ -11,7 +11,8 @@ const { setTimeZone } = await load('convex/sync.ts');
 const { claimLegacyFocus, readGuestFocus, readFocusCache, focusCacheKey, LEGACY_FOCUS_KEY, GUEST_FOCUS_KEY, normalizeFocusedLabels, changeFocusedLabel, browserFocusStorage } = await load('src/lib/focusedLabels.ts');
 
 function server() {
-  const rows = { accountDeletions: [], userPreferences: [] };
+  // setTimeZone also wakes notification checks and refreshes Grok Bot patrol schedules.
+  const rows = { accountDeletions: [], userPreferences: [], notificationDevices: [], grokBotSchedules: [] };
   let identity = 'a', sequence = 0;
   return { rows, identify: id => { identity = id; }, ctx: {
     auth: { getUserIdentity: async () => identity ? { subject: identity } : null },
@@ -21,6 +22,8 @@ function server() {
         const chain = {
           withIndex(_name, apply) { const q = { eq: (field, value) => { filters.push([field, value]); return q; } }; apply(q); return chain; },
           unique: async () => rows[table].find(row => filters.every(([field, value]) => row[field] === value)) ?? null,
+          collect: async () => rows[table].filter(row => filters.every(([field, value]) => row[field] === value)),
+          take: async limit => rows[table].filter(row => filters.every(([field, value]) => row[field] === value)).slice(0, limit),
         };
         return chain;
       },
