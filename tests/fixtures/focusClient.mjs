@@ -32,6 +32,9 @@ export function useQuery(ref, args) {
   return name === 'focusedLabels:get' ? (account ? snapshots.get(account) : undefined) : null;
 }
 
+// The local Grok Bot label UI uses actions; focus tabs never call them.
+export function useAction() { return useMemo(() => async () => { throw new Error('Actions are unavailable in the focus fixture'); }, []); }
+
 export function useMutation(ref) {
   const name = getFunctionName(ref);
   return useMemo(() => {
