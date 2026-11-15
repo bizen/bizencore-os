@@ -1,4 +1,6 @@
 import { lifeWorldStore, lifeStorageKey } from './lifeWorldStore';
+import { convexUrl } from './cloudConfig';
+import { focusCacheKey } from './focusedLabels';
 
 export const ACCOUNT_DELETION_EVENT = 'bizencore:account-deletion';
 export const deletionKey = (userId: string) => `bizencore.account-deletion.${userId}`;
@@ -20,6 +22,7 @@ export function clearDeletedAccountCache(userId: string): boolean {
   try {
     localStorage.removeItem(`chrct.tasks.synced.${userId}`);
     localStorage.removeItem(lifeStorageKey(userId));
+    localStorage.removeItem(focusCacheKey(convexUrl ?? 'local', userId));
   } catch { cleared = false; }
   return cleared;
 }
