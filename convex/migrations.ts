@@ -2,6 +2,7 @@ import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { mergeRows } from "./sync";
 import { requireActiveAccount } from './accountAccess';
+import { wakeNotificationChecks } from './notificationChecks';
 
 /*
  * Clerk を開発用から本番用へ移すと、同じ人でもユーザー ID が変わる。
@@ -55,6 +56,10 @@ export const moveUser = internalMutation({
             .withIndex("by_user", (q) => q.eq("userId", from))
             .collect();
         for (const stock of stocks) await ctx.db.patch(stock._id, { userId: to });
+        if (rows.length) {
+            await wakeNotificationChecks(ctx, from);
+            await wakeNotificationChecks(ctx, to);
+        }
 
         return { moved, merged, countStocks: stocks.length };
     },

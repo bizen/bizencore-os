@@ -54,11 +54,11 @@ test('depth limits apply to both direct child creation and moving an existing su
   const s = store();
   const root = s.add(date);
   let last = root;
-  for (let i = 0; i < 4; i++) last = s.add(date, last, true, true);
+  for (let i = 0; i < 3; i++) last = s.add(date, last, true, true);
   assert.equal(s.add(date, last, true, true), undefined);
   const sibling = s.add(date, last, true);
   assert.equal(s.indent(sibling), false);
-  assert.equal(ids(s).at(-1)[1], 4);
+  assert.equal(ids(s).at(-1)[1], 3);
 });
 
 test('completion cascades, but a locked descendant blocks its ancestors, not its own unlocked children', () => {

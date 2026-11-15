@@ -4,10 +4,12 @@ import type { Id } from "./_generated/dataModel";
 import { mergeItems } from "../src/lib/itemMerge";
 import { coerceAttachments } from "../src/lib/attachments";
 import { cleanupFiles } from "./fileCleanup";
+import { notificationStateChanged, wakeNotificationChecks } from './notificationChecks';
 import { isDateString, isTimeZone } from "../src/lib/taskDates";
-import { coerceLifeData, lifeCheckKey, lifeEntryStamp, lifeSubtreeEntries, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
+import { coerceLifeData, lifeCheckKey, lifeEntryStamp, lifeSubtreeEntries, mergeLifeCheck, mergeLifeEntry, mergeLifePreferences } from '../src/lib/lifeWorldModel';
 import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 import { accountActive, requireActiveAccount } from './accountAccess';
+import { refreshPatrolTimeZone } from './grokBot';
 
 export const lifeWorldPull = query({
     args: { accountId: v.string() },
@@ -69,7 +71,7 @@ export const lifeWorldPush = mutation({
         }, checks: {} };
         for (const check of checks) {
             const key = lifeCheckKey(check.entryId, check.date);
-            if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key)) throw new Error('Invalid life check');
+            if (!isDateString(check.date) || !validStamp(check.updatedAt) || checkIds.has(key) || ((check.filed || check.cleared) && !check.done)) throw new Error('Invalid life check');
             checkIds.add(key);
             let entry = effectiveEntries.get(check.entryId);
             if (!entry) {
@@ -91,10 +93,11 @@ export const lifeWorldPush = mutation({
         for (const check of checks) {
             const existing = await ctx.db.query('lifeChecks')
                 .withIndex('by_user_entry_date', q => q.eq('userId', identity.subject).eq('entryId', check.entryId).eq('date', check.date)).unique();
-            if (!existing) await ctx.db.insert('lifeChecks', { userId: identity.subject, ...check });
-            else if (check.updatedAt > existing.updatedAt ||
-                (check.updatedAt === existing.updatedAt && check.done && !existing.done)) {
-                await ctx.db.patch(existing._id, check);
+            const value = { ...check, filed: check.done && check.filed ? true : undefined,
+                cleared: check.done && check.cleared ? true : undefined };
+            if (!existing) await ctx.db.insert('lifeChecks', { userId: identity.subject, ...value });
+            else if (mergeLifeCheck(existing, check) === check) {
+                await ctx.db.patch(existing._id, value);
             }
         }
         if (preferences) {
@@ -131,8 +134,13 @@ export const setTimeZone = mutation({
         if (!isTimeZone(timeZone)) throw new Error("Invalid IANA time zone");
         const existing = await ctx.db.query("userPreferences")
             .withIndex("by_user", (q) => q.eq("userId", identity.subject)).unique();
+        const timeZoneChanged = existing?.timeZone !== timeZone;
         if (existing) await ctx.db.patch(existing._id, { timeZone, automatic, updatedAt: Date.now() });
         else await ctx.db.insert("userPreferences", { userId: identity.subject, timeZone, automatic, updatedAt: Date.now() });
+        if (timeZoneChanged) {
+            await wakeNotificationChecks(ctx, identity.subject, true);
+            await refreshPatrolTimeZone(ctx, identity.subject, timeZone);
+        }
     },
 });
 
@@ -276,6 +284,7 @@ export const push = mutation({
         if (!identity) throw new Error("Unauthorized");
         await requireActiveAccount(ctx, identity.subject);
 
+        let checkNotifications = false;
         for (const item of items) {
             const existing = await ctx.db
                 .query("syncItems")
@@ -292,6 +301,7 @@ export const push = mutation({
                     deletedAt: item.deletedAt,
                     payload: item.payload,
                 });
+                checkNotifications ||= notificationStateChanged(null, item);
                 continue;
             }
 
@@ -299,6 +309,7 @@ export const push = mutation({
             if (!merged) {
                 // 中身が読めないときは、以前どおり行ごとに新しい方
                 if (existing.updatedAt >= item.updatedAt) continue;
+                checkNotifications ||= notificationStateChanged(existing, item);
                 await ctx.db.patch(existing._id, {
                     updatedAt: item.updatedAt,
                     deletedAt: item.deletedAt,
@@ -315,11 +326,13 @@ export const push = mutation({
             if (merged.payload === existing.payload && merged.updatedAt === existing.updatedAt) {
                 continue;
             }
+            checkNotifications ||= notificationStateChanged(existing, merged);
             await ctx.db.patch(existing._id, merged);
             const raw = JSON.parse(merged.payload) as { attachments?: unknown };
             await cleanupFiles(ctx, identity.subject, item.itemId, raw.attachments, !!merged.deletedAt);
         }
 
+        if (checkNotifications) await wakeNotificationChecks(ctx, identity.subject);
         return { ok: true };
     },
 });

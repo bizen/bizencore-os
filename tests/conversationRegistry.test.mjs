@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { createConversationRegistry } from '../desktop/electron/conversation-registry.mjs';
+
+test('conversation registry scopes ownership to native account/environment and never auto-enrolls local histories', async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'desktop-registry-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cwd = path.join(root, 'project'), cliHome = path.join(root, 'claude');
+  const project = path.join(cliHome, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+  await mkdir(cwd); await mkdir(project, { recursive: true });
+  const id = randomUUID();
+  await writeFile(path.join(project, `${id}.jsonl`), 'No transcript is read');
+  let access = { userId: 'alice', generation: 1 };
+  const registry = createConversationRegistry({ userData: root, environmentId: 'preview', getAccess: () => access, env: { CLAUDE_CONFIG_DIR: cliHome } });
+  assert.deepEqual(await registry.list('claude', cwd), []);
+  const scope = registry.context('claude', cwd);
+  await registry.enroll({ ...scope, sessionId: id });
+  assert.equal((await registry.list('claude', cwd))[0].id, id);
+  assert.equal(await registry.validate('claude', cwd, id), id);
+  access = { userId: 'bob', generation: 2 };
+  assert.deepEqual(await registry.list('claude', cwd), []);
+  await assert.rejects(registry.validate('claude', cwd, id));
+  assert.throws(() => registry.enroll({ ...scope, sessionId: id }), /scope mismatch/);
+  assert.throws(() => scope.check(), /expired/);
+  access = { userId: 'alice', generation: 3 };
+  const production = createConversationRegistry({ userData: root, environmentId: 'production', getAccess: () => access, env: { CLAUDE_CONFIG_DIR: cliHome } });
+  assert.deepEqual(await production.list('claude', cwd), []);
+  assert.equal((await registry.list('claude', cwd)).length, 1);
+});

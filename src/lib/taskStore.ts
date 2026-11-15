@@ -14,6 +14,7 @@ import {
   flattenAll,
   isLabelColor,
   isLive,
+  isTodayItem,
   needsRebalance,
   newId,
   nextKind,
@@ -33,6 +34,7 @@ import {
 } from './itemMerge';
 import { MAX_ATTACHMENTS, attachmentFrom, coerceAttachments, contextStorageError, liveAttachments } from './attachments';
 import { isDateString, isTimeString } from './taskDates';
+import { applyWorkPlan, type WorkAgent, type WorkResult } from './taskTools';
 
 const STORAGE_KEY = 'chrct.tasks.v2';
 const UNDO_LIMIT = 50;
@@ -69,6 +71,7 @@ function coerceItem(raw: unknown): Item | null {
     completionCriteria: typeof r.completionCriteria === 'string' && r.completionCriteria ? r.completionCriteria : undefined,
     done: !locked && r.done === true,
     locked: locked ? true : undefined,
+    collapsed: type === 'task' && r.collapsed === true ? true : undefined,
     createdBy: r.createdBy === 'user' || r.createdBy === 'ai' ? r.createdBy : undefined,
     createdByClient: r.createdBy === 'ai' && typeof r.createdByClient === 'string' ? r.createdByClient : undefined,
     completedBy: !locked && r.done === true && (r.completedBy === 'user' || r.completedBy === 'ai') ? r.completedBy : undefined,
@@ -233,6 +236,7 @@ function sameContent(a: Item, b: Item): boolean {
     a.completionCriteria === b.completionCriteria &&
     a.done === b.done &&
     a.locked === b.locked &&
+    a.collapsed === b.collapsed &&
     a.createdBy === b.createdBy &&
     a.createdByClient === b.createdByClient &&
     a.completedBy === b.completedBy &&
@@ -322,6 +326,13 @@ export const taskStore = {
     return state;
   },
 
+  applyWorkPlan(taskId: string, expectedUpdatedAt: number, result: WorkResult, agent: WorkAgent): void {
+    const next = applyWorkPlan(state.items, taskId, expectedUpdatedAt, result, agent, nextStamp());
+    const stamped = withPatches(Object.values(next).filter(item => item !== state.items[item.id]));
+    if (!writeNow(stamped)) throw Error('分担案を保存できませんでした');
+    commit(stamped);
+  },
+
   canUndo(): boolean {
     return undoStack.length > 0;
   },
@@ -388,7 +399,7 @@ export const taskStore = {
       }
     }
 
-    if (type === 'task' && parentId && depthOf(items, parentId) + 1 > MAX_DEPTH) {
+    for (let depth = parentId ? depthOf(items, parentId) + 1 : 0; type === 'task' && parentId && depth > MAX_DEPTH; depth--) {
       parentId = items[parentId]?.parentId ?? null;
       index = siblings(items, parentId).length;
     }
@@ -444,6 +455,12 @@ export const taskStore = {
     commit(withPatches([{ ...current, dueDate, dueTime: time }]));
   },
 
+  setCollapsed(id: string, collapsed: boolean): void {
+    const current = state.items[id];
+    if (!isLive(current) || current.type !== 'task' || !current.locked || !!current.collapsed === collapsed) return;
+    commit(withPatches([{ ...current, collapsed: collapsed ? true : undefined }]));
+  },
+
   setLocked(id: string, locked: boolean): void {
     const current = state.items[id];
     if (!isLive(current) || current.type !== 'task' || (locked && current.done) || !!current.locked === locked) return;
@@ -481,10 +498,10 @@ export const taskStore = {
     commit(withPatches(patches));
   },
 
-  toggleToday(id: string, todayDate: string): void {
+  toggleToday(id: string, todayDate: string, timeZone: string | null = null): void {
     const current = state.items[id];
     if (!isLive(current) || current.type !== 'task') return;
-    const assignedDate = current.assignedDate === todayDate ? undefined : todayDate;
+    const assignedDate = isTodayItem(current, todayDate, timeZone) ? undefined : todayDate;
     commit(withPatches([{ ...current, assignedDate }]));
   },
 

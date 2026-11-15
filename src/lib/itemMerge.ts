@@ -29,6 +29,7 @@ export const FIELD_GROUPS = {
   completionCriteria: ['completionCriteria'],
   done: ['done', 'filed', 'completedBy', 'completedByClient'],
   lock: ['locked'],
+  collapse: ['collapsed'],
   kind: ['kind'],
   color: ['color'],
   estimate: ['estimate'],
@@ -54,6 +55,7 @@ function field(item: Stamped, key: string): unknown {
 
 function stampOf(item: Stamped, group: FieldGroup): number {
   // Older clients do not know this field; omitting it must not unlock a task.
+  if (group === 'collapse') return item.stamps?.collapse ?? (field(item, 'collapsed') === true ? item.updatedAt : 0);
   if (group === 'lock') return item.stamps?.lock ?? (field(item, 'locked') === true ? item.updatedAt : 0);
   return item.stamps?.[group] ?? item.updatedAt;
 }

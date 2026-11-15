@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { DesktopInspectorContext } from '../lib/desktopInspector';
 import { ChevronRight, Search, X } from 'lucide-react';
 import { KeyboardHelp } from '../components/KeyboardHelp';
+import { notificationDesktop } from '../lib/notificationClient';
 import { TaskInspector } from '../components/task/TaskInspector';
+import { firstTaskDepths, treeContinuations } from '../lib/taskTreeGuides';
 import { TaskRow } from '../components/task/TaskRow';
+import { LabelGrokBotProvider } from '../components/task/LabelGrokBot';
+import { TaskContextDropProvider } from '../components/task/TaskContextDrop';
 import { LifeWorld } from '../components/task/LifeWorld';
 import { LifeWorldInspector, type LifeInspection } from '../components/task/LifeWorldInspector';
 import { TodayRecommendations } from '../components/task/TodayRecommendations';
@@ -26,7 +31,8 @@ import {
 } from '../lib/taskModel';
 import { taskStore, useTaskState } from '../lib/taskStore';
 import { lifeWorldStore, useLifeWorldState } from '../lib/lifeWorldStore';
-import { LIFE_SECTION_ID, lifeEntriesForDate, lifeSectionIndex } from '../lib/lifeWorldModel';
+import { LIFE_SECTION_ID, lifeCompletedEntries, lifeEntriesForDate, lifeParentIds, lifeSectionIndex, partitionLifeRows } from '../lib/lifeWorldModel';
+import { collapseRows } from '../lib/collapsedRows';
 
 type ViewMode = 'all' | 'today' | 'board' | `label:${string}`;
 
@@ -205,6 +211,11 @@ function matchesQuery(item: Item, needle: string): boolean {
 }
 
 export function TasksPage() {
+  return <TaskContextDropProvider><LabelGrokBotProvider><TasksPageContent /></LabelGrokBotProvider></TaskContextDropProvider>;
+}
+
+function TasksPageContent() {
+  const pageRef = useRef<HTMLElement>(null);
   const { items } = useTaskState();
   const { data: lifeData } = useLifeWorldState();
   const timeZone = useUserTimeZone();
@@ -221,21 +232,89 @@ export function TasksPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [partnerSide, setPartnerSide] = useState<'self' | 'partner'>('self');
   const [activeId, setActiveId] = useState<string | null>(null);
+  const collapsedIds = useMemo(() => new Set([
+    ...Object.values(items).filter(item => item.collapsed).map(item => item.id),
+    ...Object.values(lifeData.entries).filter(entry => entry.collapsed).map(entry => entry.id),
+  ]), [items, lifeData.entries]);
+  const toggleCollapse = useCallback((id: string) => {
+    setActiveId(id);
+    const item = taskStore.getState().items[id];
+    if (item) taskStore.setCollapsed(id, !item.collapsed);
+    else {
+      const entry = lifeWorldStore.getSnapshot().data.entries[id];
+      if (entry) lifeWorldStore.setCollapsed(id, !entry.collapsed);
+    }
+  }, []);
+  const revealTask = useCallback((id: string) => {
+    const tasks = taskStore.getState().items;
+    const life = lifeWorldStore.getSnapshot().data;
+    const parents = tasks[id] ? null : lifeParentIds(life);
+    const ancestors = new Set<string>();
+    let parent = tasks[id]?.parentId ?? parents?.get(id) ?? null;
+    while (parent && !ancestors.has(parent)) {
+      ancestors.add(parent);
+      parent = tasks[parent]?.parentId ?? parents?.get(parent) ?? null;
+    }
+    for (const parent of ancestors) {
+      if (tasks[parent]?.collapsed) taskStore.setCollapsed(parent, false);
+      else if (life.entries[parent]?.collapsed) lifeWorldStore.setCollapsed(parent, false);
+    }
+  }, []);
   const [noteOpenId, setNoteOpenId] = useState<string | null>(null);
   const [deadlineOpenId, setDeadlineOpenId] = useState<string | null>(null);
   const [colorOpenId, setColorOpenId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   /** 詳細パネルで開いているタスク */
-  const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate' } | null>(null);
+  const [inspector, setInspector] = useState<{ id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean } | null>(null);
+  const [notificationTaskId, setNotificationTaskId] = useState<string | null | undefined>(undefined);
   const [lifeInspector, setLifeInspector] = useState<LifeInspection | null>(null);
-  const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate' }) => {
+  const openInspector = useCallback((selection: { id: string; focus: 'title' | 'estimate'; returnFocus?: () => boolean }) => {
+    revealTask(selection.id);
     setLifeInspector(null);
     setInspector(selection);
+  }, [revealTask]);
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('task') ?? notificationTaskId;
+    const showToday = params.get('view') === 'today' || notificationTaskId === null;
+    if (!showToday && (!id || items[id]?.type !== 'task' || items[id].deletedAt)) return;
+    // Treat the external URL/native request as an event after task sync settles.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (showToday) setView('today');
+      else if (id) openInspector({ id, focus: 'title' });
+      setNotificationTaskId(undefined);
+      params.delete('task'); params.delete('view');
+      window.history.replaceState(null, '', `${window.location.pathname}${params.size ? '?' + params : ''}${window.location.hash}`);
+    });
+    return () => { cancelled = true; };
+  }, [items, openInspector, notificationTaskId]);
+  useEffect(() => notificationDesktop()?.onOpenTask?.(setNotificationTaskId), []);
+  useEffect(() => {
+    const open = (event: Event) => {
+      if (event instanceof CustomEvent && typeof event.detail === 'string') setNotificationTaskId(event.detail);
+    };
+    window.addEventListener('bizencore:inspect-task', open);
+    return () => window.removeEventListener('bizencore:inspect-task', open);
   }, []);
+  const registerTaskOpener = useContext(DesktopInspectorContext)?.registerTaskOpener;
+  useEffect(() => {
+    if (!registerTaskOpener) return;
+    registerTaskOpener(id => {
+      const origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      openInspector({ id, focus: 'title', returnFocus: () => {
+        if (!origin?.isConnected) return false;
+        origin.focus(); return true;
+      } });
+    });
+    return () => registerTaskOpener(null);
+  }, [registerTaskOpener, openInspector]);
   const openLifeInspector = useCallback((selection: LifeInspection) => {
+    revealTask(selection.id);
     setInspector(null);
     setLifeInspector(selection);
-  }, []);
+  }, [revealTask]);
   const closeLifeInspector = useCallback(() => {
     setLifeInspector(null);
     if (lifeInspector) requestAnimationFrame(() => {
@@ -247,6 +326,7 @@ export function TasksPage() {
   const [burstOrder, setBurstOrder] = useState<ReadonlyMap<string, number>>(EMPTY_BURST);
 
   const titleRefs = useRef(new Map<string, HTMLTextAreaElement>());
+  const lifeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const noteRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const searchRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -258,7 +338,7 @@ export function TasksPage() {
   const showLife = view === 'today' || (view === 'all' && lifeData.preferences?.showInAll === true);
   if (!showLife && lifeInspector) setLifeInspector(null);
   const allRootIds = useMemo(() => allRows.filter(row => row.depth === 0).map(row => row.item.id), [allRows]);
-  const todayRows = useMemo(() => flattenToday(items, todayDate), [items, todayDate]);
+  const todayRows = useMemo(() => flattenToday(items, todayDate, timeZone), [items, todayDate, timeZone]);
   const focusedLabelId = view.startsWith('label:') ? view.slice(6) : null;
   const focusedLabels = useMemo(
     () => focusedLabelIds.map((id) => items[id]).filter((item): item is Item => isLive(item) && item.type === 'section'),
@@ -268,23 +348,44 @@ export function TasksPage() {
     () => focusedLabelId ? rowsForLabel(allRows, focusedLabelId) : [],
     [allRows, focusedLabelId]
   );
-  const { activeRows, doneRows } = useMemo(() => {
+  const { activeRows, doneRows, hiddenCounts, unfoldedActiveRows } = useMemo(() => {
     const source = view === 'today' ? todayRows : focusedLabelId ? focusRows : allRows;
     const split = partitionCompleted(source, items, burstOrder);
+    const unfoldedActiveRows = filterRows(split.active, query);
+    const folded = collapseRows(unfoldedActiveRows,
+      row => !query.trim() && !!row.item.locked && collapsedIds.has(row.item.id), row => row.item.id, row => row.item.type === 'task');
     return {
-      activeRows: filterRows(split.active, query),
+      activeRows: folded.rows,
       doneRows: filterRows(split.done, query),
+      hiddenCounts: folded.hiddenCounts,
+      unfoldedActiveRows,
     };
-  }, [view, focusedLabelId, focusRows, todayRows, allRows, items, burstOrder, query]);
+  }, [view, focusedLabelId, focusRows, todayRows, allRows, items, burstOrder, query, collapsedIds]);
 
-  const doneCount = useMemo(
-    () => doneRows.filter((row) => row.item.type === 'task').length,
-    [doneRows]
-  );
+  const lifeRows = useMemo(() => {
+    if (!showLife) return { active: [], done: [] };
+    const parts = partitionLifeRows(lifeData, todayDate, view === 'all', query);
+    return { ...parts, active: collapseRows(parts.active,
+      row => !query.trim() && !!row.entry.locked && collapsedIds.has(row.entry.id), row => row.entry.id).rows };
+  }, [showLife, lifeData, todayDate, view, query, collapsedIds]);
+  const doneCount = doneRows.filter(row => row.item.type === 'task').length + lifeRows.done.length;
+  const fileCompleted = useCallback(() => {
+    taskStore.fileCompleted();
+    lifeWorldStore.fileCompleted(todayDate);
+  }, [todayDate]);
+  const clearCompleted = useCallback(() => {
+    taskStore.clearCompleted();
+    lifeWorldStore.clearCompleted(todayDate);
+  }, [todayDate]);
 
   const boardColumns = useMemo(
-    () => (view === 'board' ? toBoardColumns(activeRows) : []),
-    [view, activeRows]
+    () => {
+      if (view !== 'board') return [];
+      const counts = new Map(toBoardColumns(unfoldedActiveRows).map(column => [column.key,
+        column.rows.filter(row => row.item.type === 'task' && !row.item.done && !row.item.locked).length]));
+      return toBoardColumns(activeRows).map(column => ({ ...column, remaining: counts.get(column.key) ?? 0 }));
+    },
+    [view, activeRows, unfoldedActiveRows]
   );
 
   const lifeIndex = lifeSectionIndex(activeRows, lifeData.preferences?.beforeId);
@@ -299,25 +400,47 @@ export function TasksPage() {
 
   useEffect(() => {
     if (indexLabels.length === 0) return;
+    let container = pageRef.current?.parentElement ?? null;
+    while (container && !['auto', 'scroll'].includes(getComputedStyle(container).overflowY)) container = container.parentElement;
+    const nested = container && container !== document.scrollingElement ? container : null;
+    const target = nested ?? window;
+    let frame = 0;
     const update = () => {
-      const threshold = window.innerWidth <= 860 ? 150 : 112;
+      const page = pageRef.current;
+      if (!page) return;
+      const index = page.querySelector<HTMLElement>('.label-index');
+      const list = index?.querySelector<HTMLElement>('.label-index-list');
+      const horizontal = list && getComputedStyle(list).flexDirection === 'row';
+      const top = nested?.getBoundingClientRect().top ?? 0;
+      const threshold = Math.max(top,
+        page.querySelector('.tasks-toolbar')?.getBoundingClientRect().bottom ?? 0,
+        horizontal ? index?.getBoundingClientRect().bottom ?? 0 : 0) + 12;
       let current = indexLabels[0].item.id;
       for (const row of indexLabels) {
         const anchor = document.getElementById(`label-${row.item.id}`);
-        if (!anchor || anchor.getBoundingClientRect().top > threshold) break;
+        if (!anchor) continue;
+        // Match scrollIntoView's landing offset, including the sticky index and zoom rounding.
+        const cutoff = Math.max(threshold, top + (Number.parseFloat(getComputedStyle(anchor).scrollMarginTop) || 0));
+        if (anchor.getBoundingClientRect().top > cutoff + 2) break;
         current = row.item.id;
       }
-      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+      const maximum = nested ? nested.scrollHeight - nested.clientHeight : document.documentElement.scrollHeight - window.innerHeight;
+      if (maximum > 0 && (nested?.scrollTop ?? window.scrollY) >= maximum - 2) {
         current = indexLabels[indexLabels.length - 1].item.id;
       }
       setCurrentLabelId(current);
     };
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(update); };
+    const resize = new ResizeObserver(schedule);
+    if (pageRef.current) resize.observe(pageRef.current);
+    if (nested) resize.observe(nested);
     update();
-    window.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
+    target.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
     return () => {
-      window.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
+      resize.disconnect(); cancelAnimationFrame(frame);
+      target.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
     };
   }, [indexLabels]);
 
@@ -356,13 +479,19 @@ export function TasksPage() {
   }, [view, focusedLabels]);
 
   /** 検索中は、当たったものが隠れないよう棚を開けておく（この状態は覚えない） */
-  const shelfOpen = completedOpen || (query.trim() !== '' && doneRows.length > 0);
+  const shelfOpen = completedOpen || (query.trim() !== '' && doneCount > 0);
 
   /** ↑↓ で行き来できる範囲。棚を開いているときはそこも含める */
   const rows = useMemo(
     () => (shelfOpen ? [...activeRows, ...doneRows] : activeRows),
     [shelfOpen, activeRows, doneRows]
   );
+  const navigationIds = useMemo(() => {
+    const ids = activeRows.map(row => row.item.id);
+    if (view === 'all' && showLife) ids.splice(lifeIndex, 0, LIFE_SECTION_ID, ...lifeRows.active.map(row => row.entry.id));
+    return shelfOpen ? [...ids, ...doneRows.map(row => row.item.id), ...(view === 'all' ? lifeRows.done.map(row => row.entry.id) : [])] : ids;
+  }, [activeRows, doneRows, shelfOpen, view, showLife, lifeIndex, lifeRows]);
+  const visibleRootIds = useMemo(() => activeRows.filter(row => row.depth === 0).map(row => row.item.id), [activeRows]);
   const searchResults = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle ? rows.filter((row) => matchesQuery(row.item, needle)) : [];
@@ -373,6 +502,7 @@ export function TasksPage() {
       .filter(entry => `${entry.text}\n${entry.note}`.toLowerCase().includes(needle)) : [];
   }, [query, showLife, lifeData, todayDate, view]);
   const chooseLifeSearchResult = (id: string) => {
+    if (lifeRows.done.some(row => row.entry.id === id)) setCompletedOpen(true);
     setSearchOpen(false);
     setQuery('');
     openLifeInspector({ id, date: todayDate, accountId: lifeWorldStore.getSnapshot().accountId,
@@ -388,6 +518,7 @@ export function TasksPage() {
   };
 
   const chooseSearchResult = (row: Row) => {
+    revealTask(row.item.id);
     if (doneRows.some((doneRow) => doneRow.item.id === row.item.id)) setCompletedOpen(true);
     setSearchOpen(false);
     setQuery('');
@@ -430,10 +561,17 @@ export function TasksPage() {
     }
     return { remaining, remainingMinutes, completed, fileable };
   }, [allRows, todayRows, focusRows, focusedLabelId, view]);
+  const canClearCompleted = stats.completed > 0 || lifeCompletedEntries(lifeData, todayDate).length > 0;
 
   const completionBlocked = useMemo(() => completionBlockedIds(items), [items]);
 
   const applyFocus = useCallback((pending: PendingFocus): boolean => {
+    if (pending.id === LIFE_SECTION_ID) {
+      const heading = lifeHeadingRef.current;
+      if (!heading) return false;
+      heading.focus();
+      return true;
+    }
     const map = pending.target === 'note' ? noteRefs.current : titleRefs.current;
     const el = map.get(pending.id);
     if (!el) return false;
@@ -457,9 +595,10 @@ export function TasksPage() {
     (id: string | null | undefined, target: FocusTarget = 'title', caret: Caret = 'end') => {
       if (!id) return;
       const pending: PendingFocus = { id, target, caret, misses: 0 };
-      pendingFocus.current = applyFocus(pending) ? null : pending;
+      if (applyFocus(pending)) pendingFocus.current = null;
+      else { revealTask(id); pendingFocus.current = pending; }
     },
-    [applyFocus]
+    [applyFocus, revealTask]
   );
 
   useLayoutEffect(() => {
@@ -493,13 +632,13 @@ export function TasksPage() {
 
   const moveFocus = useCallback(
     (fromId: string, direction: -1 | 1, caret: Caret = 'end') => {
-      const index = rowIndexOf(fromId);
-      const target = rows[index + direction];
+      const index = navigationIds.indexOf(fromId);
+      const target = index >= 0 ? navigationIds[index + direction] : undefined;
       if (!target) return false;
-      requestFocus(target.item.id, 'title', caret);
+      requestFocus(target, 'title', caret);
       return true;
     },
-    [rowIndexOf, rows, requestFocus]
+    [navigationIds, requestFocus]
   );
 
   const removeRow = useCallback(
@@ -687,7 +826,7 @@ export function TasksPage() {
         if (event.key === 'Escape' && !event.isComposing) {
           event.preventDefault();
           setInspector(null);
-          requestFocus(inspector.id);
+          if (!inspector.returnFocus?.()) requestFocus(inspector.id);
         }
         return;
       }
@@ -723,31 +862,31 @@ export function TasksPage() {
           if (active === searchRef.current) {
             if (event.key !== 'ArrowDown') return;
             event.preventDefault();
-            requestFocus(rows[0]?.item.id);
+            requestFocus(navigationIds[0]);
             return;
           }
         }
 
         event.preventDefault();
-        const index = activeId ? rows.findIndex((row) => row.item.id === activeId) : -1;
+        const index = activeId ? navigationIds.indexOf(activeId) : -1;
         if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
           const step = event.key === 'ArrowDown' ? 1 : -1;
           const target =
             index >= 0
-              ? (rows[index + step] ?? rows[index])
-              : (event.key === 'ArrowDown' ? rows[0] : rows[rows.length - 1]);
-          requestFocus(target?.item.id);
+              ? (navigationIds[index + step] ?? navigationIds[index])
+              : (event.key === 'ArrowDown' ? navigationIds[0] : navigationIds[navigationIds.length - 1]);
+          requestFocus(target);
           return;
         }
         // ← → は、いまいる行に戻るだけ
-        requestFocus((index >= 0 ? rows[index] : rows[0])?.item.id);
+        requestFocus(index >= 0 ? navigationIds[index] : navigationIds[0]);
         return;
       }
 
       if (event.altKey && event.code === 'KeyC') {
         event.preventDefault();
-        if (event.shiftKey) taskStore.clearCompleted();
-        else taskStore.fileCompleted();
+        if (event.shiftKey) clearCompleted();
+        else fileCompleted();
         return;
       }
 
@@ -792,7 +931,7 @@ export function TasksPage() {
     colorOpenId,
     helpOpen,
     searchOpen,
-    rows,
+    navigationIds,
     activeId,
     requestFocus,
     handleDeadlineOpenChange,
@@ -802,6 +941,8 @@ export function TasksPage() {
     inspector,
     lifeInspector,
     closeLifeInspector,
+    fileCompleted,
+    clearCompleted,
   ]);
 
   const handleTitleKeyDown = (
@@ -858,7 +999,18 @@ export function TasksPage() {
     // ---- 並べ替え ----
     if (mod && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       event.preventDefault();
-      taskStore.move(item.id, event.key === 'ArrowUp' ? -1 : 1);
+      const direction = event.key === 'ArrowUp' ? -1 : 1;
+      const rootIndex = visibleRootIds.indexOf(item.id);
+      const sectionIndex = lifeSectionIndex(activeRows, lifeData.preferences?.beforeId);
+      const lifeRootIndex = activeRows.slice(0, sectionIndex).filter(row => row.depth === 0).length;
+      if (view === 'all' && showLife && rootIndex >= 0 &&
+          (direction === -1 ? rootIndex === lifeRootIndex : rootIndex === lifeRootIndex - 1)) {
+        // Crossing the separate list remounts the title; restore focus after that render.
+        pendingFocus.current = { id: item.id, target: 'title', caret, misses: 0 };
+        lifeWorldStore.moveSection(visibleRootIds, direction === -1 ? 1 : -1);
+        return;
+      }
+      taskStore.move(item.id, direction);
       requestFocus(item.id, 'title', caret);
       return;
     }
@@ -897,7 +1049,7 @@ export function TasksPage() {
     if (event.altKey && !mod) {
       if (event.code === 'KeyT' && item.type === 'task') {
         event.preventDefault();
-        taskStore.toggleToday(item.id, todayDate);
+        taskStore.toggleToday(item.id, todayDate, timeZone);
         return;
       }
       if (event.code === 'KeyE' && item.type === 'task') {
@@ -969,14 +1121,25 @@ export function TasksPage() {
     else noteRefs.current.delete(id);
   }, []);
 
-  const renderRow = (row: Row, index = 0, rows: Row[] = []) => (
+  const renderRows = (list: Row[]) => {
+    const continuations = treeContinuations(list);
+    const taskDepths = firstTaskDepths(list);
+    return list.map((row, index) => renderRow(row, index, list, continuations[index], taskDepths[index]));
+  };
+  const renderRow = (row: Row, index = 0, rows: Row[] = [], continuations: readonly boolean[] = [], firstTaskDepth = 0) => (
     <TaskRow
       key={row.item.id}
       item={row.item}
       depth={row.depth}
+      guideContinuations={continuations}
+      firstTaskDepth={firstTaskDepth}
       hasChildren={(rows[index + 1]?.depth ?? 0) > row.depth}
+      collapsed={hiddenCounts.has(row.item.id)}
+      hiddenCount={hiddenCounts.get(row.item.id) ?? 0}
+      onToggleCollapse={query.trim() ? undefined : toggleCollapse}
       context={row.context}
       todayDate={todayDate}
+      timeZone={timeZone}
       todayTime={todayTime}
       todayNumber={view === 'today' ? todayNumbers.get(row.item.id) : undefined}
       burstIndex={burstOrder.get(row.item.id)}
@@ -994,7 +1157,7 @@ export function TasksPage() {
       onTextChange={taskStore.setText}
       onNoteChange={taskStore.setNote}
       onToggleDone={toggleDone}
-      onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
+      onToggleToday={(id) => taskStore.toggleToday(id, todayDate, timeZone)}
       onCycleKind={taskStore.cycleKind}
       onSetDeadline={taskStore.setDeadline}
       onDeadlineOpenChange={handleDeadlineOpenChange}
@@ -1011,11 +1174,11 @@ export function TasksPage() {
   const closeInspector = () => {
     const id = inspector?.id;
     setInspector(null);
-    if (id) requestFocus(id);
+    if (id && !inspector?.returnFocus?.()) requestFocus(id);
   };
 
   return (
-    <section className={`page${view === 'board' ? ' page--board' : ''}${indexLabels.length > 0 ? ' page--indexed' : ''}`}>
+    <section ref={pageRef} className={`page${view === 'board' ? ' page--board' : ''}${indexLabels.length > 0 ? ' page--indexed' : ''}`}>
       <div className="tasks-toolbar">
         <div ref={viewSwitchRef} className="view-switch" role="tablist" aria-label="表示">
           <button
@@ -1141,10 +1304,10 @@ export function TasksPage() {
                   <p className="board-col-title">ラベルなし</p>
                 )}
                 <span className="board-col-count" title="残っているタスク">
-                  {column.rows.filter((row) => row.item.type === 'task' && !row.item.done && !row.item.locked).length}
+                  {column.remaining}
                 </span>
               </div>
-              <ul className="row-list board-col-list">{column.rows.map(renderRow)}</ul>
+              <ul className="row-list board-col-list">{renderRows(column.rows)}</ul>
               <button
                 type="button"
                 className="board-add"
@@ -1157,11 +1320,15 @@ export function TasksPage() {
         </div>
       ) : (
         <>
-          <ul className="row-list">{(view === 'all' && showLife ? activeRows.slice(0, lifeIndex) : activeRows).map(renderRow)}</ul>
+          <ul className="row-list">{renderRows(view === 'all' && showLife ? activeRows.slice(0, lifeIndex) : activeRows)}</ul>
           {view === 'all' && showLife ? <>
             <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null} allRootIds={allRootIds} query={query}
+              collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
+              navigation={{ activeId, onFocus: setActiveId, moveFocus, registerTitle,
+                registerHeading: el => { lifeHeadingRef.current = el; },
+                moveSection: direction => lifeWorldStore.moveSection(visibleRootIds, direction) }}
               onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} />
-            <ul className="row-list">{activeRows.slice(lifeIndex).map(renderRow)}</ul>
+            <ul className="row-list">{renderRows(activeRows.slice(lifeIndex))}</ul>
           </> : null}
         </>
       )}
@@ -1181,6 +1348,7 @@ export function TasksPage() {
       ) : null}
 
       {view === 'today' ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
+        collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
         onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} /> : null}
 
       <div className="tasks-footer">
@@ -1211,7 +1379,7 @@ export function TasksPage() {
             <button
               type="button"
               className="ghost-btn"
-              onClick={() => taskStore.fileCompleted()}
+              onClick={fileCompleted}
               title="完了したタスクを完了済みへ移す（⌥C）"
             >
               完了を整理（⌥C）
@@ -1219,9 +1387,9 @@ export function TasksPage() {
             <button
               type="button"
               className="ghost-btn"
-              onClick={() => taskStore.clearCompleted()}
-              disabled={stats.completed === 0}
-              title="完了したタスクを削除（⌥⇧C）"
+              onClick={clearCompleted}
+              disabled={!canClearCompleted}
+              title="完了したタスクを削除。生活世界の習慣は当日分のみ非表示にし、習慣と達成履歴を残す（⌥⇧C）"
             >
               完了を削除（⌥⇧C）
             </button>
@@ -1253,7 +1421,16 @@ export function TasksPage() {
             </button>
           </div>
           {shelfOpen ? (
-            <ul className="row-list done-shelf-list">{doneRows.map(renderRow)}</ul>
+            <>
+              <ul className="row-list done-shelf-list">{renderRows(doneRows)}</ul>
+              {lifeRows.done.length > 0 ? <LifeWorld todayDate={todayDate} inspectedId={lifeInspector?.id ?? null}
+                collapsedIds={collapsedIds} onToggleCollapse={toggleCollapse} onReveal={revealTask}
+                allRootIds={view === 'all' ? allRootIds : undefined} query={query} filedOnly
+                navigation={view === 'all' ? { activeId, onFocus: setActiveId, moveFocus, registerTitle,
+                  registerHeading: el => { lifeHeadingRef.current = el; },
+                  moveSection: direction => lifeWorldStore.moveSection(visibleRootIds, direction) } : undefined}
+                onInspect={openLifeInspector} onDateChange={() => setLifeInspector(null)} /> : null}
+            </>
           ) : null}
         </section>
       ) : null}
@@ -1367,12 +1544,13 @@ export function TasksPage() {
           items={items}
           initialFocus={inspector?.focus ?? 'title'}
           todayDate={todayDate}
+          timeZone={timeZone}
           onClose={closeInspector}
           onTextChange={taskStore.setText}
           onNoteChange={taskStore.setNote}
           onCompletionCriteriaChange={taskStore.setCompletionCriteria}
           onSetDeadline={taskStore.setDeadline}
-          onToggleToday={(id) => taskStore.toggleToday(id, todayDate)}
+          onToggleToday={(id) => taskStore.toggleToday(id, todayDate, timeZone)}
           onSetLocked={taskStore.setLocked}
           onSetEstimate={taskStore.setEstimate}
           onSetKind={taskStore.setKind}

@@ -2,7 +2,16 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { lifeEntryFields, lifeCheckFields, lifePreferenceFields } from './lifeWorldFields';
 
+import { notificationPreferences, pushSubscription, noticeFields } from './notificationFields';
+
 export default defineSchema({
+    notificationDevices: defineTable({ userId: v.string(), deviceId: v.string(), platform: v.union(v.literal('web'), v.literal('desktop')),
+        preferences: notificationPreferences, subscription: v.optional(pushSubscription), enabledAt: v.number(), nextCheckAt: v.optional(v.number()),
+    }).index('by_user', ['userId']).index('by_user_device', ['userId', 'deviceId']).index('by_next', ['nextCheckAt'])
+      .index('by_endpoint', ['subscription.endpoint']),
+    notificationDeliveries: defineTable({ userId: v.string(), device: v.id('notificationDevices'), ...noticeFields,
+        status: v.union(v.literal('pending'), v.literal('sent'), v.literal('failed')), attempts: v.number(),
+    }).index('by_user', ['userId']).index('by_device_key', ['device', 'key']).index('by_device_status', ['device', 'status', 'expiresAt']).index('by_expiry', ['expiresAt']),
     // Keep only an account ID tombstone so old sessions cannot recreate deleted data.
     accountDeletions: defineTable({
         userId: v.string(),
@@ -53,6 +62,49 @@ export default defineSchema({
     })
         .index("by_user", ["userId"])
         .index("by_user_client", ["userId", "clientId"]),
+
+    /** UI-independent confirmations. IDs locate a request; they never authorize it. */
+    taskActions: defineTable({
+        userId: v.string(), requestId: v.string(), clientId: v.string(),
+        clientName: v.optional(v.string()), kind: v.literal('delete_task'), taskId: v.string(),
+        text: v.string(), count: v.number(), revision: v.string(),
+        status: v.union(v.literal('pending'), v.literal('completed'), v.literal('cancelled'), v.literal('changed'), v.literal('expired')),
+        createdAt: v.number(), expiresAt: v.number(), deleted: v.optional(v.number()),
+    }).index('by_user', ['userId'])
+        .index('by_user_request', ['userId', 'requestId'])
+        .index('by_user_client_task', ['userId', 'clientId', 'taskId']),
+
+    taskWork: defineTable({
+        userId: v.string(), taskId: v.string(), key: v.string(), text: v.string(),
+        assignmentId: v.optional(v.id('grokBotAssignments')),
+        status: v.union(v.literal('waiting'), v.literal('answered'), v.literal('applied'), v.literal('progress'), v.literal('complete')),
+        links: v.optional(v.array(v.string())), appliedQuestionId: v.optional(v.string()), answer: v.optional(v.string()), answeredAt: v.optional(v.number()),
+        claimKey: v.optional(v.string()), claimUntil: v.optional(v.number()),
+        wakeAt: v.optional(v.number()), wakeStatus: v.optional(v.union(v.literal('queued'), v.literal('accepted'), v.literal('failed'))),
+    }).index('by_user', ['userId']).index('by_user_status', ['userId', 'status'])
+        .index('by_user_task', ['userId', 'taskId']).index('by_user_task_key_assignment', ['userId', 'taskId', 'key', 'assignmentId'])
+        .index('by_user_task_assignment', ['userId', 'taskId', 'assignmentId'])
+        .index('by_user_task_status', ['userId', 'taskId', 'status']),
+    grokBotAssignments: defineTable({
+        userId: v.string(), labelId: v.string(), name: v.optional(v.string()), connectorName: v.optional(v.string()), tokenHash: v.string(),
+        webhookUrl: v.optional(v.string()), webhookKey: v.optional(v.string()), connectedAt: v.optional(v.number()),
+        oauthTokenHash: v.optional(v.string()),
+        oauthGrant: v.optional(v.object({
+            codeHash: v.string(), challenge: v.string(), redirectUri: v.string(), expiresAt: v.number(),
+        })),
+    }).index('by_user', ['userId']).index('by_user_label', ['userId', 'labelId'])
+        .index('by_token', ['tokenHash']).index('by_oauth_token', ['oauthTokenHash']),
+    grokBotSkins: defineTable({
+        userId: v.string(), assignmentId: v.id('grokBotAssignments'), image: v.string(),
+    }).index('by_user', ['userId']).index('by_assignment', ['assignmentId']),
+    grokBotSchedules: defineTable({
+        userId: v.string(), enabled: v.boolean(), time: v.string(), savedAt: v.number(),
+        assignmentId: v.optional(v.id('grokBotAssignments')), nextCheckAt: v.optional(v.number()),
+        lastDay: v.optional(v.string()), lastRunAt: v.optional(v.number()),
+        lastStatus: v.optional(v.union(v.literal('queued'), v.literal('accepted'), v.literal('failed'))),
+    }).index('by_user', ['userId']).index('by_user_assignment', ['userId', 'assignmentId']).index('by_next', ['nextCheckAt']),
+    grokBotDelegations: defineTable({ userId: v.string(), taskId: v.string(), labelId: v.string(), assignmentId: v.optional(v.id('grokBotAssignments')) })
+        .index('by_user', ['userId']).index('by_user_task', ['userId', 'taskId']),
 
     userPreferences: defineTable({
         userId: v.string(),

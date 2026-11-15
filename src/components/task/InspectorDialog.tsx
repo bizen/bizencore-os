@@ -1,10 +1,20 @@
-import { useRef, type ReactNode } from 'react';
+import { useContext, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { DesktopInspectorContext } from '../../lib/desktopInspector';
 
 const CONTROLS = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled])';
 
 export function InspectorDialog({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
   const panelRef = useRef<HTMLElement>(null);
+  const desktop = useContext(DesktopInspectorContext);
+  const host = desktop?.host;
+  const setOpen = desktop?.setOpen;
+  useLayoutEffect(() => {
+    if (!host || !setOpen) return;
+    setOpen(true);
+    return () => setOpen(false);
+  }, [host, setOpen]);
   const moveFocus = (current: EventTarget | null, direction: -1 | 1) => {
     const controls = [...(panelRef.current?.querySelectorAll<HTMLElement>(CONTROLS) ?? [])]
       .filter(element => element.getClientRects().length > 0);
@@ -13,7 +23,7 @@ export function InspectorDialog({ label, onClose, children }: { label: string; o
     controls[index < 0 ? (direction === 1 ? 0 : controls.length - 1)
       : (index + direction + controls.length) % controls.length].focus();
   };
-  return (
+  const panel = (
     <aside ref={panelRef} className="inspector" role="dialog" aria-label={label}
       onKeyDown={event => {
         event.stopPropagation();
@@ -38,7 +48,8 @@ export function InspectorDialog({ label, onClose, children }: { label: string; o
           <X size={16} aria-hidden />
         </button>
       </div>
-      {children}
+      {host ? <div className="desktop-inspector-content">{children}</div> : children}
     </aside>
   );
+  return host ? createPortal(panel, host) : panel;
 }

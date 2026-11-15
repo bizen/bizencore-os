@@ -1,0 +1,13 @@
+import { createContext, useContext } from 'react';
+import type { HandoffIntent } from './taskWorkPrompt';
+
+export type PaneAssignment = { taskId: string; intent: HandoffIntent; mode: 'mcp' | 'text'; sentAt?: number };
+export type HandoffPane = { id: string; name: string; busy: boolean; taskIds?: string[] };
+export const DesktopHandoffContext = createContext<{
+  panes: HandoffPane[];
+  mcpAvailable: boolean;
+  agentName?: string;
+  assign: (paneId: string | null, assignment: PaneAssignment) => string | null;
+  openTools?: (mode: 'execute' | 'decompose', taskIds: string[]) => void;
+} | null>(null);
+export const useDesktopHandoff = () => useContext(DesktopHandoffContext);

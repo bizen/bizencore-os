@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ArrowUpRight, Check, ChevronRight, Filter, LoaderCircle, LockKeyhole, Minus, PanelRight, Plus, RefreshCw, Search, Settings2, X } from 'lucide-react';
 import { Brand } from '../src/components/Brand';
 import { HandoffIntentControl } from '../src/components/task/HandoffIntentControl';
+import { firstTaskDepths, treeContinuations } from '../src/lib/taskTreeGuides';
 import { TaskTreeGuides } from '../src/components/task/TaskTreeGuides';
 import { ContextDocument } from '../src/components/task/ContextDocument';
 import type { HandoffIntent } from '../src/lib/taskWorkPrompt';
-import { LABEL_COLORS, childrenOf, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
+import { LABEL_COLORS, childrenOf, isTodayItem, todayCarryDays, type Item, type ItemMap, type Row } from '../src/lib/taskModel';
 import { applyTheme, readTheme, saveTheme, type Theme } from '../src/lib/theme';
 import { boardGroups, filterDue, handoffMessage, pickerRows, taskPath, type DueFilter, type View } from './model';
 
@@ -44,17 +45,19 @@ function Dialog({ name, className, onClose, children }: { name: string; classNam
   </div>;
 }
 
-function TaskLine({ row, hasChildren, selected, today, onSelect, onFocusLabel, focused }: {
-  row: Row; hasChildren: boolean; selected?: string; today: string; onSelect: (id: string) => void;
+function TaskLine({ row, hasChildren, continuations, firstTaskDepth, selected, today, onSelect, onFocusLabel, focused }: {
+  row: Row; hasChildren: boolean; continuations: readonly boolean[]; firstTaskDepth: number; selected?: string; today: string; onSelect: (id: string) => void;
   onFocusLabel: (id: string) => void; focused: string[];
 }) {
   const { item, depth } = row;
+  const isToday = isTodayItem(item, today);
+  const carryDays = todayCarryDays(item, today);
   const label = item.type === 'section';
   const color = item.color ? LABEL_COLORS[item.color] : undefined;
-  return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${item.locked ? ' row--locked' : ''}${depth === 0 ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
-    style={{ '--depth': depth, '--label-color': color } as CSSProperties}>
+  return <li id={`item-${item.id}`} className={`row ${label ? 'row--section' : 'row--task'}${item.locked ? ' row--locked' : ''}${depth <= firstTaskDepth ? ' row--root' : ''}${item.done ? ' is-done' : ''}${selected === item.id ? ' is-active' : ''}`}
+    style={{ '--depth': depth, '--tree-offset': firstTaskDepth, '--label-color': color } as CSSProperties}>
     <div className="row-main">
-      <TaskTreeGuides depth={depth} hasChildren={hasChildren && !label} />
+      <TaskTreeGuides depth={depth} hasChildren={hasChildren && !label} continuations={continuations} firstTaskDepth={firstTaskDepth} />
       <div className="row-mark">
         {label ? <span className="row-section-mark" /> : item.locked ? <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中"><LockKeyhole size={14} aria-hidden /></span> : <span role="img" aria-label={item.done ? (item.completedBy === 'ai' ? 'AIが完了' : '完了') : '未完了'} className={`check${item.done ? ' is-checked' : ''}${item.done && item.completedBy === 'ai' ? ' is-ai-checked' : ''}`}>
           <span className="check-fill" />{item.done ? <Check className="picker-check" size={14} /> : null}
@@ -64,8 +67,8 @@ function TaskLine({ row, hasChildren, selected, today, onSelect, onFocusLabel, f
         {label ? <span className="row-title row-title--section">{item.text || '（無題）'}</span>
           : <button className="row-title picker-title" onClick={() => onSelect(item.id)}>{item.text || '（無題）'}</button>}
         {item.note ? <p className="row-note">{item.note}</p> : null}
-        {!label && (item.completionCriteria || item.dueDate || item.assignedDate === today) ? <div className="row-details">
-          {item.assignedDate === today ? <span>Today</span> : null}
+        {!label && (item.completionCriteria || item.dueDate || isToday) ? <div className="row-details">
+          {isToday ? <span title={carryDays > 0 ? `${carryDays}日持ち越し` : undefined}>Today{carryDays > 0 ? ` +${carryDays}` : ''}</span> : null}
           {item.dueDate ? <time className={item.dueDate < today && !item.done ? 'is-overdue' : ''}>{item.dueDate.slice(5).replace('-', '/')} {item.dueTime}</time> : null}
           {item.completionCriteria ? <span className="row-criteria">完了条件: {item.completionCriteria}</span> : null}
         </div> : null}
@@ -189,7 +192,11 @@ export function Picker({ client }: { client: PickerClient }) {
     } catch (e) { setDetailError(`${e instanceof Error ? e.message : '会話へ送信できませんでした。'} タスクID: ${selected}`); }
     finally { setSending(false); }
   };
-  const taskList = (list: Row[]) => <ul className="row-list">{list.map((row, index) => <TaskLine key={row.item.id} row={row} hasChildren={(list[index + 1]?.depth ?? 0) > row.depth} selected={selected} today={today} onSelect={select} onFocusLabel={toggleFocus} focused={focus} />)}</ul>;
+  const taskList = (list: Row[]) => {
+    const continuations = treeContinuations(list);
+    const taskDepths = firstTaskDepths(list);
+    return <ul className="row-list">{list.map((row, index) => <TaskLine key={row.item.id} row={row} continuations={continuations[index]} firstTaskDepth={taskDepths[index]} hasChildren={(list[index + 1]?.depth ?? 0) > row.depth} selected={selected} today={today} onSelect={select} onFocusLabel={toggleFocus} focused={focus} />)}</ul>;
+  };
   const todayCount = pickerRows(items, 'today', today).active.filter((row) => row.item.type === 'task' && !row.item.done).length;
   const openLink = (url: string) => { void client.open(url).catch(() => {
     if (selected) setDetailError('リンクを開けませんでした。');

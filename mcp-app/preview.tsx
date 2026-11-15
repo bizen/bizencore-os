@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { Picker, type PickerClient } from './Picker';
 import type { Item } from '../src/lib/taskModel';
+import '../src/assets/brand-fonts.css';
 import '../src/index.css';
 import './style.css';
 

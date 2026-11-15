@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { isCloudConfigured } from '../lib/cloudConfig';
+import { CountExport } from '../components/CountExport';
 
 const STORAGE_KEY = 'chrct.count.text';
 const STOCKS_KEY = 'chrct.count.stocks';
@@ -162,7 +163,7 @@ function CountPageCloud() {
       }))
     : localStocks;
 
-  const stocksLoading = useCloud && cloudDocs === undefined;
+  const stocksLoading = !isLoaded || (useCloud && cloudDocs === undefined);
 
   useEffect(() => {
     if (!useCloud) return;
@@ -283,7 +284,7 @@ function CountPageLayout({
     <section className="page">
       <div className="page-header">
         <h1 className="page-title">character count</h1>
-        <div className="page-header-actions">{headerActions}</div>
+        <div className="page-header-actions"><CountExport text={text} stocks={[...stocks, ...loadStocks()]} disabled={stocksLoading} />{headerActions}</div>
       </div>
 
       <div className="stat-row">

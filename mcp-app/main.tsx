@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from '@modelcontextprotocol/ext-apps';
 import { Picker, type Page, type Detail, type PickerClient } from './Picker';
 import { pickerHeight } from './model';
+import '../src/assets/brand-fonts.css';
 import '../src/index.css';
 import './style.css';
 

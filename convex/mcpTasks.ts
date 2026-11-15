@@ -4,10 +4,11 @@ import type { Doc } from "./_generated/dataModel";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { cleanupFiles } from "./fileCleanup";
+import { notificationStateChanged, wakeNotificationChecks } from './notificationChecks';
 import { requireActiveAccount } from './accountAccess';
 import { dateInTimeZone, isDateString, isTimeString } from "../src/lib/taskDates";
 import { coerceStamps, restamp, type Stamps } from "../src/lib/itemMerge";
-import { compareItems, isLabelColor, type Item } from "../src/lib/taskModel";
+import { MAX_DEPTH, compareItems, isLabelColor, isTodayItem, type Item } from "../src/lib/taskModel";
 import {
     MAX_ATTACHMENTS,
     MAX_ATTACHMENT_TEXT,
@@ -45,6 +46,7 @@ interface StoredItem {
     completionCriteria?: string;
     done: boolean;
     locked?: boolean;
+    collapsed?: boolean;
     createdBy?: "user" | "ai";
     createdByClient?: string;
     completedBy?: "user" | "ai";
@@ -86,6 +88,7 @@ function parsePayload(row: SyncRow): StoredItem | null {
             dueTime: typeof raw.dueDate === "string" && isDateString(raw.dueDate) && typeof raw.dueTime === "string" && isTimeString(raw.dueTime) ? raw.dueTime : undefined,
             done: !locked && raw.done === true,
             locked: locked ? true : undefined,
+            collapsed: raw.type !== "section" && raw.collapsed === true ? true : undefined,
             filed: !locked && raw.filed === true ? true : undefined,
             createdBy: raw.createdBy === "user" || raw.createdBy === "ai" ? raw.createdBy : undefined,
             createdByClient: raw.createdBy === "ai" && typeof raw.createdByClient === "string" ? raw.createdByClient : undefined,
@@ -102,13 +105,19 @@ function parsePayload(row: SyncRow): StoredItem | null {
     }
 }
 
-async function loadItems(ctx: QueryCtx | MutationCtx, userId: string): Promise<StoredItem[]> {
+export async function loadItems(ctx: QueryCtx | MutationCtx, userId: string): Promise<StoredItem[]> {
     await requireActiveAccount(ctx, userId);
     const rows = await ctx.db
         .query("syncItems")
         .withIndex("by_user", (q) => q.eq("userId", userId))
         .collect();
     return rows.map(parseRow).filter((item): item is StoredItem => item !== null);
+}
+
+export async function loadItem(ctx: QueryCtx, userId: string, itemId: string) {
+    const row = await ctx.db.query("syncItems")
+        .withIndex("by_user_item", q => q.eq("userId", userId).eq("itemId", itemId)).unique();
+    return row ? parseRow(row) : null;
 }
 
 /** 親が消えている行はルート扱い。クライアント側の effectiveParentId と同じ */
@@ -133,7 +142,7 @@ function nextOrder(items: StoredItem[], parentId: string | null): number {
  * 同期は欄ごとに突き合わせるので（src/lib/itemMerge.ts）、触っていない欄の
  * 時刻まで進めると、ブラウザで同時に直したものを上書きしてしまう。
  */
-async function writeItem(ctx: MutationCtx, userId: string, item: StoredItem): Promise<void> {
+export async function writeItem(ctx: MutationCtx, userId: string, item: StoredItem): Promise<void> {
     await requireActiveAccount(ctx, userId);
     const existing = await ctx.db
         .query("syncItems")
@@ -143,6 +152,7 @@ async function writeItem(ctx: MutationCtx, userId: string, item: StoredItem): Pr
     const prev = existing ? (parsePayload(existing) ?? undefined) : undefined;
     const next = restamp(prev, item, item.updatedAt);
     const payload = JSON.stringify(next);
+    const checkNotifications = notificationStateChanged(existing, { payload, deletedAt: next.deletedAt });
 
     if (existing) {
         await ctx.db.patch(existing._id, {
@@ -151,6 +161,7 @@ async function writeItem(ctx: MutationCtx, userId: string, item: StoredItem): Pr
             payload,
         });
         await cleanupFiles(ctx, userId, item.id, next.attachments, !!next.deletedAt);
+        if (checkNotifications) await wakeNotificationChecks(ctx, userId);
         return;
     }
     await ctx.db.insert("syncItems", {
@@ -160,13 +171,14 @@ async function writeItem(ctx: MutationCtx, userId: string, item: StoredItem): Pr
         deletedAt: next.deletedAt,
         payload,
     });
+    if (checkNotifications) await wakeNotificationChecks(ctx, userId);
 }
 
 /**
  * 同じミリ秒に2つ書くと updatedAt が並び、あとの変更が「古い」と見なされる。
  * 既存の最大値より必ず1つ進めておく。
  */
-function stampAfter(items: StoredItem[]): number {
+export function stampAfter(items: StoredItem[]): number {
     const newest = items.reduce((max, i) => Math.max(max, i.updatedAt), 0);
     return Math.max(Date.now(), newest + 1);
 }
@@ -265,7 +277,7 @@ interface AttachmentView {
     added_by: "human" | "ai";
 }
 
-async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: string | undefined, subtasks: StoredItem[], preview = false): Promise<TaskView> {
+export async function toView(ctx: QueryCtx, userId: string, item: StoredItem, label: string | undefined, subtasks: StoredItem[], preview = false): Promise<TaskView> {
     const view: TaskView = { id: item.id, text: item.text, done: item.done };
     if (item.locked) view.locked = true;
     Object.assign(view, attributionView(item));
@@ -361,6 +373,7 @@ export const list = internalQuery({
         if (query && query.length > 200) throw new ConvexError("query must be at most 200 characters");
         const term = query?.trim().toLocaleLowerCase();
         const todayDate = await resolveToday(ctx, userId, today);
+        const preference = todayDate && includeDone ? await ctx.db.query("userPreferences").withIndex("by_user", (q) => q.eq("userId", userId)).unique() : null;
 
         const items = await loadItems(ctx, userId);
         const byId = new Map(items.map((i) => [i.id, i]));
@@ -388,7 +401,7 @@ export const list = internalQuery({
             const parent = item.parentId ? byId.get(item.parentId) : undefined;
             if (todayDate) {
                 // today はサブタスクにも付くので、深さによらず拾う
-                if (item.assignedDate !== todayDate) continue;
+                if (!isTodayItem(item, todayDate, preference?.timeZone ?? "UTC")) continue;
             } else if (!term && !flat && parent?.type === "task") {
                 // サブタスクは親の下にまとめて出すので、単体では並べない
                 continue;
@@ -661,6 +674,8 @@ export const add = internalMutation({
             parent = found.id;
         }
 
+        if (parent && depthOf(byId, parent) + 1 > MAX_DEPTH) throw new ConvexError("too deep");
+
         const now = stampAfter(items);
         const item: StoredItem = {
             id: crypto.randomUUID(),
@@ -869,22 +884,19 @@ export const attachFile = internalMutation({
     },
 });
 
-/** クライアントの MAX_DEPTH（src/lib/taskModel.ts）と揃える。ラベルが深さ0 */
-const MAX_DEPTH = 4;
-
 function findLabel(items: StoredItem[], name: string): StoredItem | undefined {
     const wanted = name.trim().toLowerCase();
     return items.find((i) => i.type === "section" && i.text.trim().toLowerCase() === wanted);
 }
 
 function depthOf(byId: Map<string, StoredItem>, id: string): number {
-    let depth = 0;
     let current = byId.get(id);
+    let depth = current?.type === "section" ? -1 : 0;
     const seen = new Set<string>();
     while (current?.parentId && byId.has(current.parentId) && !seen.has(current.id)) {
         seen.add(current.id);
         current = byId.get(current.parentId);
-        depth++;
+        if (current?.type === "task") depth++;
     }
     return depth;
 }
@@ -1000,7 +1012,7 @@ export const labelToTask = internalMutation({
 
         const parent = resolveDestination(items, byId, intoLabel, undefined);
         if (parent === source.id) throw new ConvexError("cannot move a label into itself");
-        const depth = parent ? 1 : 0;
+        const depth = parent ? depthOf(byId, parent) + 1 : 0;
         if (depth + subtreeHeight(items, source.id) > MAX_DEPTH) {
             throw new ConvexError("too deep");
         }
@@ -1113,7 +1125,7 @@ export const addMany = internalMutation({
 });
 
 /** 自分と、その下にあるものすべて */
-function subtreeOf(items: StoredItem[], id: string): StoredItem[] {
+export function subtreeOf(items: StoredItem[], id: string): StoredItem[] {
     const result: StoredItem[] = [];
     const stack = [id];
     const seen = new Set<string>();

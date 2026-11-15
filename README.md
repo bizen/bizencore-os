@@ -84,7 +84,7 @@ Windows / Linux では `⌘` を Ctrl、`⌥` を Alt に読み替える。
 - 完了済みの棚は `filed` の印で表す。位置（`parentId` と `order`）は動かさない
 - タスクには作業想定時間（分）と期限（日付、任意で時刻）を持たせられる
 - 何も書かれていない行は、そこから離れた時点で消える（最後の1行は残る）
-- タスクは子タスクを持てる（最大 4 階層）
+- タスクは子タスクを持てる（ラベルを数えず最大4段。既存の深いタスクは保持）。ラベル直下のタスクは1段目の位置に揃える。線はラベルには接続せず、タスク同士を深さに応じて色分けする
 - 並び順は兄弟内の fractional order。同期しても衝突しにくい
 - 削除はトゥームストーン（`deletedAt`）。同期先にも削除が伝わる
 - `today` は割り当てた日付（`assignedDate`）。日付が変われば自動的に外れる
@@ -113,6 +113,8 @@ Windows / Linux では `⌘` を Ctrl、`⌥` を Alt に読み替える。
 
 Claude などの AI から、このタスクリストを読み書きできる。
 
+MCP Appsピッカーのロゴ用Instrument Serifは `src/assets/brand-fonts.css` で正体・斜体を同梱する。Google Fontsの取得ができないホストでもロゴが代替書体にならないよう、単一HTMLにフォントを含め、リソースのCSPでは `data:` を許可する。ライセンスは `src/assets/instrument-serif-OFL.txt` と配信HTMLに含める。
+
 `/mcp` は Vercel Functions（`api/mcp.ts`）。Clerk の OAuth で人を特定し、
 その userId を Convex の `/mcp/*`（`convex/http.ts`）へ渡す。共有の秘密は
 Authorization ヘッダで送る。Convex の関数の引数に載せると実行ログに残るため。
@@ -124,17 +126,26 @@ Authorization ヘッダで送る。Convex の関数の引数に載せると実�
 | `get_task` | 指定IDの最新メモ、添付、完了条件、親の経路、全階層のサブタスクを読む |
 | `attach_context` | 新しい資料またはリンクを添付。同一内容の再送は既存IDを返す。既存資料と同じ題名なら新規作成せず更新を促す |
 | `update_context` | `attachment_id` と最新の `expected_revision` で文章資料を更新。`replace` は置換、`append` は同じ資料への追記。古い版からの更新は拒否 |
+| `start_task` | bizencoreデスクトップ内の通常ターミナル専用。呼び出し元の担当へ追加、または同じタスクの検討／実行を更新する。他環境には公開しない |
 | `work_on_task` | ラベル（全件も可）→未完了タスクの順に選び、最新情報と作業指示を返す。タスク選択では検索・30件ずつのページ移動・ラベル選択への戻りができる。フォーム非対応時は `task_id` で直接指定 |
 | `open_task_picker` | MCP Apps対応クライアントに視覚的なタスクピッカーを開く。ラベル・Today・期限・検索で絞り、選んだIDだけを会話へ戻す。AIは `work_on_task(task_id)` で最新情報を再取得する |
 | `record_task_progress` | 親は未完了のまま、検証済みサブタスクだけチェックし、残作業のサブタスクと途中経過を記録する。同名の直下サブタスクは増やさず、作業状況の資料も同じIDで更新する |
 | `add_task` | 1件足す（メモ / 既存ラベル / 想定時間 / 親タスク指定） |
 | `add_tasks` | まとめて足す。並びは渡した順。サブタスクも一緒に渡せる |
-| `delete_task` | 消す（子も一緒）。MCP クライアントで対象を確認できたときだけ実行 |
+| `delete_task` | 削除待ち操作を作り、フォームまたはWebで本人が確認してから子も一緒に削除。`request_id` 指定時は結果の照会のみ |
 | `complete_task` | 完了にする（子も一緒）。`done: false` で戻す |
 | `update_task` | 文言・メモ・想定時間を直す。`today` に日付（YYYY-MM-DD）で today に入れる / 空文字で外す |
 | `add_label` | ラベルを1つ作る（いちばん下に） |
 | `move_task` | タスクを別のラベル、または別のタスクの下へ移す（子もついてくる） |
 | `label_to_task` | ラベルをタスクに変える。中のタスクはサブタスクになる |
+
+bizencoreデスクトップ内の通常ターミナルでは、ラベル・タスク未選択でも起動できる。
+会話中に対象と「検討／実行」が決まると、AIがデスクトップ専用の `start_task(task_id, intent)` を呼び、既存の担当欄へ追加する。作成・読み取りだけでは追加しない。
+同じターミナルで異なるラベルのタスクを最大3件担当でき、完了済みも外すまでは数える。4件目は既存担当を外すか別ターミナルで始める。担当を外しても実行中の作業は停止しない。
+`start_task` の入力は `task_id`（既存タスクの正確なID）と `intent`（`consult` / `execute`）。成功時は `{"assigned":true,"task_id":"…"}` を返す。同じIDの再送では担当件数を増やさず、意図を更新する。検討から実行への変更はユーザーの実行合意後に通知する。
+上限超過・別ペインで担当中・完了／削除／棚入り済み・終了または失効した接続・反映確認の失敗はMCPの `isError: true` と理由を返す。失敗時は着手を保留して解決し、無断で担当を外したりターミナルを増やしたりしない。応答が途切れた場合は担当表示を確認してから同じIDで再試行する。
+通常のWeb MCPや外部CLIで `start_task` が提供されない場合は、既存の作業手順を継続し、ターミナルへ紐付いたとは報告しない。
+担当は個別に表示・解除・保存される。起動時のラベルはタスク選択の絞り込みであり、タスクの所属や作成先を自動変更しない。専用のオーケストレーション・分解では担当を追加できない。
 
 MCPプロンプト `work_on_task` も公開する。Claude Code CLIでは
 `/mcp__bizencore__work_on_task` から起動できる。Codex CLIでは
@@ -165,7 +176,27 @@ Markdownの見出し・表・箇条書きを閲覧し、本文コピーとmd/txt
 
 `add_task` は既存のラベルにしか入れない。無いラベルを指定したときは
 MCP のエリシテーションで既存ラベルを選んでもらい、確認できなければ書き込まない。
-削除も同様に確認が必要。エリシテーション非対応のクライアントでは、Web アプリから操作する。
+削除は接続方式から独立した確認待ち操作を Convex の `taskActions` に保存する。
+新方式（2026-07-28）でフォーム対応を申告したリクエストには `input_required` を返す。
+フォームを使えない接続には `/task-actions/:requestId` の確認リンクを返す。
+現在の旧方式HTTPはリクエスト単位のステートレス接続なので、初期化時にフォーム対応を
+申告していても確認リンクを使う。CLIかGUIか・アプリ名では判定しない。
+
+確認ページはログインが必要で、依頼した本人だけが削除・キャンセルできる。
+リンクを開いた段階では同期の取り込み・タスクへの書き込みをしない。
+フォームの回答とWebの承認は同じ削除処理を通る。対象と配下のID・更新時刻を確認し、
+変更済み・期限切れ（10分）なら実行しない。削除と実行済み記録は一つのトランザクションで
+確定するので、再送や複数画面からの承認も重複実行しない。
+エージェントはユーザーの操作後に同じ `task_id` と `request_id` で結果を照会できる。
+承認前の自動ポーリングや、会話文・ツール引数で確認を代用することはしない。
+確認記録は24時間後に回収し、アカウント削除時も消去する。
+
+確認リンクの送り先は、本番Vercelでは `https://app.bizencore.com`、プレビューではその
+デプロイのURL。別の構成では `MCP_CONFIRMATION_ORIGIN` に同じConvex・Clerkを使うWebの
+オリジンを指定する（HTTPS、ローカル開発時のみHTTP可）。ローカルAPI未設定時と隔離した
+デスクトップ開発環境はリンクを発行しない。デスクトップの `createDesktopMcp` に
+`confirmationOrigin` を指定すれば同じ開発用Webへ接続できる。本番へ誤誘導しない。
+Electronのプレビュー起動時は `BIZENCORE_PREVIEW_WEB_ORIGIN` でも指定できる。
 
 必要な環境変数（Convex と Vercel の両方）:
 
@@ -186,7 +217,7 @@ Clerk を別のインスタンスへ移すとユーザー ID が変わるので�
 
 ### アカウント削除
 
-設定の最後の「アカウント削除」から、確認欄に「削除」と入力して実行する。
+設定の「アカウント」→「アカウント削除」から、確認欄に「削除」と入力して実行する。
 削除するのは認証中のアカウントのみ。Google アカウントやパートナー本人のデータは対象外。
 共通の端末タスク・保存テキスト・ゲストの生活世界は保持し、対象アカウント専用の端末キャッシュだけを消す。
 
@@ -268,3 +299,29 @@ convex/
   countStocks.ts              count のストック
   schema.ts
 ```
+
+### Task notifications
+
+Notifications are opt-in per signed-in account and installation, in Settings → 通知. The backend uses the saved account timezone. A minute scheduler sends time-specific deadlines within 30 minutes, a morning Today summary (count, carryover count and first actionable title), and synchronized `completedBy: ai` transitions since opt-in. Manual checks and old completions do not notify. The first actionable task title is included in the notification text; opening it shows Today. The morning send window is 30 minutes; date-only deadlines do not notify. Desktop notices require the app to be running; mobile Web Push works in the background after browser permission (iOS/iPadOS: install on the Home Screen).
+
+Before deploying the notification backend, run `node scripts/create-push-keys.mjs` once. It creates an ignored, mode-0600 `.env.web-push.local`. Set `WEB_PUSH_PUBLIC_KEY` and `WEB_PUSH_PRIVATE_KEY` in the target Convex deployment using that file; never copy the private key into Vite variables or client code, and preserve the pair on later releases. The notification UI remains unavailable for Web Push until both server variables are present. Deploy `convex/crons.ts`, `convex/notifications.ts`, `convex/pushNotifications.ts` and the additive schema with the web/desktop clients. Serve `/notifications-sw.js` directly as JavaScript, before the SPA fallback. This worker does not intercept fetches or cache the app. Check real iOS/Android/macOS permission and background delivery after deployment; do not use another user's subscription to test.
+
+## 設定画面
+
+Web・デスクトップ共通の設定は「一般・外観・通知・パートナー・接続・アカウント」に分類しています。広い画面では左にカテゴリ、右に内容を表示し、700px以下ではカテゴリを上部へ移します。検索は設定名・関連キーワードからカテゴリを絞ります。カテゴリ間では編集中の入力を保持し、Escapeで閉じ、開いたボタンへフォーカスを戻します。パートナー招待リンクから開いた場合はパートナーを最初に表示します。
+
+`node --test tests/settingsNavigation.test.mjs` で検索を検証します。`node tests/settings.browser.mjs` は認証・通知・削除APIをサンプルに置き換えたUI回帰テストです。`node tests/settings.fixture.mjs /private/tmp/bizencore-settings-preview` で同じ隔離プレビューを生成できます。実アカウントの変更やネイティブ操作は行いません。
+
+## ラベルにGrok Botを割り当てる
+
+ラベルごとに担当のGrok Botを1体割り当てられます。Botの初期の関わり方は「確認・監査」です。実行を委ねるタスクだけ、詳細で「実行も任せる」を選べます。判断依頼はタスク詳細と「受信箱」に届き、どちらからでも返信できます。作業結果は何をしたか、何が変わったか、何を確認したかを文章で残します。PRや共有ファイルなどはリンクを添えられます。
+
+1. Terminalでラベル横のBotマークを押し、「Grok Botで設定する」を選びます。Grok Botに入力済みの依頼を送信し、Terminalの許可画面でラベルを確認して接続を許可します。別のBotを使う場合は、「別のBotを使う・アプリが開かない」からBot本人の共有リンクを指定します。
+2. Botの返信からWebhook画面を開き、「POST to」と「key」をTerminalに貼り付けて「テストして接続」を押します。Grok BotからのアクセスとRoutineの呼び出し受付を両方確認すると、接続済みになります。
+3. ラベル横のBotマークから「Grok Botの巡回」で毎日の時刻を選んで保存します。アカウントに設定したタイムゾーンで、同じ日に1回呼び出します。「前回」はWebhookの受付状況です。実際の進捗と完了はタスクの「作業結果」に表示します。
+
+Terminalではラベル名とGrokのアイコンで接続を表示します。接続後、Botマークからスキン画像を追加・変更できます。「接続を管理」で接続をやり直すと、接続を再承認するまで巡回と返信の呼び出しが止まります。
+
+朝の通知を有効にしている端末では、要回答の依頼がある日の朝の通知から受信箱を開けます。返信は通知の失敗時も保存されます。受信箱から再通知するか、次の巡回で処理できます。
+
+各コネクタの接続キーは、その担当ラベルの読み取り・起票・判断依頼・結果記録に限定されます。Grok Botでは同一アカウントの複数のBotでコネクタを共有できるため、Routineの指示で使用するコネクタを名前で指定してください。環境変数 `GROK_BOT_PILOT` で設定済みの試験接続は引き続き利用できます。

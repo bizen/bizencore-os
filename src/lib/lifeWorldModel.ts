@@ -5,7 +5,7 @@ export type LifeRepeat = 'once' | 'daily' | 'weekdays';
 export const LIFE_REPEAT_NAMES: Record<LifeRepeat, string> = {
   once: '繰り返さない', daily: '毎日', weekdays: '平日',
 };
-export const LIFE_ENTRY_GROUPS = ['text', 'note', 'schedule', 'order', 'deletion', 'lock', 'hierarchy'] as const;
+export const LIFE_ENTRY_GROUPS = ['text', 'note', 'schedule', 'order', 'deletion', 'lock', 'hierarchy', 'collapse'] as const;
 export type LifeEntryGroup = typeof LIFE_ENTRY_GROUPS[number];
 
 export interface LifeEntry {
@@ -19,6 +19,7 @@ export interface LifeEntry {
   updatedAt: number;
   deletedAt?: number;
   locked?: boolean;
+  collapsed?: boolean;
   stamps?: Partial<Record<LifeEntryGroup, number>>;
 }
 
@@ -27,6 +28,8 @@ export interface LifeCheck {
   date: string;
   done: boolean;
   updatedAt: number;
+  filed?: boolean;
+  cleared?: boolean;
 }
 
 export interface LifeData {
@@ -64,16 +67,37 @@ export function lifeSectionIndex(rows: { depth: number; item: { id: string } }[]
   return index < 0 ? rows.length : index;
 }
 
-export function lifeEntryDone(data: LifeData, entry: LifeEntry, date: string): boolean {
-  if (entry.locked || entry.startDate > date || !isDateString(date)) return false;
-  if (entry.repeat !== 'once') return data.checks[lifeCheckKey(entry.id, date)]?.done === true;
+export function lifeCheckForDate(data: LifeData, entry: LifeEntry, date: string): LifeCheck | undefined {
+  if (entry.startDate > date || !isDateString(date)) return;
+  if (entry.repeat !== 'once') return data.checks[lifeCheckKey(entry.id, date)];
   // Existing date checks remain usable: a single task's latest state carries forward.
   let latest: LifeCheck | undefined;
   for (const check of Object.values(data.checks)) {
     if (check.entryId === entry.id && check.date <= date && (!latest || check.date > latest.date ||
         (check.date === latest.date && check.updatedAt > latest.updatedAt))) latest = check;
   }
-  return latest?.done === true;
+  return latest;
+}
+
+export function lifeEntryDone(data: LifeData, entry: LifeEntry, date: string): boolean {
+  return !entry.locked && lifeCheckForDate(data, entry, date)?.done === true;
+}
+
+export function lifeEntryFiled(data: LifeData, entry: LifeEntry, date: string): boolean {
+  const check = lifeCheckForDate(data, entry, date);
+  return lifeEntryDone(data, entry, date) && !check?.cleared && check?.filed === true;
+}
+
+export function lifeCompletedEntries(data: LifeData, date: string): LifeEntry[] {
+  return lifeEntriesForDate(data, date, true).filter(entry => lifeEntryDone(data, entry, date) &&
+    !lifeCheckForDate(data, entry, date)?.cleared && !lifeCompletionBlocked(data, entry.id));
+}
+
+export function mergeLifeCheck(a: LifeCheck, b: LifeCheck): LifeCheck {
+  if (b.updatedAt !== a.updatedAt) return b.updatedAt > a.updatedAt ? b : a;
+  if (a.done !== b.done) return b.done ? b : a;
+  if (!!a.cleared !== !!b.cleared) return b.cleared ? b : a;
+  return b.done && b.filed && !a.filed ? b : a;
 }
 
 export function emptyLifeData(): LifeData {
@@ -136,7 +160,38 @@ export function lifeCompletionBlocked(data: LifeData, id: string): boolean {
   return lifeSubtreeEntries(data, id).some(entry => entry.locked);
 }
 
-export interface LifeRowData { entry: LifeEntry; depth: number; hasChildren: boolean }
+export interface LifeRowData { entry: LifeEntry; depth: number; hasChildren: boolean; context?: string }
+
+export function partitionLifeRows(data: LifeData, date: string, includeUnscheduled = false, query = '') {
+  const rows = lifeTreeRows(data, date, includeUnscheduled, query);
+  const active: LifeRowData[] = [];
+  const done: LifeRowData[] = [];
+  const ancestors: LifeEntry[] = [];
+  const filed = new Map(rows.map(row => [row.entry.id, lifeEntryFiled(data, row.entry, date)]));
+  const visibleParents = new Set<string>();
+  // A filed container must not hide an unfinished child or a newly added child.
+  for (const row of rows) {
+    ancestors.length = row.depth;
+    if (!filed.get(row.entry.id)) ancestors.forEach(entry => visibleParents.add(entry.id));
+    ancestors.push(row.entry);
+  }
+  ancestors.length = 0;
+  let filedDepth: number | null = null;
+  for (const row of rows) {
+    ancestors.length = row.depth;
+    if (filedDepth !== null && row.depth <= filedDepth) filedDepth = null;
+    if (filedDepth !== null) done.push({ ...row, depth: row.depth - filedDepth });
+    else if (filed.get(row.entry.id) && !visibleParents.has(row.entry.id)) {
+      filedDepth = row.depth;
+      done.push({ ...row, depth: 0, context: ['生活世界', ...ancestors.map(entry => entry.text.trim() || '生活タスク')].join(' › ') });
+    } else active.push(row);
+    ancestors.push(row.entry);
+  }
+  for (const list of [active, done]) list.forEach((row, index) => {
+    row.hasChildren = (list[index + 1]?.depth ?? 0) > row.depth;
+  });
+  return { active, done };
+}
 
 export function lifeTreeRows(data: LifeData, date?: string, includeUnscheduled = false, query = ''): LifeRowData[] {
   if (date !== undefined && !isDateString(date)) return [];
@@ -146,6 +201,9 @@ export function lifeTreeRows(data: LifeData, date?: string, includeUnscheduled =
   const visible = new Set<string>();
   for (const entry of Object.values(data.entries)) {
     if (entry.deletedAt || (date && entry.startDate > date)) continue;
+    // Cleared habits remain stored for their next day and seven-day history.
+    // An unfinished descendant can still include its parent as tree context.
+    if (date && !entry.locked && lifeCheckForDate(data, entry, date)?.cleared) continue;
     if (date && !includeUnscheduled && entry.repeat === 'weekdays' && !entry.locked && (weekday === 0 || weekday === 6)) continue;
     if (needle && !`${entry.text}\n${entry.note}`.toLowerCase().includes(needle)) continue;
     const ancestors: string[] = [];
@@ -206,6 +264,7 @@ function groupValue(entry: LifeEntry, group: LifeEntryGroup): unknown[] {
   if (group === 'schedule') return [entry.startDate, entry.repeat];
   if (group === 'deletion') return [entry.deletedAt];
   if (group === 'lock') return [entry.locked === true];
+  if (group === 'collapse') return [entry.collapsed === true];
   if (group === 'hierarchy') return [entry.parentId ?? null];
   return [entry[group]];
 }
@@ -220,7 +279,7 @@ export function restampLifeEntry(before: LifeEntry | undefined, after: LifeEntry
 }
 
 export function lifeEntryStamp(entry: LifeEntry, group: LifeEntryGroup): number {
-  return entry.stamps?.[group] ?? ((group === 'lock' && !entry.locked) || (group === 'hierarchy' && !entry.parentId) ? 0 : entry.updatedAt);
+  return entry.stamps?.[group] ?? ((group === 'collapse' && !entry.collapsed) || (group === 'lock' && !entry.locked) || (group === 'hierarchy' && !entry.parentId) ? 0 : entry.updatedAt);
 }
 
 function reconcileLifeChecks(entries: Record<string, LifeEntry>, checks: Record<string, LifeCheck>): Record<string, LifeCheck> {
@@ -239,7 +298,10 @@ function reconcileLifeChecks(entries: Record<string, LifeEntry>, checks: Record<
     const lockedAt = blocked.get(check.entryId);
     // A concurrent check cannot complete a locked subtree; retain older habit history.
     if (lockedAt !== undefined && check.done && check.updatedAt >= lockedAt) {
-      result[key] = { ...check, done: false };
+      const pending = { ...check, done: false };
+      delete pending.filed;
+      delete pending.cleared;
+      result[key] = pending;
     }
   }
   return result;
@@ -257,6 +319,7 @@ export function mergeLifeEntry(a: LifeEntry, b: LifeEntry): LifeEntry {
     else if (group === 'deletion') result.deletedAt = chosen.deletedAt;
     else if (group === 'order') result.order = chosen.order;
     else if (group === 'lock') result.locked = chosen.locked ? true : undefined;
+    else if (group === 'collapse') result.collapsed = chosen.collapsed ? true : undefined;
     else if (group === 'hierarchy') result.parentId = chosen.parentId ?? undefined;
     else result[group] = chosen[group];
   }
@@ -288,6 +351,7 @@ export function coerceLifeData(value: unknown): LifeData {
         startDate: e.startDate, repeat: e.repeat as LifeRepeat, order: e.order,
         updatedAt: e.updatedAt, deletedAt: typeof e.deletedAt === 'number' ? e.deletedAt : undefined,
         locked: e.locked === true ? true : undefined,
+        collapsed: e.collapsed === true ? true : undefined,
         parentId: typeof e.parentId === 'string' && e.parentId.length <= 256 && e.parentId !== e.id ? e.parentId : undefined,
         stamps: Object.keys(stamps).length ? stamps : undefined,
       } });
@@ -302,6 +366,8 @@ export function coerceLifeData(value: unknown): LifeData {
           typeof c.updatedAt !== 'number' || !Number.isFinite(c.updatedAt)) continue;
       data.checks[lifeCheckKey(c.entryId, c.date)] = {
         entryId: c.entryId, date: c.date, done: c.done, updatedAt: c.updatedAt,
+        ...(c.done && c.filed === true ? { filed: true } : {}),
+        ...(c.done && c.cleared === true ? { cleared: true } : {}),
       };
     }
   }
@@ -321,33 +387,27 @@ export function coerceLifeData(value: unknown): LifeData {
 
 /** Each day's check merges independently, so a new day never resets yesterday. */
 export function mergeLifeData(a: LifeData, b: LifeData): LifeData {
-  const merge = <T extends { updatedAt: number }>(left: Record<string, T>, right: Record<string, T>) => {
-    const result = { ...left };
-    for (const [id, incoming] of Object.entries(right)) {
-      const current = Object.hasOwn(result, id) ? result[id] : undefined;
-      if (!current || incoming.updatedAt > current.updatedAt ||
-          (incoming.updatedAt === current.updatedAt && JSON.stringify(incoming) > JSON.stringify(current))) {
-        Object.defineProperty(result, id, { value: incoming, writable: true, enumerable: true, configurable: true });
-      }
-    }
-    return result;
-  };
+  const checks = { ...a.checks };
+  for (const [key, check] of Object.entries(b.checks)) checks[key] = checks[key] ? mergeLifeCheck(checks[key], check) : check;
   const entries = { ...a.entries };
   for (const [id, incoming] of Object.entries(b.entries)) {
     Object.defineProperty(entries, id, { value: Object.hasOwn(entries, id) ? mergeLifeEntry(entries[id], incoming) : incoming,
       enumerable: true, configurable: true, writable: true });
   }
   const preferences = mergeLifePreferences(a.preferences, b.preferences);
-  return { version: 1, entries, checks: reconcileLifeChecks(entries, merge(a.checks, b.checks)), ...(preferences ? { preferences } : {}) };
+  return { version: 1, entries, checks: reconcileLifeChecks(entries, checks), ...(preferences ? { preferences } : {}) };
 }
 
 export function lifePendingChanges(local: LifeData, remote: LifeData) {
+  const preferenceKey = (preferences: LifePreferences | undefined) => preferences && JSON.stringify([
+    preferences.showInAll, preferences.beforeId, preferences.updatedAt, preferences.visibilityStamp, preferences.placementStamp,
+  ]);
   const entryKey = (entry: LifeEntry) => JSON.stringify([entry.id, entry.text, entry.note, entry.startDate,
-    entry.repeat, entry.order, entry.updatedAt, entry.deletedAt, entry.locked === true, entry.parentId ?? null,
+    entry.repeat, entry.order, entry.updatedAt, entry.deletedAt, entry.locked === true, entry.collapsed === true, entry.parentId ?? null,
     LIFE_ENTRY_GROUPS.map(group => lifeEntryStamp(entry, group))]);
-  const checkKey = (check: LifeCheck) => JSON.stringify([check.entryId, check.date, check.done, check.updatedAt]);
+  const checkKey = (check: LifeCheck) => JSON.stringify([check.entryId, check.date, check.done, check.updatedAt, check.filed === true, check.cleared === true]);
   return {
-    ...(local.preferences && JSON.stringify(local.preferences) !== JSON.stringify(remote.preferences) ? { preferences: local.preferences } : {}),
+    ...(local.preferences && preferenceKey(local.preferences) !== preferenceKey(remote.preferences) ? { preferences: local.preferences } : {}),
     entries: Object.values(local.entries).filter(entry => !Object.hasOwn(remote.entries, entry.id) || entryKey(entry) !== entryKey(remote.entries[entry.id])),
     checks: Object.values(local.checks).filter(check => {
       const key = lifeCheckKey(check.entryId, check.date);

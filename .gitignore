@@ -10,6 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-mcp
+dist-electron
+.electron-build
+out-electron
+dist-electron-production
+.electron-build-production
 dist-ssr
 *.local
 

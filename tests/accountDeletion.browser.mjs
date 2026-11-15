@@ -63,6 +63,7 @@ try {
     contentType: 'text/html', body: `<style>${css}</style><div id="root"></div><script>${outputFiles[0].text.replaceAll('</script', '<\\/script')}</script>`,
   }) : route.abort());
   await page.goto('https://deletion.test/');
+  await page.getByRole('button', { name: 'アカウント', exact: true }).click();
   const section = page.locator('[aria-labelledby="settings-account-delete-title"]');
   await section.waitFor();
   assert.equal(await page.locator('.settings-section').last().getAttribute('aria-labelledby'), 'settings-account-delete-title');
@@ -130,6 +131,7 @@ try {
     localStorage.removeItem('bizencore.account-deletion.alice');
   });
   await page.reload();
+  await page.getByRole('button', { name: 'アカウント', exact: true }).click();
   await open.click(); await input.fill('削除'); await submit.click();
   await page.evaluate(() => globalThis.fixturePatch({ auth: { isLoaded: true, isSignedIn: true, userId: 'bob' }, status: { userId: 'bob', phase: 'active', available: true } }));
   assert.equal(await input.count(), 0, 'account switching resets confirmation');

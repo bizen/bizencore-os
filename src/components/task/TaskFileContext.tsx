@@ -3,7 +3,7 @@ import { useQuery } from 'convex/react';
 import { FileUp, Paperclip } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../../../convex/_generated/api';
-import { MAX_ATTACHMENTS, MAX_FILE_SIZE } from '../../lib/attachments';
+import { uploadTaskFiles } from '../../lib/taskFileUpload';
 import { convexUrl } from '../../lib/cloudConfig';
 
 interface FileInputProps {
@@ -30,53 +30,16 @@ export function TaskFileInput({ taskId, disabled, attachmentIds, onUploaded }: F
     if (batchRef.current || disabled || !isSignedIn || files.length === 0) return;
     const batch = Symbol();
     batchRef.current = batch;
-    const failures: string[] = [];
-    const uploadedIds = new Set<string>();
     const isCurrent = () => batchRef.current === batch && latest.current.taskId === taskId &&
-      latest.current.userId === userId && latest.current.isSignedIn;
+      latest.current.userId === userId && latest.current.isSignedIn === true;
     setErrors([]);
     setProgress({ current: 1, total: files.length });
     try {
-      for (const [index, file] of files.entries()) {
-        if (!isCurrent()) break;
-        // Union IDs so early sync delivery neither double-counts nor hides a pending upload.
-        if (new Set([...latest.current.attachmentIds, ...uploadedIds]).size >= MAX_ATTACHMENTS) {
-          failures.push(`残り${files.length - index}件は添付できませんでした。コンテキストは合計${MAX_ATTACHMENTS}件までです。`);
-          setErrors([...failures]);
-          break;
-        }
-        setProgress({ current: index + 1, total: files.length });
-        try {
-          if (file.size === 0) throw new Error('空のファイルは添付できません');
-          if (file.size > MAX_FILE_SIZE) throw new Error('ファイルは10 MB以下にしてください');
-          const token = await getToken(sessionClaims?.aud === 'convex' ? undefined : { template: 'convex' });
-          if (!isCurrent()) break;
-          if (!token || !convexUrl) throw new Error('サインインを確認してください');
-          const response = await fetch(`${convexUrl.replace(/\.convex\.cloud$/, '.convex.site')}/files/upload`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': file.type || 'application/octet-stream',
-              'X-Task-Id': taskId,
-              'X-File-Name': encodeURIComponent(file.name),
-            },
-            body: file,
-          });
-          const data = await response.json() as { id?: unknown; storageId?: unknown; error?: string };
-          if (!isCurrent()) break;
-          if (!response.ok) throw new Error(data.error || 'アップロードできませんでした');
-          if (typeof data.id !== 'string' || typeof data.storageId !== 'string') throw new Error('アップロードできませんでした');
-          uploadedIds.add(data.id);
-          if (!latest.current.onUploaded({ id: data.id, storageId: data.storageId, title: file.name, mimeType: file.type, size: file.size })) {
-            failures.push(`${file.name}：アップロード済みですが、この端末に反映できませんでした。再読み込みして確認してください。`);
-            setErrors([...failures]);
-          }
-        } catch (cause) {
-          if (!isCurrent()) break;
-          failures.push(`${file.name}：${cause instanceof Error ? cause.message : 'アップロードできませんでした'}`);
-          setErrors([...failures]);
-        }
-      }
+      await uploadTaskFiles({ taskId, files, convexUrl: convexUrl ?? '', isCurrent,
+        getToken: () => getToken(sessionClaims?.aud === 'convex' ? undefined : { template: 'convex' }),
+        attachmentIds: () => latest.current.attachmentIds,
+        onUploaded: input => latest.current.onUploaded(input),
+        onProgress: (current, total) => setProgress({ current, total }), onErrors: setErrors });
     } finally {
       if (batchRef.current === batch) {
         batchRef.current = null;

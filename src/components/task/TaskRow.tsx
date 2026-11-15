@@ -1,12 +1,15 @@
-import { LockKeyhole, Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
+import { Minus, PanelRight, Paperclip, Plus, Trash2 } from 'lucide-react';
 import { fitTextarea, useAutoGrow } from '../../lib/useAutoGrow';
-import { LABEL_COLORS, type Item, type LabelColor } from '../../lib/taskModel';
+import { LABEL_COLORS, isTodayItem, todayCarryDays, type Item, type LabelColor } from '../../lib/taskModel';
 import { liveAttachments } from '../../lib/attachments';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
 import { QUEST_IMG, QUEST_LABEL } from '../../lib/quests';
 import { DeadlineField } from './DeadlineField';
 import { LabelColorPicker } from './LabelColorPicker';
+import { LabelGrokBotMark } from './LabelGrokBot';
 import { TaskTreeGuides } from './TaskTreeGuides';
+import { TaskLockMark } from './TaskLockMark';
+import { useTaskContextDrop } from '../../lib/taskContextDropReact';
 
 /**
  * チェックマークは線を描き込みたいので、アイコンフォントではなく path を直接持つ。
@@ -51,9 +54,15 @@ export interface TaskRowProps {
   item: Item;
   depth: number;
   hasChildren?: boolean;
+  guideContinuations?: readonly boolean[];
+  firstTaskDepth?: number;
+  collapsed?: boolean;
+  hiddenCount?: number;
+  onToggleCollapse?: (id: string) => void;
   /** 親から離れて棚に置かれたサブタスクに添える親の名前 */
   context?: string;
   todayDate: string;
+  timeZone?: string | null;
   todayTime: string;
   todayNumber?: number;
   isActive: boolean;
@@ -90,6 +99,11 @@ export function TaskRow(props: TaskRowProps) {
     item,
     depth,
     hasChildren = false,
+    guideContinuations,
+    firstTaskDepth = 0,
+    collapsed = false,
+    hiddenCount = 0,
+    onToggleCollapse,
     context,
     todayDate,
     todayTime,
@@ -124,9 +138,11 @@ export function TaskRow(props: TaskRowProps) {
   const titleRef = useAutoGrow(item.text);
   const noteRef = useAutoGrow(item.note ?? '');
   const isSection = item.type === 'section';
-  const isToday = item.assignedDate === todayDate;
+  const isToday = isTodayItem(item, todayDate, props.timeZone);
+  const carryDays = todayCarryDays(item, todayDate);
   const isOverdue = !item.done && !!item.dueDate && (item.dueDate < todayDate || (item.dueDate === todayDate && !!item.dueTime && item.dueTime < todayTime));
   const contextCount = liveAttachments(item.attachments).length;
+  const contextDrop = useTaskContextDrop(item.id);
 
   const attachTitle = (el: HTMLTextAreaElement | null) => {
     titleRef.current = el;
@@ -145,31 +161,33 @@ export function TaskRow(props: TaskRowProps) {
         'row',
         isSection ? 'row--section' : 'row--task',
         item.locked ? 'row--locked' : '',
-        depth === 0 ? 'row--root' : '',
+        depth <= firstTaskDepth ? 'row--root' : '',
         item.done ? 'is-done' : '',
         isActive ? 'is-active' : '',
+        !isSection && contextDrop.active ? 'is-context-drop-target' : '',
         burstIndex === undefined ? '' : 'is-bursting',
       ]
         .filter(Boolean)
         .join(' ')}
       data-row-id={item.id}
+      {...(!isSection ? contextDrop.handlers : undefined)}
       style={
         {
           '--depth': depth,
+          '--tree-offset': firstTaskDepth,
           '--burst-i': Math.min(burstIndex ?? 0, 6),
           ...(item.color ? { '--label-color': LABEL_COLORS[item.color] } : null),
         } as React.CSSProperties
       }
     >
       <div className="row-main">
-        <TaskTreeGuides depth={depth} hasChildren={hasChildren && !isSection} />
+        <TaskTreeGuides depth={depth} hasChildren={hasChildren && !isSection} continuations={guideContinuations} firstTaskDepth={firstTaskDepth} />
         <div className="row-mark">
           {isSection ? (
             <span className="row-section-mark" aria-hidden />
           ) : item.locked ? (
-            <span className="row-lock-mark" role="img" aria-label="ロック中・完了不可" title="ロック中・詳細から解除できます">
-              <LockKeyhole size={14} aria-hidden />
-            </span>
+            <TaskLockMark text={item.text} hasChildren={hasChildren} collapsed={collapsed} hiddenCount={hiddenCount}
+              onToggle={onToggleCollapse ? () => onToggleCollapse(item.id) : undefined} />
           ) : (
             <CheckBox
               done={item.done}
@@ -223,6 +241,7 @@ export function TaskRow(props: TaskRowProps) {
         </div>
 
         <div className={`row-meta${isSection ? ' row-meta--section' : ''}`}>
+          {isSection ? <LabelGrokBotMark labelId={item.id} labelName={item.text} onFocus={() => onFocusRow(item.id)} /> : null}
           {isSection ? (
             <LabelColorPicker
               color={item.color}
@@ -277,10 +296,10 @@ export function TaskRow(props: TaskRowProps) {
                 onFocus={() => onFocusRow(item.id)}
                 tabIndex={-1}
                 aria-pressed={isToday}
-                aria-label={isToday ? 'today から外す' : 'today に入れる'}
-                title="⌥T"
+                aria-label={isToday ? `today から外す${carryDays > 0 ? `（${carryDays}日持ち越し）` : ''}` : 'today に入れる'}
+                title={carryDays > 0 ? `Todayから${carryDays}日持ち越し（⌥T）` : '⌥T'}
               >
-                today
+                today{carryDays > 0 ? <span className="today-carry">+{carryDays}</span> : null}
               </button>
 
               <DeadlineField

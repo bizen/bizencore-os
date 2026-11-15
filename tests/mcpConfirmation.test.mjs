@@ -21,7 +21,7 @@ const { deleteWithConfirmation, withResolvedLabel, workOnTask, workOnTaskPrompt 
 function context(inputResponses, state) {
   return {
     http: { authInfo: { clientId: 'unknown', extra: { userId: 'user-1' } } },
-    mcpReq: { inputResponses, requestState: () => state },
+    mcpReq: { inputResponses, requestState: () => state, envelope: { 'io.modelcontextprotocol/clientCapabilities': { elicitation: { form: {} } } } },
   };
 }
 
@@ -40,35 +40,35 @@ function mockConvex(routes) {
   return { calls, restore: () => { globalThis.fetch = original; } };
 }
 
-test('delete_task does not write until the exact task is confirmed', async () => {
+test('delete_task persists a pending action and submits only a signed matching form decision', async () => {
+  const pending = { request_id: 'request-1', task_id: 'task-1', text: 'Parent', count: 3, status: 'pending', expires_at: Date.now() + 600000 };
   const mock = mockConvex({
-    'preview-delete': { id: 'task-1', text: 'Parent', count: 3 },
-    delete: { id: 'task-1', text: 'Parent', deleted: 3 },
+    'prepare-task-deletion': pending,
+    'respond-task-action': body => ({ ...pending, status: body.decision === 'approve' ? 'completed' : 'cancelled', ...(body.decision === 'approve' ? { deleted: 3 } : {}) }),
   });
   try {
     const prompt = await deleteWithConfirmation(context(), 'task-1');
     assert.equal(prompt.resultType, 'input_required');
     assert.match(prompt.inputRequests.confirm.params.message, /サブタスク 2 件/);
-    assert.deepEqual(mock.calls.map((call) => call.path), ['preview-delete']);
-
-    const declined = await deleteWithConfirmation(context({ confirm: { action: 'decline' } }, stateOf(prompt)), 'task-1');
-    assert.match(declined.content[0].text, /cancelled/);
-    assert.deepEqual(mock.calls.map((call) => call.path), ['preview-delete', 'preview-delete']);
-
+    assert.deepEqual(mock.calls.map(call => call.path), ['prepare-task-deletion']);
+    assert.equal(stateOf(prompt).requestId, 'request-1');
     const wrongTask = await deleteWithConfirmation(context({ confirm: { action: 'accept', content: { confirm: true } } }, stateOf(prompt)), 'task-2');
     assert.equal(wrongTask.isError, true);
-    assert.equal(mock.calls.filter((call) => call.path === 'delete').length, 0);
-
+    assert.equal(mock.calls.length, 1);
+    const wrongRequest = await deleteWithConfirmation(context({ confirm: { action: 'accept', content: { confirm: true } } }, stateOf(prompt)), 'task-1', 'another-request');
+    assert.equal(wrongRequest.isError, true);
+    assert.equal(mock.calls.length, 1);
+    for (const response of [{ action: 'decline' }, { action: 'cancel' }, { action: 'accept', content: { confirm: false } }]) {
+      const result = await deleteWithConfirmation(context({ confirm: response }, stateOf(prompt)), 'task-1');
+      assert.equal(JSON.parse(result.content[0].text).status, 'cancelled');
+      assert.equal(mock.calls.at(-1).body.decision, 'cancel');
+    }
     const confirmed = await deleteWithConfirmation(context({ confirm: { action: 'accept', content: { confirm: true } } }, stateOf(prompt)), 'task-1');
     assert.equal(JSON.parse(confirmed.content[0].text).deleted, 3);
-    assert.equal(mock.calls.filter((call) => call.path === 'delete').length, 1);
     assert.deepEqual(mock.calls.at(-1).body, {
-      taskId: 'task-1', expectedText: 'Parent', expectedCount: 3,
-      userId: 'user-1', clientId: 'unknown',
+      taskId: 'task-1', requestId: 'request-1', decision: 'approve', userId: 'user-1', clientId: 'unknown',
     });
-  } finally {
-    mock.restore();
-  }
+  } finally { mock.restore(); }
 });
 
 test('unknown labels require an explicit choice before a write', async () => {

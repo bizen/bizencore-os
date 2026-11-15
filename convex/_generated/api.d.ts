@@ -13,11 +13,17 @@ import type * as accountDeletion from "../accountDeletion.js";
 import type * as countStocks from "../countStocks.js";
 import type * as fileCleanup from "../fileCleanup.js";
 import type * as http from "../http.js";
+import type * as lib_desktopMcp from "../lib/desktopMcp.js";
 import type * as lifeWorldFields from "../lifeWorldFields.js";
 import type * as mcpTasks from "../mcpTasks.js";
 import type * as migrations from "../migrations.js";
 import type * as partners from "../partners.js";
+import type * as notifications from "../notifications.js";
+import type * as pushNotifications from "../pushNotifications.js";
+import type * as notificationFields from "../notificationFields.js";
 import type * as sync from "../sync.js";
+import type * as taskActions from "../taskActions.js";
+import type * as grokBot from "../grokBot.js";
 
 import type {
   ApiFromModules,
@@ -31,11 +37,17 @@ declare const fullApi: ApiFromModules<{
   countStocks: typeof countStocks;
   fileCleanup: typeof fileCleanup;
   http: typeof http;
+  "lib/desktopMcp": typeof lib_desktopMcp;
   lifeWorldFields: typeof lifeWorldFields;
   mcpTasks: typeof mcpTasks;
   migrations: typeof migrations;
   partners: typeof partners;
+  notifications: typeof notifications;
+  pushNotifications: typeof pushNotifications;
+  notificationFields: typeof notificationFields;
   sync: typeof sync;
+  taskActions: typeof taskActions;
+  grokBot: typeof grokBot;
 }>;
 
 /**

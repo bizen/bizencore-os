@@ -1,0 +1,110 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { build } from 'esbuild';
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
+const { outputFiles } = await build({
+  stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
+    import { useState } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { MascotPortrait } from './src/components/MascotPortrait';
+    function Fixture() {
+      const [active, setActive] = useState(true); globalThis.setPortraitActive = setActive;
+      return <div className="mascot-container mascot-container--handoff"><button className="mascot-button"><MascotPortrait active={active} /></button></div>;
+    }
+    createRoot(document.getElementById('root')).render(<Fixture />);
+  ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', loader: { '.png': 'dataurl' },
+  define: { 'process.env.NODE_ENV': '"production"' },
+});
+const css = await readFile('src/index.css', 'utf8');
+const appearance = process.env.MASCOT_STYLE === 'flat' ? 'flat' : 'matte';
+const browser = await chromium.launch();
+try {
+  const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(now);
+  await page.addInitScript(appearance => { localStorage.setItem('bizencore.mascotStyle', appearance); }, appearance);
+  await page.addInitScript(() => {
+    Math.random = () => 0;
+    globalThis.blinks = [];
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (frames, options) {
+      if (this.classList.contains('mascot-eye')) globalThis.blinks.push({ frames, options });
+      return animate.call(this, frames, options);
+    };
+  });
+  await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: `<style>${css}</style><div id="root"></div><script>${outputFiles[0].text}</script>` }));
+  await page.goto('https://portrait.test/');
+  const portrait = page.locator('.mascot-portrait'); await portrait.waitFor();
+  await page.waitForFunction(() => [...document.images].every(img => img.complete));
+  await page.locator('.mascot-face').waitFor({ state: 'visible' });
+  assert.equal(await portrait.getAttribute('data-style'), appearance);
+  assert.equal(await page.locator('.mascot').getAttribute('src'), `data:image/png;base64,${(await readFile(appearance === 'matte' ? 'src/assets/cirno-matte-full.png' : 'src/assets/cirno.png')).toString('base64')}`, 'the animated mascot uses the selected artwork');
+  assert.equal(await page.locator('.mascot').evaluate(el => getComputedStyle(el).animationName), 'none', 'the source image stays aligned with the face overlay');
+  const center = await portrait.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  const state = () => portrait.evaluate(el => ({ rotate: parseFloat(el.style.rotate), gaze: el.querySelector('.mascot-gaze').style.transform }));
+  await page.mouse.move(center.x + 50, center.y - 20);
+  let current = await state(); assert.ok(current.rotate > 3.5 && current.rotate < 9); assert.notEqual(current.gaze, 'translate(0px, 0px)');
+  await page.clock.runFor(600);
+  await page.screenshot({ path: '/private/tmp/bizencore-cirno-looking.png' });
+  await page.mouse.move(center.x + 220, center.y);
+  assert.ok((await state()).rotate > 0, 'tracking reaches beyond the former 160px radius');
+  await page.mouse.move(650, 50);
+  current = await state(); assert.equal(current.rotate, 0); assert.equal(current.gaze, 'translate(0px, 0px)');
+  assert.equal(await portrait.evaluate(el => getComputedStyle(el).animationName), 'mascot-idle', 'gentle idle motion resumes away from cursor');
+  await page.clock.runFor(1900);
+  assert.equal(await page.evaluate(() => blinks.length), 2, 'both eyes blink at the 2.5 second lower bound');
+  const blink = await page.evaluate(() => blinks[0]); assert.equal(blink.options.duration, 160); assert.equal(blink.frames[1].scale, '1 0.08');
+  await page.evaluate(() => document.querySelectorAll('.mascot-eye').forEach(eye => eye.getAnimations().forEach(animation => { animation.pause(); animation.currentTime = 72; })));
+  await page.addStyleTag({ content: '.mascot { width: 324px; }' });
+  await page.screenshot({ path: '/private/tmp/bizencore-cirno-blink.png' });
+  await page.clock.runFor(280);
+  assert.equal(await page.evaluate(() => blinks.length), 4, 'occasional double blink follows after a short open-eye pause');
+  const setMotion = async value => {
+    await page.evaluate(() => { globalThis.motionChanged = new Promise(resolve => matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => resolve(true), { once: true })); });
+    await page.emulateMedia({ reducedMotion: value });
+    await page.evaluate(() => motionChanged);
+  };
+  await setMotion('reduce');
+  assert.equal(await portrait.evaluate(el => getComputedStyle(el).animationName), 'none', 'reduced motion also disables idle movement');
+  const before = await page.evaluate(() => blinks.length);
+  await page.clock.runFor(10_000);
+  await page.mouse.move(center.x + 40, center.y);
+  assert.equal((await state()).rotate, 0); assert.equal(await page.evaluate(() => blinks.length), before, 'reduced motion stops blinking and tracking');
+  assert.equal(await page.locator('.mascot-eye').evaluateAll(eyes => eyes.reduce((n, eye) => n + eye.getAnimations().length, 0)), 0);
+  await setMotion('no-preference');
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.clock.runFor(10_000);
+  assert.equal(await page.evaluate(() => blinks.length), before, 'hidden windows stop timers');
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.clock.runFor(2501); assert.equal(await page.evaluate(() => blinks.length), before + 2, 'visibility restores blinking');
+  await page.evaluate(() => setPortraitActive(false));
+  await page.waitForFunction(() => document.querySelector('.mascot-portrait').dataset.active === 'false');
+  const paused = await page.evaluate(() => blinks.length); await page.clock.runFor(10_000);
+  assert.equal(await page.evaluate(() => blinks.length), paused, 'dragging/menu pause stops motion');
+  await page.evaluate(() => { Math.random = () => 1; setPortraitActive(true); });
+  await page.waitForFunction(() => document.querySelector('.mascot-portrait').dataset.active === 'true');
+  const longInterval = await page.evaluate(() => blinks.length);
+  await page.clock.runFor(4999); assert.equal(await page.evaluate(() => blinks.length), longInterval, 'upper interval does not blink early');
+  await page.clock.runFor(1); assert.equal(await page.evaluate(() => blinks.length), longInterval + 2);
+  await page.clock.runFor(280); assert.equal(await page.evaluate(() => blinks.length), longInterval + 2, 'ordinary blinks do not always repeat');
+  const largeCenter = await portrait.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.evaluate(({ x, y }) => document.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'touch', clientX: x + 40, clientY: y })), largeCenter);
+  assert.equal((await state()).rotate, 0, 'touch does not create a lingering gaze');
+  await page.clock.runFor(600);
+  await page.screenshot({ path: '/private/tmp/bizencore-cirno-idle.png' });
+  await setMotion('reduce');
+  await page.addStyleTag({ content: '.mascot { width: 108px; }' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const theme of ['black', 'white', 'original']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    await page.screenshot({ path: `/private/tmp/bizencore-matte-mascot-${theme}.png` });
+  }
+  await page.locator('.mascot-face image').evaluate(el => el.setAttribute('href', 'data:image/png;base64,invalid'));
+  await page.locator('.mascot-face').waitFor({ state: 'hidden' });
+  assert.equal((await state()).rotate, 0);
+  assert.ok(await page.locator('.mascot').evaluate(el => el.complete && el.naturalWidth > 0), 'failed animation asset leaves the original artwork visible');
+  assert.deepEqual(errors, []);
+  console.log('Passed: wider and stronger gaze/tilt and reset, irregular blink interval, gentle idle motion, reduced motion, hidden-window pause, drag/menu pause, touch and error-free rendering.');
+} finally { await browser.close(); }

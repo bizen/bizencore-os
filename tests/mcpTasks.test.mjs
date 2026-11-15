@@ -9,7 +9,7 @@ const compiled = await build({
   format: 'esm',
   write: false,
 });
-const { add, addMany, attach, updateContext, complete, get, list, taskView, previewDelete, recordProgress, remove } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { add, addMany, attach, updateContext, complete, get, list, taskView, previewDelete, recordProgress, remove, addLabel, move, labelToTask } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
 test('MCP documents are readable and replace/append without accumulating attachments', async () => {
   const { ctx, rows } = memoryContext();
@@ -95,7 +95,7 @@ test('MCP exposes lock state and rejects direct or ancestor completion before an
 });
 
 function memoryContext() {
-  const rows = { accountDeletions: [], syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [] };
+  const rows = { accountDeletions: [], syncItems: [], mcpIdempotency: [], userPreferences: [], fileOwners: [], notificationDevices: [] };
   let nextId = 0;
   const db = {
     query(table) {
@@ -229,6 +229,16 @@ test('list_tasks today: true uses the saved account time zone', async () => {
   assert.equal(result.today_date, today);
   assert.equal(result.tasks.length, 1);
   assert.equal(result.tasks[0].text, 'Due today');
+});
+
+test('list_tasks Today includes unfinished carryovers but excludes completed carryovers', async () => {
+  const { ctx, rows } = memoryContext();
+  await add._handler(ctx, { userId: 'user-1', text: 'Carried' });
+  const item = JSON.parse(rows.syncItems[0].payload);
+  rows.syncItems[0].payload = JSON.stringify({ ...item, assignedDate: '2026-10-21' });
+  assert.equal((await list._handler(ctx, { userId: 'user-1', today: '2026-10-23' })).tasks.length, 1);
+  rows.syncItems[0].payload = JSON.stringify({ ...item, assignedDate: '2026-10-21', done: true, stamps: { done: Date.parse('2026-10-22T12:00:00Z') } });
+  assert.equal((await list._handler(ctx, { userId: 'user-1', today: '2026-10-23', includeDone: true })).tasks.length, 0);
 });
 
 test('list_tasks searches subtasks and returns bounded pages', async () => {
@@ -413,4 +423,27 @@ test('record_task_progress rejects foreign children and premature parent-subtask
     userId: 'user-1', taskId: parent.id, completedSubtaskIds: [child.id, grandchild.id], remainingSubtasks: [],
   });
   assert.equal((await get._handler(ctx, { userId: 'user-1', taskId: parent.id })).task.done, false);
+});
+
+test('MCP counts four task levels independently of labels across add, plan, progress and moves', async () => {
+  for (const labeled of [false, true]) {
+    const { ctx, rows } = memoryContext();
+    if (labeled) await addLabel._handler(ctx, { userId: 'user-1', name: '分類' });
+    await addLabel._handler(ctx, { userId: 'user-1', name: '移動先' });
+    const root = await add._handler(ctx, { userId: 'user-1', text: '1', ...(labeled ? { label: '分類' } : {}) });
+    let parent = root.id;
+    for (let level = 2; level <= 4; level++) parent = (await add._handler(ctx, { userId: 'user-1', text: String(level), parentId: parent })).id;
+    const before = JSON.stringify(rows.syncItems);
+    await assert.rejects(add._handler(ctx, { userId: 'user-1', text: '5', parentId: parent }), /too deep/);
+    await assert.rejects(addMany._handler(ctx, { userId: 'user-1', parentId: parent, tasks: [{ text: '5' }] }), /too deep/);
+    await assert.rejects(recordProgress._handler(ctx, { userId: 'user-1', taskId: parent, completedSubtaskIds: [], remainingSubtasks: [{ text: '5' }] }), /maximum depth/);
+    assert.equal(JSON.stringify(rows.syncItems), before);
+    if (labeled) await assert.rejects(labelToTask._handler(ctx, { userId: 'user-1', label: '分類' }), /too deep/);
+    await move._handler(ctx, { userId: 'user-1', taskId: root.id, label: '移動先' });
+    assert.equal((await get._handler(ctx, { userId: 'user-1', taskId: root.id })).task.subtasks[0].subtasks[0].subtasks.length, 1);
+    await assert.rejects(move._handler(ctx, { userId: 'user-1', taskId: root.id, parentTaskId: parent }), /itself/);
+    const newParent = await add._handler(ctx, { userId: 'user-1', text: 'New parent' });
+    await assert.rejects(move._handler(ctx, { userId: 'user-1', taskId: root.id, parentTaskId: newParent.id }), /too deep/);
+    if (labeled) await labelToTask._handler(ctx, { userId: 'user-1', label: '分類' });
+  }
 });

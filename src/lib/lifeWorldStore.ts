@@ -2,8 +2,8 @@ import { useSyncExternalStore } from 'react';
 import { MAX_DEPTH, newId } from './taskModel';
 import { isDateString } from './taskDates';
 import {
-  coerceLifeData, emptyLifeData, lifeCheckKey, lifeEntriesForDate, lifeEntryDone, mergeLifeData, restampLifeEntry,
-  lifeCanIndent, lifeCompletionBlocked, lifeParentIds, lifeSubtreeEntries, lifeTreeRows,
+  coerceLifeData, emptyLifeData, lifeCheckKey, lifeCheckForDate, lifeEntriesForDate, lifeEntryDone, mergeLifeData, restampLifeEntry,
+  lifeCanIndent, lifeCompletedEntries, lifeCompletionBlocked, lifeParentIds, lifeSubtreeEntries, lifeTreeRows, lifeWeek,
   type LifeData, type LifeEntry, type LifeRepeat,
 } from './lifeWorldModel';
 
@@ -59,7 +59,7 @@ export function createLifeWorldStore(storage?: Storage) {
     state = { ...state, syncStatus: accountId ? 'pending' : 'local' };
     save(after);
   }
-  function edit(id: string, fields: Partial<Pick<LifeEntry, 'text' | 'note' | 'repeat' | 'locked'>>, key?: string) {
+  function edit(id: string, fields: Partial<Pick<LifeEntry, 'text' | 'note' | 'repeat' | 'locked' | 'collapsed'>>, key?: string) {
     change(data => {
       const entry = Object.hasOwn(data.entries, id) ? data.entries[id] : undefined;
       if (!entry || entry.deletedAt || Object.entries(fields).every(([k, v]) => entry[k as keyof LifeEntry] === v)) return data;
@@ -107,6 +107,11 @@ export function createLifeWorldStore(storage?: Storage) {
     setText: (id: string, text: string) => edit(id, { text }, `text:${id}`),
     setNote: (id: string, note: string) => edit(id, { note }, `note:${id}`),
     setRepeat: (id: string, repeat: LifeRepeat) => edit(id, { repeat }),
+    setCollapsed(id: string, collapsed: boolean) {
+      const entry = state.data.entries[id];
+      if (!entry?.locked) return;
+      edit(id, { collapsed: collapsed ? true : undefined });
+    },
     setLocked(id: string, locked: boolean, date: string) {
       const entry = state.data.entries[id];
       if (!entry || !isDateString(date) || (locked && lifeEntryDone(state.data, entry, date))) return;
@@ -145,6 +150,67 @@ export function createLifeWorldStore(storage?: Storage) {
           checks[lifeCheckKey(child.id, date)] = { entryId: child.id, date, done, updatedAt: nextStamp() };
         }
         return { ...data, checks };
+      });
+    },
+    setHabitDayDone(id: string, date: string, done: boolean, todayDate: string) {
+      if (!isDateString(date) || !isDateString(todayDate) || typeof done !== 'boolean') return;
+      change(data => {
+        const entry = data.entries[id];
+        if (!entry || entry.deletedAt || entry.repeat === 'once' || entry.locked ||
+            !lifeWeek(data, entry, todayDate).some(day => day.date === date && day.scheduled) ||
+            (done && lifeCompletionBlocked(data, id))) return data;
+        const key = lifeCheckKey(id, date);
+        if ((data.checks[key]?.done === true) === done) return data;
+        // History editing targets this habit/day only, never the rest of its subtree.
+        return { ...data, checks: { ...data.checks, [key]: { entryId: id, date, done, updatedAt: nextStamp() } } };
+      });
+    },
+    fileCompleted(date: string) {
+      if (!isDateString(date)) return;
+      change(data => {
+        const checks = { ...data.checks };
+        let changed = false;
+        for (const entry of lifeEntriesForDate(data, date, true)) {
+          const check = lifeCheckForDate(data, entry, date);
+          if (!check?.done || check.filed || check.cleared || !lifeEntryDone(data, entry, date) || lifeCompletionBlocked(data, entry.id)) continue;
+          checks[lifeCheckKey(entry.id, check.date)] = { ...check, filed: true, updatedAt: nextStamp() };
+          changed = true;
+        }
+        return changed ? { ...data, checks } : data;
+      });
+    },
+    clearCompleted(date: string) {
+      if (!isDateString(date)) return;
+      change(data => {
+        const completed = lifeCompletedEntries(data, date);
+        if (!completed.length) return data;
+        const doomed = new Set(completed.filter(entry => entry.repeat === 'once').map(entry => entry.id));
+        const entries = { ...data.entries }, checks = { ...data.checks };
+        const parents = lifeParentIds(data);
+        const nextOrders = new Map<string | null, number>();
+        for (const entry of lifeTreeRows(data).map(row => row.entry)) {
+          const parent = parents.get(entry.id) ?? null;
+          nextOrders.set(parent, Math.max(nextOrders.get(parent) ?? 0, entry.order + 1));
+        }
+        for (const entry of completed) {
+          const now = nextStamp();
+          if (doomed.has(entry.id)) entries[entry.id] = restampLifeEntry(entry, { ...entry, deletedAt: now }, now);
+          else {
+            const check = lifeCheckForDate(data, entry, date)!;
+            checks[lifeCheckKey(entry.id, check.date)] = { ...check, cleared: true, updatedAt: now };
+          }
+        }
+        // Never delete an unfinished child or a recurring definition with its one-off parent.
+        for (const entry of lifeTreeRows(data).map(row => row.entry)) {
+          if (doomed.has(entry.id)) continue;
+          let parent = parents.get(entry.id) ?? null;
+          if (!parent || !doomed.has(parent)) continue;
+          while (parent && doomed.has(parent)) parent = parents.get(parent) ?? null;
+          const order = nextOrders.get(parent) ?? 0;
+          nextOrders.set(parent, order + 1);
+          entries[entry.id] = restampLifeEntry(entries[entry.id], { ...entries[entry.id], parentId: parent ?? undefined, order }, nextStamp());
+        }
+        return { ...data, entries, checks };
       });
     },
     move(id: string, date: string, direction: -1 | 1, includeAll = false) {

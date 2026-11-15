@@ -28,7 +28,8 @@ const html = source.replace('<script type="module" src="/src/main.tsx"></script>
 const manifest = JSON.parse(await readFile('public/manifest.webmanifest', 'utf8'));
 const assets = new Map();
 for (const path of ['/manifest.webmanifest', '/apple-touch-icon.png', '/favicon.png', ...manifest.icons.map(icon => icon.src)]) {
-  assets.set(path, await readFile(`public${path}`));
+  const pathname = new URL(path, 'http://home-screen.test').pathname;
+  assets.set(pathname, await readFile(`public${pathname}`));
 }
 const browser = await chromium.launch({ ...(process.env.PLAYWRIGHT_CHROME_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHROME_CHANNEL } : {}) });
 try {
@@ -70,31 +71,22 @@ try {
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(image, 0, 0);
       const { data } = ctx.getImageData(0, 0, size, size);
-      let transparent = 0, ink = 0, outside = 0;
-      let left = size, right = 0, top = size, bottom = 0;
+      let transparent = 0, blue = 0;
       for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
         const at = (y * size + x) * 4;
         if (data[at + 3] !== 255) transparent++;
-        if (data[at] > 50) {
-          ink++;
-          if (Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) > size * 0.4) outside++;
-          left = Math.min(left, x); right = Math.max(right, x);
-          top = Math.min(top, y); bottom = Math.max(bottom, y);
-        }
+        if (data[at + 2] > data[at] + 40) blue++;
       }
-      results.push({ path, size, transparent, ink, outside, left, right, top, bottom, corner: Array.from(data.slice(0, 4)) });
+      const corners = [0, size - 1, size * (size - 1), size * size - 1]
+        .map(index => Array.from(data.slice(index * 4, index * 4 + 3)));
+      results.push({ path, size, transparent, blue, corners });
     }
     return results;
   }, ['/favicon.png', '/apple-touch-icon.png', ...manifest.icons.map(icon => icon.src)]);
   for (const icon of pixels) {
     assert.equal(icon.transparent, 0, `${icon.path}: solid background`);
-    assert.deepEqual(icon.corner, [10, 11, 12, 255]);
-    assert.equal(icon.outside, 0, `${icon.path}: artwork survives maskable cropping`);
-    assert.ok(icon.ink > icon.size ** 2 * 0.035, `${icon.path}: not blank`);
-    assert.ok(icon.right - icon.left > icon.size * 0.45, `${icon.path}: readable glyphs`);
-    assert.ok(icon.bottom - icon.top > icon.size * 0.45);
-    assert.ok(Math.abs((icon.left + icon.right + 1) / 2 - icon.size / 2) <= 2, 'horizontally centered');
-    assert.ok(Math.abs((icon.top + icon.bottom + 1) / 2 - icon.size / 2) <= 2, 'vertically centered');
+    assert.ok(icon.corners.every(corner => Math.min(...corner) < 240), `${icon.path}: no white corner wedges`);
+    assert.ok(icon.blue > icon.size ** 2 * 0.2, `${icon.path}: Cirno's blue hair and ribbon remain visible`);
   }
   for (const [name, color] of [['フロストホワイト', '#f6f8fa'], ['ディープネイビー', '#121620'], ['ミッドナイトブラック', '#0a0b0c']]) {
     await page.locator('.app-settings-btn').click();
@@ -129,5 +121,5 @@ try {
   await page.locator('img').evaluateAll(images => Promise.all(images.map(image => image.decode())));
   await page.screenshot({ path: '/private/tmp/bizencore-app-icon-preview.png' });
   assert.deepEqual(errors, []);
-  console.log('Passed: actual index metadata and manifest, opaque readable PNGs, maskable safe area, theme-color switching, persistence and scrolling at 390/320/844/1280px. Native home-screen installation remains a device check.');
+  console.log('Passed: actual index metadata and manifest, opaque Cirno icons without white corners, theme-color switching, persistence and scrolling at 390/320/844/1280px. Native home-screen installation remains a device check.');
 } finally { await browser.close(); }

@@ -21,14 +21,34 @@ test('all declared icons exist with the advertised PNG dimensions', async () => 
   assert.deepEqual(manifest.icons.map(icon => icon.sizes), ['192x192', '512x512']);
   for (const icon of [...manifest.icons,
     { src: '/apple-touch-icon.png', sizes: '180x180' }, { src: '/favicon.png', sizes: '32x32' }]) {
-    const png = await readFile(`public${icon.src}`);
+    const png = await readFile(`public${new URL(icon.src, 'https://app.test').pathname}`);
     assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
     assert.equal(`${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`, icon.sizes);
     if (icon.purpose) {
       assert.equal(icon.type, 'image/png');
-      assert.equal(icon.purpose, 'any maskable');
+      assert.equal(icon.purpose, 'any');
     }
   }
+});
+
+test('desktop icon contains the standard and Retina PNG representations', async () => {
+  const png = await readFile('desktop/assets/icon.png');
+  assert.equal(png.readUInt32BE(16), 1024);
+  assert.equal(png.readUInt32BE(20), 1024);
+  const icns = await readFile('desktop/assets/icon.icns');
+  assert.equal(icns.toString('ascii', 0, 4), 'icns');
+  assert.equal(icns.readUInt32BE(4), icns.length);
+  const expected = { ic11: 32, ic12: 64, ic07: 128, ic08: 256, ic09: 512, ic10: 1024, ic13: 256, ic14: 512 };
+  for (let offset = 8; offset < icns.length;) {
+    const type = icns.toString('ascii', offset, offset + 4);
+    const length = icns.readUInt32BE(offset + 4);
+    assert.ok(length > 8 && offset + length <= icns.length);
+    assert.equal(icns.readUInt32BE(offset + 24), expected[type]);
+    assert.equal(icns.readUInt32BE(offset + 28), expected[type]);
+    delete expected[type];
+    offset += length;
+  }
+  assert.deepEqual(expected, {});
 });
 
 test('theme-color follows the selected theme and remains optional in MCP Apps', async () => {

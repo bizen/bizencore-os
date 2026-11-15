@@ -5,10 +5,12 @@
  * - 並び順は兄弟内の fractional order。同期しても衝突しにくい。
  */
 
+import { dateInTimeZone, isDateString, localDateString } from './taskDates';
 import type { Attachment } from './attachments';
 import type { Stamps } from './itemMerge';
 
-export const MAX_DEPTH = 4;
+/** Zero-based task depth: labels do not consume one of the four task levels. */
+export const MAX_DEPTH = 3;
 
 export type TaskKind = 'main' | 'tanomi';
 /** UI では「ラベル」と呼ぶ。保存済みデータとの互換のため値は 'section' のまま */
@@ -66,6 +68,7 @@ export interface Item {
   done: boolean;
   /** 常設の見出しとして使い、このタスク自体の完了を禁止する */
   locked?: boolean;
+  collapsed?: boolean;
   /** 古いタスクは出所を推測せず未設定のままにする */
   createdBy?: 'user' | 'ai';
   createdByClient?: string;
@@ -187,8 +190,8 @@ export function rowsForLabel(rows: Row[], labelId: string): Row[] {
   return rows.slice(start, end);
 }
 
-/** today 割り当てタスクとその子孫だけを、today を深さ0として並べ直す */
-export function flattenToday(items: ItemMap, todayDate: string): Row[] {
+/** today の未完了・当日完了タスクとその子孫を、today を深さ0として並べ直す */
+export function flattenToday(items: ItemMap, todayDate: string, timeZone: string | null = null): Row[] {
   const rows: Row[] = [];
   let baseDepth: number | null = null;
 
@@ -198,7 +201,7 @@ export function flattenToday(items: ItemMap, todayDate: string): Row[] {
       continue;
     }
     baseDepth = null;
-    if (row.item.type === 'task' && row.item.assignedDate === todayDate) {
+    if (isTodayItem(row.item, todayDate, timeZone)) {
       baseDepth = row.depth;
       rows.push({ item: row.item, depth: 0 });
     }
@@ -224,15 +227,16 @@ export function subtreeIds(items: ItemMap, rootId: string): string[] {
   return ids;
 }
 
+/** Task depth for limits, separate from the display indentation in Row.depth. */
 export function depthOf(items: ItemMap, id: string): number {
-  let depth = 0;
   let current = items[id];
+  let depth = current?.type === 'section' ? -1 : 0;
   const seen = new Set<string>();
   while (current && current.parentId && !seen.has(current.id)) {
     seen.add(current.id);
     const parent = items[current.parentId];
     if (!isLive(parent)) break;
-    depth += 1;
+    if (parent.type === 'task') depth += 1;
     current = parent;
   }
   return depth;
@@ -268,8 +272,18 @@ export function needsRebalance(prev?: number, next?: number): boolean {
   return Math.abs(next - prev) < MIN_ORDER_GAP;
 }
 
-export function isTodayItem(item: Item, todayDate: string): boolean {
-  return item.type === 'task' && item.assignedDate === todayDate;
+export function isTodayItem(item: Pick<Item, 'type' | 'assignedDate' | 'done' | 'stamps'>, todayDate: string, timeZone: string | null = null): boolean {
+  if (item.type !== 'task' || !item.assignedDate || !isDateString(item.assignedDate) || !isDateString(todayDate) || item.assignedDate > todayDate) return false;
+  if (!item.done || item.assignedDate === todayDate) return true;
+  // Reuse the synced completion stamp so carried tasks remain visible on their completion day.
+  const completedAt = item.stamps?.done;
+  return completedAt !== undefined && Number.isFinite(new Date(completedAt).getTime()) &&
+    (timeZone ? dateInTimeZone(timeZone, completedAt) : localDateString(completedAt)) === todayDate;
+}
+
+export function todayCarryDays(item: Item, todayDate: string): number {
+  if (item.type !== 'task' || item.done || !item.assignedDate || !isDateString(item.assignedDate) || !isDateString(todayDate)) return 0;
+  return Math.max(0, Math.round((Date.parse(`${todayDate}T12:00:00Z`) - Date.parse(`${item.assignedDate}T12:00:00Z`)) / 86_400_000));
 }
 
 /** なし → 頼みごと（オレンジ）→ メインクエスト（青）→ なし */

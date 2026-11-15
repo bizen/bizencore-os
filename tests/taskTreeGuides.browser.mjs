@@ -37,7 +37,13 @@ const { outputFiles } = await build({
       taskStore.toggleToday(root, today);
       const standalone = taskStore.insertAfter(null);
       taskStore.setText(standalone, 'ラベルなし');
-      add(standalone, '単独リストの子');
+      const standaloneChild = add(standalone, '単独リストの子');
+      const standaloneGrandchild = add(standaloneChild, '単独リストの孫');
+      const standaloneFourth = add(standaloneGrandchild, '単独リストの4段目');
+      // Preserve a legacy fifth level without creating new over-limit data.
+      taskStore.replaceAll([...Object.values(taskStore.getState().items), {
+        ...taskStore.getState().items[standaloneFourth], id: 'legacy-fifth', parentId: standaloneFourth, text: '既存の5段目',
+      }]);
       flushPersist();
     }
     const items = taskStore.getState().items;
@@ -67,25 +73,44 @@ try {
       const problems = [];
       for (const list of lists) {
         const rows = [...list.children].filter(el => el.matches('.row'));
+        let firstTaskDepth = Number(rows[0]?.style.getPropertyValue('--depth') || 0);
         rows.forEach((row, index) => {
           const depth = Number(row.style.getPropertyValue('--depth'));
           const nextDepth = Number(rows[index + 1]?.style.getPropertyValue('--depth') || 0);
+          if (depth === 0) firstTaskDepth = row.matches('.row--section') ? 1 : 0;
           const childStem = nextDepth > depth && !row.matches('.row--section');
           const main = row.querySelector('.row-main');
           const rect = main.getBoundingClientRect();
           const mark = row.querySelector('.row-mark').getBoundingClientRect();
+          const offset = Number(row.style.getPropertyValue('--tree-offset') || 0);
+          const origin = rows.find(other => Number(other.style.getPropertyValue('--depth')) === 0);
+          if (depth === offset && !row.matches('.row--section') && origin && Math.abs(mark.x - origin.querySelector('.row-mark').getBoundingClientRect().x) > 1) problems.push('top-level task is indented beneath its label');
           const guides = [...row.querySelectorAll('.row-tree-guide:not(.row-tree-stem)')];
           const stem = row.querySelector('.row-tree-stem');
-          if (guides.length !== depth) problems.push('missing ancestor rails at depth ' + depth);
+          const continues = level => { const next = rows.slice(index + 1).find(other => Number(other.style.getPropertyValue('--depth')) <= level + 1); return !!next && Number(next.style.getPropertyValue('--depth')) === level + 1; };
+          const expectedLevels = Array.from({ length: Math.max(0, depth - firstTaskDepth) }, (_, i) => i + firstTaskDepth).filter(level => level === depth - 1 || continues(level));
+          if (guides.length !== expectedLevels.length) problems.push('missing ancestor rails at depth ' + depth);
           if (!!stem !== childStem) problems.push('incorrect visible-child stem');
           const step = parseFloat(getComputedStyle(row).getPropertyValue('--tree-step')) * parseFloat(getComputedStyle(row).fontSize);
           for (const guide of [...guides, ...(stem ? [stem] : [])]) {
             const level = Number(guide.style.getPropertyValue('--tree-level'));
+            if (level < firstTaskDepth) problems.push('label-to-task rail must be absent');
+            const colors = ['59, 130, 203', '39, 148, 108', '181, 124, 35', '151, 91, 194'];
+            if (guide.style.getPropertyValue('--tree-color') !== colors[Math.min(level - firstTaskDepth, 3)]) problems.push('incorrect task-relative color');
+            if (!guide.style.getPropertyValue('--tree-color')) problems.push('missing depth color');
             const box = guide.getBoundingClientRect();
             const expected = mark.x + mark.width / 2 - (depth - level) * step;
-            if (Math.abs(box.x + box.width / 2 - expected) > 1) problems.push('rail not centered on ancestor checkbox');
-            if (box.width !== 1 || box.height <= 0) problems.push('rail is blank or incorrectly sized');
+            if (Math.abs(box.x + 0.75 - expected) > 1) problems.push('rail not centered on ancestor checkbox');
+            if ((!guide.classList.contains('is-parent') && box.width !== 1.5) || box.height <= 0) problems.push('rail is blank or incorrectly sized');
             if (getComputedStyle(guide).pointerEvents !== 'none') problems.push('rail intercepts clicks');
+            if (guide.classList.contains('is-parent')) {
+              const branch = guide.querySelector('.row-tree-branch');
+              const branchBox = branch.getBoundingClientRect();
+              const check = row.querySelector('.check, .row-lock-mark').getBoundingClientRect();
+              if (Math.abs(branchBox.right - check.left) > 1 || Math.abs(branchBox.bottom - 0.75 - (check.top + check.height / 2)) > 1) problems.push('branch misses checkbox');
+              if (getComputedStyle(branch).borderBottomLeftRadius !== '7px') problems.push('branch lacks rounded elbow');
+              if (guide.classList.contains('is-continuing') !== continues(level)) problems.push('incorrect last-child continuation');
+            }
             if (guide === stem) {
               const check = row.querySelector('.check, .row-lock-mark').getBoundingClientRect();
               if (box.y < check.bottom - 1) problems.push('stem overlaps checkbox');
@@ -112,9 +137,9 @@ try {
           await page.getByRole('tab', { name: new RegExp('^' + view) }).click();
           await validate();
           assert.equal(await row('公開を確認する').count(), view === 'today' ? 0 : 1);
-          if (theme === 'black' && (width === 390 || width === 1280) && view === 'all') {
+          if ((theme === 'black' || theme === 'white') && (width === 390 || width === 1280) && view === 'all') {
             await row('UIの見直し').scrollIntoViewIfNeeded();
-            await page.screenshot({ path: '/private/tmp/bizencore-tree-' + host + (width === 390 ? '-mobile' : '-desktop') + '.png', fullPage: true, animations: 'disabled' });
+            await page.screenshot({ path: '/private/tmp/bizencore-tree-' + host + (width === 390 ? '-mobile' : '-desktop') + '-' + theme + '.png', fullPage: true, animations: 'disabled' });
           }
         }
         await page.getByRole('tab', { name: 'all', exact: true }).click();
@@ -134,6 +159,20 @@ try {
           await validate();
           await page.getByRole('tab', { name: 'all', exact: true }).click();
         }
+      }
+      if (host === 'web') {
+        await page.getByRole('tab', { name: 'all', exact: true }).click();
+        await row('OSビルド').getByRole('textbox', { name: 'ラベル', exact: true }).press('Enter');
+        const created = page.locator('.row-title:focus');
+        await created.fill('ラベルのEnterで作成');
+        assert.equal(await created.evaluate(el => Number(el.closest('.row').style.getPropertyValue('--depth')) - Number(el.closest('.row').style.getPropertyValue('--tree-offset'))), 0);
+        await validate();
+        await row('UIの見直し').getByRole('button', { name: 'UIの見直しのサブタスクを収納', exact: true }).click();
+        await validate();
+        assert.equal(await row('タスク表示').count(), 0, 'folding removes descendant branches');
+        await row('UIの見直し').getByRole('button', { name: 'UIの見直しのサブタスクを展開', exact: true }).click();
+        await validate();
+        assert.equal(await row('タスク表示').count(), 1, 'expansion restores branches');
       }
     }
   }
