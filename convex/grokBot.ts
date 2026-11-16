@@ -9,6 +9,7 @@ import { snapshot } from './taskActions';
 import { deadlineInstant } from '../src/lib/taskNotifications';
 import { dateInTimeZone, isDateString, isTimeString, timeInTimeZone } from '../src/lib/taskDates';
 import { grokBotChallengePattern, isGrokBotRedirect } from '../src/lib/grokBotOAuth';
+import { commitShaPattern, pullRequest } from '../src/lib/grokBotWork';
 
 type Item = Awaited<ReturnType<typeof loadItems>>[number];
 type Work = Doc<'taskWork'>;
@@ -134,11 +135,12 @@ async function taskDecisions(ctx: QueryCtx, userId: string, taskId: string, stat
 function view(row: Work) {
     return { id: row._id, status: row.status, text: row.text, links: row.links, answer: row.answer,
         createdAt: row._creationTime, answeredAt: row.answeredAt, wakeAt: row.wakeAt, wakeStatus: row.wakeStatus,
-        kind: row.kind, options: row.options, recommendation: row.recommendation, irreversible: row.irreversible, assumptions: row.assumptions };
+        kind: row.kind, options: row.options, recommendation: row.recommendation, irreversible: row.irreversible, assumptions: row.assumptions,
+        prUrl: row.prUrl, prHeadSha: row.prHeadSha, mergedAt: row.mergedAt };
 }
 
 /** Rows that stay in a history beyond the recent page: anything the human or the Bot still has to act on. */
-const openStatuses = ['waiting', 'answered', 'review', 'returned'] as const;
+const openStatuses = ['waiting', 'answered', 'review', 'returned', 'merging'] as const;
 
 async function history(ctx: QueryCtx, userId: string, taskId: string, forBot?: { assignmentId?: AssignmentId }) {
     const [recent, ...unresolved] = await Promise.all([
@@ -159,9 +161,9 @@ export async function officerInbox(ctx: QueryCtx, userId: string, includeAnswere
     if (!pilot && !assignments.length) return null;
     const rowsFor = (status: Work['status']) => ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', status)).collect();
     const none = Promise.resolve<Work[]>([]);
-    const [waiting, reviews, answered, returned] = await Promise.all([rowsFor('waiting'), rowsFor('review'),
-        includeAnswered ? rowsFor('answered') : none, includeAnswered ? rowsFor('returned') : none]);
-    if (!waiting.length && !reviews.length && !answered.length && !returned.length) return { pending: [], answered: [] };
+    const [waiting, reviews, answered, returned, merging] = await Promise.all([rowsFor('waiting'), rowsFor('review'),
+        includeAnswered ? rowsFor('answered') : none, includeAnswered ? rowsFor('returned') : none, includeAnswered ? rowsFor('merging') : none]);
+    if (!waiting.length && !reviews.length && !answered.length && !returned.length && !merging.length) return { pending: [], answered: [] };
     const items = await loadItems(ctx, userId);
     const byId = new Map(items.map(item => [item.id, item]));
     const children = new Map<string, Item[]>();
@@ -206,8 +208,9 @@ export async function officerInbox(ctx: QueryCtx, userId: string, includeAnswere
     };
     const ordered = pending.map(row => ({ ...row, stalled: stalled(row.labelId, row.assignmentId), openTasks: openTasksIn(row.taskId) }))
         .sort((a, b) => Number(b.stalled) - Number(a.stalled) || b.openTasks - a.openTasks || a.createdAt - b.createdAt);
-    return { pending: ordered, answered: placed([...answered, ...returned]).sort((a, b) => a.createdAt - b.createdAt) };
+    return { pending: ordered, answered: placed([...answered, ...returned, ...merging]).sort((a, b) => a.createdAt - b.createdAt) };
 }
+
 
 async function currentUser(ctx: QueryCtx, expectedUserId: string) {
     const identity = await ctx.auth.getUserIdentity();
@@ -532,6 +535,7 @@ export const assignedTasks = internalQuery({
             answered: await count(task.id, 'answered'),
             awaiting_review: await count(task.id, 'review'),
             returned: await count(task.id, 'returned'),
+            approved_to_merge: await count(task.id, 'merging'),
         }))), next_offset: offset + page.length < tasks.length ? offset + page.length : null,
         proposals: await ownProposals(ctx, userId, assignmentId) };
     },
@@ -552,8 +556,8 @@ export const addAssignedTask = internalMutation({
     },
 });
 
-/** An answered decision or a returned review: the human acted and the Bot has yet to apply it. */
-const awaitsBot = (row: Work) => row.status === 'answered' || row.status === 'returned';
+/** An answered decision, a returned review or an approved pull request: the human acted and the Bot has yet to apply it. */
+const awaitsBot = (row: Work) => row.status === 'answered' || row.status === 'returned' || row.status === 'merging';
 
 function priorWork(ctx: QueryCtx, userId: string, taskId: string, key: string, assignmentId?: AssignmentId) {
     return ctx.db.query('taskWork').withIndex('by_user_task_key_assignment', q =>
@@ -610,24 +614,27 @@ export const claimDecision = internalMutation({
         const now = Date.now();
         if ((row.claimUntil ?? 0) > now && row.claimKey !== claimKey) return { claimed: false };
         await ctx.db.patch(row._id, { claimKey, claimUntil: now + 30 * 60_000 });
-        return { claimed: true, answer: row.answer };
+        return row.status === 'merging' ? { claimed: true, approved: true, pr_url: row.prUrl, pr_head_sha: row.prHeadSha } : { claimed: true, answer: row.answer };
     },
 });
 
 export const recordWorkResult = internalMutation({
     args: { ...userTask, summary: v.string(), links: v.array(v.string()), complete: v.boolean(),
-        needsReview: v.optional(v.boolean()), assumptions: v.optional(v.string()),
+        needsReview: v.optional(v.boolean()), assumptions: v.optional(v.string()), prHeadSha: v.optional(v.string()),
         appliedQuestionId: v.optional(v.string()), claimKey: v.optional(v.string()), expectedTaskVersion: v.optional(v.number()), key: v.string() },
-    handler: async (ctx, { userId, assignmentId, taskId, summary, links, complete, needsReview, appliedQuestionId, claimKey, expectedTaskVersion, key, ...args }) => {
+    handler: async (ctx, { userId, assignmentId, taskId, summary, links, complete, needsReview, prHeadSha, appliedQuestionId, claimKey, expectedTaskVersion, key, ...args }) => {
         const assigned = await requireScope(ctx, userId, assignmentId);
         const task = taskInScope(assigned, taskId);
         const assumptions = args.assumptions?.trim() || undefined;
         if (assumptions && assumptions.length > 8000) throw new ConvexError('Assumptions must be at most 8000 characters');
-        if (complete && needsReview && !assumptions) throw new ConvexError('Describe the assumptions or judgment calls the user should check');
+        if (prHeadSha !== undefined && !commitShaPattern.test(prHeadSha)) throw new ConvexError('pr_head_sha must be the full 40-character lowercase commit SHA');
+        if (prHeadSha !== undefined && !complete) throw new ConvexError('pr_head_sha is only for a completion (complete true)');
+        // A pull request is always reviewed, so its assumptions are optional.
+        if (complete && needsReview && !assumptions && prHeadSha === undefined) throw new ConvexError('Describe the assumptions or judgment calls the user should check');
         const previous = await priorWork(ctx, userId, taskId, key, assignmentId);
         if (previous) {
             if ((previous.status === 'progress') === complete || previous.text !== summary || previous.appliedQuestionId !== appliedQuestionId ||
-                previous.assumptions !== assumptions || JSON.stringify(previous.links) !== JSON.stringify(links)) {
+                previous.assumptions !== assumptions || previous.prHeadSha !== prHeadSha || JSON.stringify(previous.links) !== JSON.stringify(links)) {
                 throw new ConvexError('Idempotency key already used');
             }
             return view(previous);
@@ -638,24 +645,42 @@ export const recordWorkResult = internalMutation({
             !awaitsBot(question) || !claimKey || question.claimKey !== claimKey)) {
             throw new ConvexError('An active claim is required to apply this answer');
         }
+        // An approved pull request is completed directly once its approved commit is merged; a new head goes back to review.
+        const approvedPr = question?.status === 'merging' ? question : null;
+        const merge = !!approvedPr && complete && (prHeadSha === approvedPr.prHeadSha || (prHeadSha === undefined && !needsReview));
+        if (approvedPr && complete && !merge && prHeadSha !== undefined && !needsReview) {
+            throw new ConvexError(`The user approved commit ${approvedPr.prHeadSha}. Merge only that commit, or resubmit the new head for review with needs_review`);
+        }
+        const pullRequests = links.filter(link => pullRequest(link));
+        if (merge && pullRequests.some(link => link !== approvedPr.prUrl)) throw new ConvexError(`Report the merge of the approved pull request ${approvedPr.prUrl} only`);
+        const submitsPr = prHeadSha !== undefined && !merge;
+        if (submitsPr && !pullRequests.length) throw new ConvexError('pr_head_sha needs the GitHub pull request link (https://github.com/<owner>/<repo>/pull/<n>) in links');
         const role = await botRole(ctx, userId, taskId, assigned.label.id, assignmentId);
         if (complete && !role.execute) throw new ConvexError('This task is review-only for Grok Bot');
         if (complete) await requireNotDeferred(ctx, userId, taskId);
         if (complete && expectedTaskVersion !== task.updatedAt) throw new ConvexError('Task changed; read it again before reporting completion');
-        const review = complete && !task.done && (!!needsReview || role.reviewRequired);
+        const review = complete && !task.done && !merge && (!!needsReview || role.reviewRequired || submitsPr);
         if (complete && !task.done) {
             if (subtreeOf(assigned.items, taskId).slice(1).some(child => child.type !== 'task' || !assigned.tasks.has(child.id) || !child.done)) {
                 throw new ConvexError('Finish the subtasks before completing this task');
             }
-            const [waiting, answered, returned, reviews] = await Promise.all((['waiting', 'answered', 'returned', 'review'] as const).map(status =>
+            const [waiting, answered, returned, reviews, merging] = await Promise.all((['waiting', 'answered', 'returned', 'review', 'merging'] as const).map(status =>
                 taskDecisions(ctx, userId, taskId, status, { assignmentId })));
             if (reviews.length) throw new ConvexError('A completion for this task is already awaiting the user’s review; work on other tasks');
+            if (merging.some(row => row._id !== questionId)) {
+                throw new ConvexError('The user approved a pull request for this task: claim it, merge the approved commit and report with applied_question_id, or resubmit it for review');
+            }
             if (waiting.length || [...answered, ...returned].some(row => row._id !== questionId)) throw new ConvexError('Resolve pending decisions before completing this task');
             if (!review) await ctx.runMutation(internal.mcpTasks.complete, { userId, taskId, clientName: 'Grok Bot' });
         }
         const status = review ? 'review' : complete ? 'complete' : 'progress';
-        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, key, text: summary, status, links, appliedQuestionId, assumptions });
-        if (question) await ctx.db.patch(question._id, { status: question.status === 'returned' ? 'revised' : 'applied', claimKey: undefined, claimUntil: undefined });
+        const prUrl = submitsPr ? pullRequests[0] : merge ? approvedPr.prUrl : undefined;
+        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, key, text: summary, status, links, appliedQuestionId, assumptions, prUrl, prHeadSha });
+        const released = { claimKey: undefined, claimUntil: undefined };
+        // Progress on an approved pull request (say, a failed merge) leaves it approved and claimed.
+        if (approvedPr && merge) await ctx.db.patch(approvedPr._id, { status: 'merged', mergedAt: Date.now(), ...released });
+        else if (approvedPr && complete) await ctx.db.patch(approvedPr._id, { status: 'superseded', ...released });
+        else if (question && !approvedPr) await ctx.db.patch(question._id, { status: question.status === 'returned' ? 'revised' : 'applied', ...released });
         return { id, status };
     },
 });
@@ -673,7 +698,7 @@ export const approveReview = mutation({
     args: { id: v.id('taskWork'), expectedUserId: v.string() },
     handler: async (ctx, { id, expectedUserId }) => {
         const { userId, row } = await pendingReview(ctx, id, expectedUserId);
-        if (row.status === 'approved') return;
+        if (row.status === 'approved' || row.status === 'merging' || row.status === 'merged') return;
         if (row.status !== 'review') throw new ConvexError('この確認依頼はすでに対応済みです。');
         const assigned = await requireScope(ctx, userId, row.assignmentId);
         const task = taskInScope(assigned, row.taskId);
@@ -681,8 +706,15 @@ export const approveReview = mutation({
         if (subtreeOf(assigned.items, task.id).slice(1).some(child => child.type !== 'task' || !assigned.tasks.has(child.id) || !child.done)) {
             throw new ConvexError('未完了のサブタスクがあるため完了できません。サブタスクを片付けるか、差し戻してください。');
         }
+        const now = Date.now();
+        // A pull request stays open until the Bot merges exactly the approved commit and reports it.
+        if (row.prHeadSha) {
+            await ctx.db.patch(id, { status: 'merging', answeredAt: now });
+            await queueWake(ctx, id, now);
+            return;
+        }
         await ctx.runMutation(internal.mcpTasks.complete, { userId, taskId: task.id, clientName: 'Grok Bot' });
-        await ctx.db.patch(id, { status: 'approved', answeredAt: Date.now() });
+        await ctx.db.patch(id, { status: 'approved', answeredAt: now });
     },
 });
 
@@ -753,7 +785,8 @@ export const wakeTarget = internalQuery({
         const config = await connectionFor(ctx, row.userId, row.assignmentId);
         if (!config || ('_id' in config && !config.connectedAt)) return null;
         const webhook = webhookFor(config);
-        return webhook ? { ...webhook, taskId: row.taskId, trigger: row.status === 'returned' ? 'review_returned' : 'reply' } : null;
+        const trigger = row.status === 'returned' ? 'review_returned' : row.status === 'merging' ? 'review_approved' : 'reply';
+        return webhook ? { ...webhook, taskId: row.taskId, trigger } : null;
     },
 });
 

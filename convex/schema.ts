@@ -72,9 +72,13 @@ export default defineSchema({
         userId: v.string(), taskId: v.string(), key: v.string(), text: v.string(),
         assignmentId: v.optional(v.id('grokBotAssignments')),
         // review → approved | returned → revised: a Bot completion that waits for the human's check.
+        // A pull request review (prUrl + prHeadSha) is approved into merging; the Bot merges that commit → merged,
+        // or resubmits a new head for review → superseded.
         status: v.union(v.literal('waiting'), v.literal('answered'), v.literal('applied'), v.literal('progress'), v.literal('complete'),
-            v.literal('review'), v.literal('approved'), v.literal('returned'), v.literal('revised')),
+            v.literal('review'), v.literal('approved'), v.literal('returned'), v.literal('revised'),
+            v.literal('merging'), v.literal('merged'), v.literal('superseded')),
         links: v.optional(v.array(v.string())), appliedQuestionId: v.optional(v.string()), answer: v.optional(v.string()), answeredAt: v.optional(v.number()),
+        prUrl: v.optional(v.string()), prHeadSha: v.optional(v.string()), mergedAt: v.optional(v.number()),
         kind: v.optional(v.union(v.literal('approval'), v.literal('choice'), v.literal('info'))), options: v.optional(v.array(v.string())),
         recommendation: v.optional(v.string()), irreversible: v.optional(v.boolean()), assumptions: v.optional(v.string()),
         claimKey: v.optional(v.string()), claimUntil: v.optional(v.number()),

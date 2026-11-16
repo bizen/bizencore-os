@@ -88,7 +88,7 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
                 const args = grokBotTools.record_work_result.parse(input);
                 return Response.json(await ctx.runMutation(internal.grokBot.recordWorkResult, {
                     ...scope, taskId: args.task_id, summary: args.summary, links: args.links ?? [], complete: args.complete ?? false,
-                    needsReview: args.needs_review, assumptions: args.assumptions,
+                    needsReview: args.needs_review, assumptions: args.assumptions, prHeadSha: args.pr_head_sha,
                     appliedQuestionId: args.applied_question_id, claimKey: args.claim_key, expectedTaskVersion: args.expected_task_version, key: args.idempotency_key,
                 }));
             }

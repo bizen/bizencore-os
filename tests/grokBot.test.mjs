@@ -337,9 +337,10 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
   const { payload } = await rpc('tools/list');
   assert.deepEqual(payload.result.tools.map(tool => tool.name).sort(), ['add_assigned_task', 'assigned_tasks', 'claim_decision', 'propose', 'record_work_result', 'request_decision']);
   const schema = name => payload.result.tools.find(tool => tool.name === name).inputSchema.properties;
-  assert.ok(['needs_review', 'assumptions'].every(key => key in schema('record_work_result')));
+  assert.ok(['needs_review', 'assumptions', 'pr_head_sha'].every(key => key in schema('record_work_result')));
   assert.ok(['kind', 'options', 'recommendation', 'irreversible'].every(key => key in schema('request_decision')));
   assert.match(init.payload.result.instructions, /review_returned/);
+  assert.match(init.payload.result.instructions, /review_approved.*--match-head-commit/);
   const data = await rpc('tools/call', { name: 'assigned_tasks', arguments: {} });
   const visible = JSON.parse(data.payload.result.content[0].text);
   assert.deepEqual(visible.tasks.map(row => row.id), ['mine', 'nested']);
@@ -850,3 +851,120 @@ test('proposals are capped per Bot and the VP connects like a label Bot', async 
   assert.equal((await f.http('auth', {}, key)).status, 401);
   assert.deepEqual((await f.call('assignments', web)), []);
 });
+
+const { pullRequest } = await load('src/lib/grokBotWork.ts');
+const shaA = 'a1b2c3d'.padEnd(40, '0');
+const shaB = 'b2c3d4e'.padEnd(40, '1');
+const prUrl = 'https://github.com/example/press-site/pull/128';
+
+test('a pull request always waits for review, and approval asks the Bot to merge exactly that commit', async t => {
+  const f = fixture(t);
+  f.seed('code', 'label'); f.seed('other-code', 'label');
+  await execute(f, 'code', true);
+  await execute(f, 'other-code');
+  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'code', summary: 'PRを作成。', complete: true, key,
+    links: ['https://example.test/preview', prUrl], prHeadSha: shaA, expectedTaskVersion: await versionOf(f, 'code'), ...extra });
+  await assert.rejects(submit('upper', { prHeadSha: shaA.toUpperCase() }), /40-character/);
+  await assert.rejects(submit('short', { prHeadSha: shaA.slice(0, 7) }), /40-character/);
+  await assert.rejects(submit('progress', { complete: false }), /only for a completion/);
+  await assert.rejects(submit('no-pr', { links: ['https://example.test/pull/12'] }), /pull request link/);
+  await assert.rejects(submit('files', { links: [`${prUrl}/files`] }), /pull request link/);
+  assert.equal((await f.http('record_work_result', { task_id: 'code', summary: 'PR', complete: true, links: [prUrl], pr_head_sha: shaA.toUpperCase(),
+    expected_task_version: await versionOf(f, 'code'), idempotency_key: 'zod' })).status, 400);
+  assert.deepEqual([pullRequest(prUrl).label, pullRequest(`${prUrl}/files`), pullRequest('https://github.com.evil.test/a/b/pull/1')], ['example/press-site#128', null, null]);
+
+  // No needs_review and no assumptions: a pull request is still a review.
+  const submitted = await submit('pr');
+  assert.equal(submitted.status, 'review');
+  assert.equal((await submit('pr')).id, submitted.id, 'a retry with the same key is idempotent');
+  await assert.rejects(submit('pr', { prHeadSha: shaB }), /Idempotency/);
+  assert.equal(itemOf(f, 'code').done, false);
+  const [pending] = (await f.call('inbox', web)).pending;
+  assert.deepEqual([pending.id, pending.prUrl, pending.prHeadSha, pending.assumptions], [submitted.id, prUrl, shaA, undefined]);
+  assert.equal((await f.call('assignedTasks', { userId: 'alice', taskId: 'code' })).work.find(row => row.id === submitted.id).prHeadSha, shaA);
+
+  // Approval does not complete the task; it wakes the Bot to merge.
+  await f.call('approveReview', { ...web, id: submitted.id });
+  await f.call('approveReview', { ...web, id: submitted.id });
+  assert.equal(itemOf(f, 'code').done, false);
+  assert.equal(f.rows.taskWork.find(row => row._id === submitted.id).status, 'merging');
+  assert.equal(f.jobs.length, 1, 'approving twice wakes once');
+  const deliver = t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    assert.deepEqual(JSON.parse(init.body), { trigger: 'review_approved', task_id: 'code', question_id: submitted.id });
+    return new Response(null, { status: 500 });
+  });
+  await f.invoke(f.jobs[0].name, f.jobs[0].args);
+  let inbox = await f.call('inbox', web);
+  assert.deepEqual([inbox.pending.length, inbox.answered[0].id, inbox.answered[0].status, inbox.answered[0].wakeStatus], [0, submitted.id, 'merging', 'failed']);
+  deliver.mock.mockImplementation(async () => new Response(null, { status: 200 }));
+  await f.call('retry', { ...web, id: submitted.id });
+  await f.invoke(f.jobs[1].name, f.jobs[1].args);
+  assert.equal((await f.call('inbox', web)).answered[0].wakeStatus, 'accepted');
+  assert.equal((await f.call('taskHistory', { ...web, taskId: 'code' })).rows.find(row => row.id === submitted.id).status, 'merging');
+  assert.equal((await f.call('assignedTasks', { userId: 'alice' })).tasks.find(row => row.id === 'code').approved_to_merge, 1);
+  await assert.rejects(f.call('returnReview', { ...web, id: submitted.id, comment: 'やっぱり待って' }), /対応済み/);
+
+  // While it waits for the merge, nothing else may complete or resubmit the task without applying it.
+  await assert.rejects(submit('unrelated', { prHeadSha: shaB }), /approved a pull request/);
+  await assert.rejects(submit('plain', { prHeadSha: undefined, links: [] }), /approved a pull request/);
+  assert.equal((await submit('note', { complete: false, prHeadSha: undefined, links: [] })).status, 'progress', 'progress is still allowed');
+
+  // Applying it needs this Bot's active claim on this task.
+  const merged = { appliedQuestionId: submitted.id, prHeadSha: shaA, links: [] };
+  await assert.rejects(submit('unclaimed', merged), /active claim/);
+  const claim = { ...task, taskId: 'code', questionId: submitted.id };
+  assert.deepEqual(await f.call('claimDecision', { ...claim, claimKey: 'run-one' }), { claimed: true, approved: true, pr_url: prUrl, pr_head_sha: shaA });
+  assert.deepEqual(await f.call('claimDecision', { ...claim, claimKey: 'run-two' }), { claimed: false });
+  assert.deepEqual(await f.call('claimDecision', { ...claim, taskId: 'other-code', claimKey: 'run-one' }), { claimed: false });
+  await assert.rejects(submit('stolen', { ...merged, claimKey: 'run-two' }), /active claim/);
+  await assert.rejects(f.call('recordWorkResult', { ...task, taskId: 'other-code', summary: 'マージ', links: [], complete: true, key: 'elsewhere',
+    appliedQuestionId: submitted.id, claimKey: 'run-one', expectedTaskVersion: await versionOf(f, 'other-code') }), /active claim/);
+  await assert.rejects(f.call('recordWorkResult', { ...task, assignmentId: 'grokbotassignments-999', taskId: 'code', summary: 'マージ', links: [], complete: true,
+    key: 'other-bot', appliedQuestionId: submitted.id, claimKey: 'run-one', prHeadSha: shaA }));
+
+  // A different head is never completed directly.
+  await assert.rejects(submit('moved', { ...merged, prHeadSha: shaB, claimKey: 'run-one' }), /approved commit a1b2c3d/);
+  await assert.rejects(submit('other-pr', { ...merged, links: ['https://github.com/example/press-site/pull/129'], claimKey: 'run-one' }), /approved pull request/);
+  // A failed merge is reported as progress and leaves the approval in place.
+  await submit('merge-failed', { ...merged, complete: false, prHeadSha: undefined, claimKey: 'run-one', summary: 'CIが失敗したためマージを中断。' });
+  assert.equal(f.rows.taskWork.find(row => row._id === submitted.id).status, 'merging');
+
+  // Merging the approved commit completes the task without a second review, even when every completion is checked.
+  const done = await submit('merged', { ...merged, claimKey: 'run-one', summary: 'a1b2c3dをマージした。' });
+  assert.equal(done.status, 'complete');
+  assert.equal((await submit('merged', { ...merged, claimKey: 'run-one', summary: 'a1b2c3dをマージした。' })).id, done.id);
+  assert.equal(itemOf(f, 'code').done, true);
+  const row = f.rows.taskWork.find(row => row._id === submitted.id);
+  assert.deepEqual([row.status, row.mergedAt, row.claimKey], ['merged', Date.now(), undefined]);
+  inbox = await f.call('inbox', web);
+  assert.deepEqual([inbox.pending.length, inbox.answered.length], [0, 0]);
+  assert.equal(f.rows.taskWork.find(row => row._id === done.id).prUrl, prUrl);
+});
+
+test('a moved pull request head is resubmitted for review and supersedes the approval', async t => {
+  const f = fixture(t);
+  f.seed('site', 'label');
+  await execute(f, 'site');
+  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'site', summary: 'PRを更新。', complete: true, key,
+    links: [prUrl], prHeadSha: shaA, expectedTaskVersion: await versionOf(f, 'site'), ...extra });
+  const first = await submit('first', { needsReview: true });
+  await f.call('approveReview', { ...web, id: first.id });
+  await f.call('claimDecision', { ...task, taskId: 'site', questionId: first.id, claimKey: 'run' });
+  const applied = { appliedQuestionId: first.id, claimKey: 'run' };
+  await assert.rejects(submit('direct', { ...applied, prHeadSha: shaB }), /approved commit/);
+  const second = await submit('second', { ...applied, prHeadSha: shaB, needsReview: true, links: ['https://github.com/example/press-site/pull/130'] });
+  assert.equal(second.status, 'review');
+  assert.equal(f.rows.taskWork.find(row => row._id === first.id).status, 'superseded');
+  assert.equal(itemOf(f, 'site').done, false);
+  const inbox = await f.call('inbox', web);
+  assert.deepEqual(inbox.pending.map(row => [row.id, row.prHeadSha, row.prUrl]), [[second.id, shaB, 'https://github.com/example/press-site/pull/130']]);
+  assert.equal(inbox.answered.length, 0);
+  assert.deepEqual(await f.call('claimDecision', { ...task, taskId: 'site', questionId: first.id, claimKey: 'run' }), { claimed: false });
+  await f.call('approveReview', { ...web, id: second.id });
+  await f.call('claimDecision', { ...task, taskId: 'site', questionId: second.id, claimKey: 'run-2' });
+  await assert.rejects(submit('stale-approval', { appliedQuestionId: first.id, claimKey: 'run', prHeadSha: shaA }), /active claim/);
+  assert.equal((await submit('merged', { appliedQuestionId: second.id, claimKey: 'run-2', prHeadSha: undefined, links: [] })).status, 'complete');
+  assert.equal(itemOf(f, 'site').done, true);
+  assert.equal(f.rows.taskWork.find(row => row._id === second.id).status, 'merged');
+});
+
