@@ -86,7 +86,8 @@ export default defineSchema({
     }).index('by_user', ['userId']).index('by_user_status', ['userId', 'status'])
         .index('by_user_task', ['userId', 'taskId']).index('by_user_task_key_assignment', ['userId', 'taskId', 'key', 'assignmentId'])
         .index('by_user_task_assignment', ['userId', 'taskId', 'assignmentId'])
-        .index('by_user_task_status', ['userId', 'taskId', 'status']),
+        .index('by_user_task_status', ['userId', 'taskId', 'status'])
+        .index('by_user_answered', ['userId', 'answeredAt']),
     // role 'vp': the user's single cross-label idea slot. It has no label (labelId '') and may only read and propose.
     grokBotAssignments: defineTable({
         userId: v.string(), labelId: v.string(), role: v.optional(v.literal('vp')), name: v.optional(v.string()), connectorName: v.optional(v.string()), tokenHash: v.string(),

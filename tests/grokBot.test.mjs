@@ -44,6 +44,7 @@ function fixture(t) {
         const index = {
           eq(key, value) { checks.push(row => row[key] === value); return index; },
           gt(key, value) { checks.push(row => row[key] > value); return index; },
+          gte(key, value) { checks.push(row => row[key] >= value); return index; },
           lt(key, value) { checks.push(row => row[key] < value); return index; },
           lte(key, value) { checks.push(row => row[key] <= value); return index; },
         };
@@ -852,7 +853,7 @@ test('proposals are capped per Bot and the VP connects like a label Bot', async 
   assert.deepEqual((await f.call('assignments', web)), []);
 });
 
-const { pullRequest } = await load('src/lib/grokBotWork.ts');
+const { formatDuration, median, pullRequest } = await load('src/lib/grokBotWork.ts');
 const shaA = 'a1b2c3d'.padEnd(40, '0');
 const shaB = 'b2c3d4e'.padEnd(40, '1');
 const prUrl = 'https://github.com/example/press-site/pull/128';
@@ -968,3 +969,43 @@ test('a moved pull request head is resubmitted for review and supersedes the app
   assert.equal(f.rows.taskWork.find(row => row._id === second.id).status, 'merged');
 });
 
+test('inbox metrics cover the last 7 days in the user’s time zone and leave out rows without timestamps', async t => {
+  const f = fixture(t);
+  const empty = { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0 };
+  assert.deepEqual((await f.call('inbox', web)).metrics, empty);
+  const at = time => Date.parse(time);
+  let n = 0;
+  const add = (status, created, answered, extra = {}) => f.rows.taskWork.push({ _id: `taskWork-m${++n}`, userId: 'alice', taskId: 'mine', key: `m${n}`, text: 'x',
+    status, _creationTime: at(created), ...(answered ? { answeredAt: at(answered) } : {}), ...extra });
+  // Now: 2026-11-13 12:00 Melbourne. The window starts 2026-11-07 00:00 Melbourne (2026-11-06 13:00 UTC).
+  add('applied', '2026-11-13T09:00:00+11:00', '2026-11-13T09:10:00+11:00');
+  add('answered', '2026-11-12T09:00:00+11:00', '2026-11-12T09:30:00+11:00');
+  add('returned', '2026-11-10T09:00:00+11:00', '2026-11-10T11:00:00+11:00');
+  add('applied', '2026-11-06T22:00:00+11:00', '2026-11-06T23:59:00+11:00', { note: 'answered just before the window' });
+  add('approved', '2026-11-01T00:00:00+11:00', undefined, { note: 'legacy row without answeredAt' });
+  add('answered', '2026-11-12T00:00:00+11:00', undefined);
+  add('applied', '2026-11-13T09:00:00+11:00', '2026-11-13T09:00:00+11:00', { userId: 'bob' });
+  const metrics = () => bot.workMetrics(f.ctx, 'alice', Date.now());
+  assert.deepEqual(await metrics(), { ...empty, medianAnswerMs: 30 * 60_000, answered: 3, returnRate: 1, returned: 1, reviewed: 1 }, 'odd count: the middle value');
+  add('approved', '2026-11-07T00:00:00+11:00', '2026-11-07T00:50:00+11:00');
+  add('merged', '2026-11-08T00:00:00+11:00', '2026-11-08T01:00:00+11:00');
+  add('merging', '2026-11-08T00:00:00+11:00', '2026-11-08T00:20:00+11:00');
+  add('revised', '2026-11-09T00:00:00+11:00', '2026-11-09T08:00:00+11:00');
+  add('superseded', '2026-11-09T00:00:00+11:00', '2026-11-09T00:40:00+11:00');
+  // Even count (8): the mean of 40 and 50 minutes.
+  const week = await metrics();
+  assert.equal(week.medianAnswerMs, 45 * 60_000);
+  assert.deepEqual([week.answered, week.returned, week.reviewed, week.returnRate], [8, 2, 6, 2 / 6]);
+  assert.deepEqual([week.forwardWeek, week.forwardToday], [1, 0], 'only the non-PR approval completed a task so far');
+  add('complete', '2026-11-13T00:05:00+11:00');   // today in Melbourne, still 2026-11-12 in UTC
+  add('complete', '2026-11-12T23:55:00+11:00');   // yesterday
+  add('complete', '2026-11-06T23:55:00+11:00');   // before the window
+  add('progress', '2026-11-13T10:00:00+11:00');
+  assert.deepEqual(await metrics().then(row => [row.forwardWeek, row.forwardToday]), [3, 1]);
+  assert.deepEqual((await f.call('inbox', web)).metrics, await metrics());
+  f.setTime('2026-11-20T12:00:00+11:00');
+  assert.deepEqual(await metrics(), empty, 'a week later every row has left the window');
+  assert.deepEqual([median([3, 1, 2]), median([4, 1, 3, 2]), median([])], [2, 2.5, null]);
+  assert.deepEqual([0, 30_000, 60_000, 59 * 60_000, 80 * 60_000, 3 * 3_600_000, 26.4 * 3_600_000, 50 * 3_600_000, 72 * 3_600_000].map(formatDuration),
+    ['1分未満', '1分未満', '1分', '59分', '1時間20分', '3時間', '26時間', '2.1日', '3日']);
+});

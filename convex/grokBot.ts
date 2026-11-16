@@ -9,7 +9,7 @@ import { snapshot } from './taskActions';
 import { deadlineInstant } from '../src/lib/taskNotifications';
 import { dateInTimeZone, isDateString, isTimeString, timeInTimeZone } from '../src/lib/taskDates';
 import { grokBotChallengePattern, isGrokBotRedirect } from '../src/lib/grokBotOAuth';
-import { commitShaPattern, pullRequest } from '../src/lib/grokBotWork';
+import { commitShaPattern, median, pullRequest } from '../src/lib/grokBotWork';
 
 type Item = Awaited<ReturnType<typeof loadItems>>[number];
 type Work = Doc<'taskWork'>;
@@ -211,6 +211,37 @@ export async function officerInbox(ctx: QueryCtx, userId: string, includeAnswere
     return { pending: ordered, answered: placed([...answered, ...returned, ...merging]).sort((a, b) => a.createdAt - b.createdAt) };
 }
 
+const dayMs = 86_400_000;
+/** Decisions and reviews resolved approved (a merged PR completes through its own complete row) or returned. */
+const approvedStatuses = new Set<Work['status']>(['approved', 'merging', 'merged', 'superseded']);
+const returnedStatuses = new Set<Work['status']>(['returned', 'revised']);
+
+/**
+ * Outcomes over the last 7 days (today and the 6 days before, in the user's time zone), from existing rows only.
+ * Rows without the timestamps a figure needs (older rows) are left out of that figure.
+ */
+export async function workMetrics(ctx: QueryCtx, userId: string, now = Date.now()) {
+    const timeZone = await timezoneFor(ctx, userId) ?? 'UTC';
+    const today = dateInTimeZone(timeZone, now);
+    const startOf = (day: string) => deadlineInstant(day, '00:00', timeZone) ?? Date.parse(`${day}T00:00:00Z`);
+    const todayStart = startOf(today);
+    const weekStart = startOf(new Date(Date.parse(`${today}T00:00:00Z`) - 6 * dayMs).toISOString().slice(0, 10));
+    const [answered, completed] = await Promise.all([
+        ctx.db.query('taskWork').withIndex('by_user_answered', q => q.eq('userId', userId).gte('answeredAt', weekStart)).collect(),
+        ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', 'complete').gte('_creationTime', weekStart)).collect(),
+    ]);
+    const resolved = answered.filter(row => row.answeredAt !== undefined && row.answeredAt <= now && row.answeredAt >= row._creationTime);
+    const reviewed = resolved.filter(row => approvedStatuses.has(row.status) || returnedStatuses.has(row.status));
+    const returned = reviewed.filter(row => returnedStatuses.has(row.status)).length;
+    // Moved forward: direct and merged completions (their complete row) plus non-PR reviews, which complete on approval.
+    const forward = [...completed.filter(row => row._creationTime <= now).map(row => row._creationTime),
+        ...resolved.filter(row => row.status === 'approved').map(row => row.answeredAt!)];
+    return {
+        medianAnswerMs: median(resolved.map(row => row.answeredAt! - row._creationTime)), answered: resolved.length,
+        returnRate: reviewed.length ? returned / reviewed.length : null, returned, reviewed: reviewed.length,
+        forwardWeek: forward.length, forwardToday: forward.filter(at => at >= todayStart).length,
+    };
+}
 
 async function currentUser(ctx: QueryCtx, expectedUserId: string) {
     const identity = await ctx.auth.getUserIdentity();
@@ -476,7 +507,8 @@ export const inbox = query({
         if (!userId) return null;
         const [officer, vpRow] = await Promise.all([officerInbox(ctx, userId), vpFor(ctx, userId)]);
         if (!officer && !vpRow) return null;
-        return { ...(officer ?? { pending: [], answered: [] }), proposals: await proposalInbox(ctx, userId) };
+        const [proposals, metrics] = await Promise.all([proposalInbox(ctx, userId), workMetrics(ctx, userId)]);
+        return { ...(officer ?? { pending: [], answered: [] }), proposals, metrics };
     },
 });
 
