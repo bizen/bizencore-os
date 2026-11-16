@@ -77,6 +77,7 @@ const { outputFiles } = await build({
         };
       }
       export const useAction = useMutation;
+      export const useConvexAuth = () => ({ isAuthenticated: !!globalThis.fixtureAuth.isSignedIn, isLoading: false });
     ` : `
       import { useSyncExternalStore } from 'react';
       export function useAuth() { useSyncExternalStore(fn => { globalThis.fixtureListeners.add(fn); return () => globalThis.fixtureListeners.delete(fn); }, () => globalThis.fixtureRevision); return globalThis.fixtureAuth; }
