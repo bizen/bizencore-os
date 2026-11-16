@@ -548,7 +548,7 @@ export function TaskInspector(props: TaskInspectorProps) {
       ) : <TaskAiHandoff key={item.id} item={item} items={items} canUseMcp={false} />}
 
       <div className="inspector-foot">
-        <button type="button" className="ghost-btn inspector-remove" onClick={() => onRemove(item.id)}>
+        <button type="button" className="ghost-btn is-danger-on-hover inspector-remove" onClick={() => onRemove(item.id)}>
           <Trash2 size={14} aria-hidden />
           削除
         </button>

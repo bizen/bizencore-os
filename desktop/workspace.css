@@ -22,7 +22,9 @@ body { overflow: hidden; }
 .desktop-header .app-header { position: static; width: 100%; height: 100%; padding: 8px 16px; gap: 16px; background: var(--bg-color); backdrop-filter: none; -webkit-backdrop-filter: none; }
 .desktop-frame .desktop-header .app-header { padding-left: 96px; -webkit-app-region: drag; user-select: none; }
 .desktop-frame .desktop-header :is(.app-header-end, a, button, input, select, [role='button']) { -webkit-app-region: no-drag; }
-.desktop-header .app-header-end { gap: 16px; }
+/* The desktop header is a fixed-height titlebar: it never takes the web header's two-row phone layout. */
+.desktop-header .app-header { flex-wrap: nowrap; }
+.desktop-header .app-header-end { gap: 16px; width: auto; }
 .desktop-header .app-nav { gap: 12px; }
 .desktop-workspace { display: grid; grid-template-columns: minmax(350px, var(--task-fraction)) 6px minmax(350px, var(--agent-fraction)); flex: 1; min-height: 0; }
 .desktop-workspace.has-inspector { grid-template-columns: minmax(264px, var(--task-fraction)) 6px var(--inspector-width) 6px minmax(280px, var(--agent-fraction)); }

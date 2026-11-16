@@ -34,9 +34,11 @@
   --accent-text: #dbeafe;
   --accent-text-strong: #d7e7ff;
   --focus-outline: #cfe3ff;
-  --link-color: var(--link-color);
+  --link-color: #93c5fd;
   --done-wash-text: #bdeef6;
   --check-ink: #101724;
+  /* 塗りのアクセント面に載せる文字。ネイビーとブラックは暗く、ホワイトは白 */
+  --on-accent: #101724;
   --danger-soft: #fca5a5;
   --inspector-shadow: rgba(0, 0, 0, 0.35);
 }
@@ -99,6 +101,7 @@
   --link-color: #205fae;
   --done-wash-text: #0b7376;
   --check-ink: #ffffff;
+  --on-accent: #ffffff;
   --danger-soft: #ac3030;
   --inspector-shadow: rgba(29, 47, 65, 0.13);
 }
@@ -120,6 +123,11 @@ body {
 #root {
   width: 100%;
   min-height: 100vh;
+}
+
+a {
+  color: var(--link-color);
+  text-underline-offset: 0.18em;
 }
 
 /* ---------- Shell ---------- */
@@ -567,7 +575,7 @@ body {
 
 .primary-btn {
   background: var(--accent-color);
-  color: white;
+  color: var(--on-accent);
   border: none;
   padding: 0.5rem 1.1rem;
   border-radius: 8px;
@@ -611,6 +619,40 @@ body {
 .ghost-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* カードの主な操作。塗りつぶさず、アクセントの淡い面で示す */
+.ghost-btn.is-primary {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent-text-strong);
+}
+
+.ghost-btn.is-primary:hover:not(:disabled) {
+  border-color: var(--accent-color);
+  background: rgba(var(--accent-rgb), 0.22);
+  color: var(--accent-text-strong);
+}
+
+/* 取り消せない・消える操作。赤は文字だけにとどめる */
+.ghost-btn.is-danger {
+  color: var(--danger-soft);
+}
+
+.ghost-btn.is-danger:hover:not(:disabled) {
+  color: var(--danger-soft);
+  border-color: var(--danger-soft);
+}
+
+/* いつも見えている削除操作は、触れたときだけ赤くする */
+.ghost-btn.is-danger-on-hover:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--danger-soft);
+  border-color: var(--danger-soft);
+}
+
+:is(.primary-btn, .ghost-btn, .icon-btn):focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .icon-btn {
@@ -2246,6 +2288,18 @@ body {
   white-space: nowrap;
 }
 
+/* 狭い画面ではキーを説明の上に置き、長いキーの組み合わせが説明に重ならないようにする */
+@media (max-width: 640px) {
+  .help-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.1rem;
+  }
+
+  .help-keys {
+    white-space: normal;
+  }
+}
+
 .help-label {
   color: var(--text-secondary);
 }
@@ -2828,6 +2882,17 @@ button.mascot-idle-thought:focus-visible { outline: 2px solid var(--focus-outlin
     display: none;
   }
 
+  /* 足もとの操作は折り返しても同じ幅で並べる */
+  .tasks-footer-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    width: 100%;
+  }
+
+  .tasks-footer-actions .ghost-btn {
+    min-height: 2.5rem;
+  }
+
   .row-meta {
     grid-template-columns: 16px 18px 40px 16px;
     column-gap: 0.35rem;
@@ -2907,9 +2972,15 @@ button.mascot-idle-thought:focus-visible { outline: 2px solid var(--focus-outlin
   }
 }
 
-@media (max-width: 360px) {
+/*
+ * ブランド・ナビ・設定・アカウントが1行に収まらない幅では2行にする。
+ * 上下の余白を詰め、2行でも1行のときと同じ高さ（ツールバーの吸着位置 3.9rem）に収める。
+ */
+@media (max-width: 440px) {
   .app-header {
     flex-wrap: wrap;
+    row-gap: 0;
+    padding-block: 0.2rem;
   }
 
   .app-header-end {
@@ -2917,8 +2988,8 @@ button.mascot-idle-thought:focus-visible { outline: 2px solid var(--focus-outlin
     justify-content: space-between;
   }
 
-  .page {
-    --toolbar-sticky-top: 5.5rem;
+  .app-nav {
+    gap: 0.75rem;
   }
 }
 /* ---------- 詳細パネル ---------- */
@@ -3256,10 +3327,7 @@ button.mascot-idle-thought:focus-visible { outline: 2px solid var(--focus-outlin
   gap: 0.4rem;
 }
 
-.inspector-remove:hover {
-  color: var(--danger-color);
-  border-color: var(--danger-color);
-}
+
 
 .inspector :is(button, a):focus-visible {
   outline: 2px solid var(--focus-outline);

@@ -1262,7 +1262,7 @@ function TasksPageContent() {
             </button>
             <button
               type="button"
-              className="ghost-btn"
+              className="ghost-btn is-danger-on-hover"
               onClick={clearCompleted}
               disabled={!canClearCompleted}
               title="完了したタスクを削除（⌥⇧C）"
