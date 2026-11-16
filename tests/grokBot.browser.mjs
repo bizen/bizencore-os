@@ -168,6 +168,7 @@ try {
   const urlInput = dialog.getByLabel('POST to（URL）');
   const keyInput = dialog.getByLabel('key（呼び出しキー）');
   const webhookUrl = 'https://api2.cursor.sh/automations/webhook/press';
+  await urlInput.waitFor();
   assert.ok(await urlInput.evaluate(node => node.getBoundingClientRect().width > 0.8 * node.closest('form').getBoundingClientRect().width));
   await urlInput.fill(webhookUrl);
   await keyInput.fill('wrong-key');
