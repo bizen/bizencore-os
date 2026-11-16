@@ -67,7 +67,7 @@ const { outputFiles } = await build({
   stdin: { loader: 'tsx', resolveDir: process.cwd(), contents: `
     import {createRoot} from 'react-dom/client';
     import {BrowserRouter, Routes, Route} from 'react-router-dom';
-    import {TaskWorkInbox, TaskWorkInboxLink, TaskWorkSection} from './src/components/task/TaskWork';
+    import {MainBotPatrolSettings, TaskWorkInbox, TaskWorkInboxLink, TaskWorkSection} from './src/components/task/TaskWork';
     import {LabelGrokBotMark, LabelGrokBotProvider, VpGrokBotSettings} from './src/components/task/LabelGrokBot';
     import {GrokBotAuthorizePage} from './src/pages/GrokBotAuthorizePage';
     window.listeners = new Set();
@@ -81,6 +81,7 @@ const { outputFiles } = await build({
       <TaskWorkInboxLink/><Routes>
         <Route path="/inbox" element={<TaskWorkInbox/>}/>
         <Route path="/grok-bot/authorize" element={<GrokBotAuthorizePage/>}/>
+        <Route path="/patrol" element={<MainBotPatrolSettings/>}/>
         <Route path="/vp" element={<section className="settings-section"><h3>VP（Grok Bot）</h3>
           <div className="settings-group settings-block"><VpGrokBotSettings/></div></section>}/>
         <Route path="/" element={<LabelGrokBotProvider>
@@ -136,8 +137,8 @@ async function decisionsAndReviews(width) {
   await page.evaluate(rows => { window.workRows = rows; }, workRows());
   await page.addScriptTag({ content: outputFiles[0].text });
   const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
-  await page.getByRole('link', { name: '受信箱 (3)' }).waitFor();
-  const focus = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  await page.getByRole('link', { name: '受信箱（対応待ち3件）' }).waitFor();
+  const focus = page.getByRole('region', { name: '次に対応する1件' });
   await focus.getByText('公開日を決めてください。', { exact: false }).waitFor();
   await focus.getByText('不可逆', { exact: true }).waitFor();
   await focus.getByRole('button', { name: '来週 推奨' }).waitFor();
@@ -147,12 +148,12 @@ async function decisionsAndReviews(width) {
   await focus.getByRole('button', { name: '推奨どおり' }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:reply');
   assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'choice', expectedUserId: 'alice', answer: '来週' });
-  const approval = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  const approval = page.getByRole('region', { name: '次に対応する1件' });
   await approval.getByText('見出しを「11月予定」に変えてよいですか。').waitFor();
   await approval.getByRole('button', { name: '却下' }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.args.id === 'approval');
   assert.equal(await page.evaluate(() => window.calls.at(-1).args.answer), '却下');
-  const review = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  const review = page.getByRole('region', { name: '次に対応する1件' });
   await review.getByText('公開日が未定のため「11月予定」と書きました。').waitFor();
   assert.equal(await review.getByRole('button', { name: '差し戻す' }).isDisabled(), true);
   await review.getByLabel('差し戻しの理由').fill('公開日は12月1日です。');
@@ -161,8 +162,9 @@ async function decisionsAndReviews(width) {
   assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), { name: 'grokBot:returnReview', args: { id: 'review', expectedUserId: 'alice', comment: '公開日は12月1日です。' } });
   await page.getByRole('button', { name: '担当Botに再通知' }).click();
   await page.getByRole('status').filter({ hasText: '差し戻し・反映待ち' }).waitFor();
-  await page.getByText('確認待ちはありません。').waitFor();
+  await page.getByText('いま対応が必要なものはありません。').waitFor();
   await page.getByRole('link', { name: '受信箱', exact: true }).waitFor();
+  assert.equal(await page.locator('.nav-count').count(), 0, 'the inbox link is quiet when nothing needs the human');
   await noOverflow();
   if (shots) await page.screenshot({ path: `${shots}/inbox-answered-${width}.png`, fullPage: true });
 
@@ -194,11 +196,14 @@ async function pullRequestAndMetrics(width) {
   await page.evaluate(([rows, figures]) => { window.workRows = rows; window.metrics = figures; }, [prReview(), metrics]);
   await page.addScriptTag({ content: outputFiles[0].text });
   const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
-  const focus = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  const focus = page.getByRole('region', { name: '次に対応する1件' });
   await focus.getByText('広報 · プルリクエストの確認').waitFor();
   const link = focus.getByRole('link', { name: 'example/press-site#128' });
   assert.equal(await link.getAttribute('href'), 'https://github.com/example/press-site/pull/128');
   await focus.getByText('a1b2c3d', { exact: true }).waitFor();
+  const merge = focus.getByRole('button', { name: '承認してマージを任せる' });
+  const note = await merge.evaluate(node => document.getElementById(node.getAttribute('aria-describedby'))?.textContent);
+  assert.match(note, /マージすると本番に公開されます/, 'approving a pull request says that merging publishes to production');
   assert.equal(await focus.getByRole('link', { name: 'https://github.com/example/press-site/pull/128' }).count(), 0, 'the PR link is shown once');
   await focus.getByRole('link', { name: 'https://example.test/preview/launch' }).waitFor();
   const strip = page.getByRole('region', { name: '直近7日' });
@@ -209,7 +214,7 @@ async function pullRequestAndMetrics(width) {
   await focus.getByRole('button', { name: '承認してマージを任せる' }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:approveReview');
   assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'pr', expectedUserId: 'alice' });
-  await page.getByText('確認待ちはありません。').waitFor();
+  await page.getByText('いま対応が必要なものはありません。').waitFor();
   const waiting = page.getByRole('listitem').filter({ hasText: '承認済み・Botのマージ待ち' });
   await waiting.getByRole('link', { name: 'example/press-site#128' }).waitFor();
   assert.ok(await page.evaluate(() => [...document.querySelectorAll('h2')].some(node => node.textContent === 'Botの反映待ち')));
@@ -225,7 +230,7 @@ async function pullRequestAndMetrics(width) {
 
   await page.getByRole('link', { name: '告知文' }).first().click();
   await page.getByLabel('Grok Botの関わり方').waitFor();
-  await page.getByText('業務連絡', { exact: true }).waitFor();
+  await page.getByText('Botとのやりとり', { exact: true }).waitFor();
   await page.getByRole('status').filter({ hasText: '承認済み・Botのマージ待ち' }).waitFor();
   await page.getByRole('link', { name: 'example/press-site#128' }).waitFor();
   await noOverflow();
@@ -240,9 +245,11 @@ async function proposalsAndDeferral(width) {
   const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
   const section = page.getByRole('region', { name: /^提案/ });
   await section.waitFor();
-  await page.getByRole('link', { name: '受信箱 (3)' }).waitFor();
-  const focus = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  await page.getByRole('link', { name: '受信箱（対応待ち3件）' }).waitFor();
+  const focus = page.getByRole('region', { name: '次に対応する1件' });
   assert.equal(await focus.getByText('提案').count(), 0, 'a proposal never takes the most-blocking slot');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.task-work-inbox h2')].map(node => node.firstChild.textContent.trim())),
+    ['次に対応する1件', 'ほかの対応待ち', '提案', '直近7日'], 'the inbox reads bottleneck, other items, proposals, then metrics');
   assert.ok(await page.evaluate(() => {
     const [proposalsTop, focusTop] = ['.task-work-proposals', '.task-work-focus'].map(selector => document.querySelector(selector).getBoundingClientRect().top);
     const answered = [...document.querySelectorAll('h2')].find(node => node.textContent === 'Botの反映待ち');
@@ -269,7 +276,7 @@ async function proposalsAndDeferral(width) {
   await card('告知文').getByRole('button', { name: '採用' }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.args.id === 'later');
   await section.waitFor({ state: 'detached' });
-  await page.getByRole('link', { name: '受信箱 (3)' }).waitFor();
+  await page.getByRole('link', { name: '受信箱（対応待ち3件）' }).waitFor();
 
   await page.evaluate(() => { window.deferredUntil = '2026-12-01'; window.refresh(); });
   await page.getByRole('link', { name: '告知文' }).first().click();
@@ -353,12 +360,17 @@ try {
   });
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: outputFiles[0].text });
-  await page.getByRole('link', { name: '受信箱 (1)' }).waitFor();
+  await page.getByRole('link', { name: '受信箱（対応待ち1件）' }).waitFor();
+  assert.equal(await page.getByRole('checkbox', { name: '毎日巡回する' }).count(), 0, 'patrol schedules live in the connection settings, not the inbox');
+  const go = path => page.evaluate(path => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, path);
+  await go('/patrol');
+  await page.getByRole('heading', { name: 'メインBotの巡回' }).waitFor();
   await page.getByRole('checkbox', { name: '毎日巡回する' }).check();
   await page.getByLabel('巡回時刻').fill('04:25');
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.waitForFunction(() => window.schedule.time === '04:25' && window.schedule.enabled);
   assert.deepEqual(await page.evaluate(() => window.calls[0].args), { expectedUserId: 'alice', enabled: true, time: '04:25' });
+  await go('/inbox');
   await page.getByLabel('回答', { exact: true }).fill('11月予定で。');
   await page.getByRole('button', { name: '返信する' }).click();
   await page.getByRole('status').filter({ hasText: '回答済み・反映待ち' }).waitFor();

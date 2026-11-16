@@ -14,11 +14,12 @@ import { PartnerSettings } from './PartnerSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { AccountDeletionSetting } from './AccountDeletionSetting';
 import { VpGrokBotSettings } from './task/LabelGrokBot';
+import { MainBotPatrolSettings } from './task/TaskWork';
 
 function McpConnectionHistory() {
   const connections = useQuery(api.sync.listMcpConnections);
 
-  if (connections === undefined) return <p className="settings-muted">読み込み中...</p>;
+  if (connections === undefined) return <p className="settings-muted">読み込み中…</p>;
   if (connections === null) return <p className="settings-muted">表示するにはサインインしてください。</p>;
   if (connections.length === 0) {
     return <p className="settings-muted">記録されたMCPの利用はまだありません。</p>;
@@ -339,6 +340,7 @@ export function SettingsPanel({
             <VpGrokBotSettings />
           </div>
         </section>
+        <MainBotPatrolSettings />
         <section
           className="settings-section"
           aria-labelledby="settings-mcp-title"

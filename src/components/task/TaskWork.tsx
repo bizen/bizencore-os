@@ -24,9 +24,12 @@ function useAccount() {
 function AuthenticatedInboxLink({ onClick }: { onClick?: () => void }) {
   const userId = useAccount();
   const inbox = useQuery(api.grokBot.inbox, userId ? { expectedUserId: userId } : 'skip');
+  const waiting = inbox?.pending.length ?? 0;
+  // Quiet when nothing needs the human; a small count when something does. Never a colour alarm.
   return inbox ? (
-    <NavLink to="/inbox" onClick={onClick} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-      受信箱{inbox.pending.length ? ` (${inbox.pending.length})` : ''}
+    <NavLink to="/inbox" onClick={onClick} aria-label={waiting ? `受信箱（対応待ち${waiting}件）` : undefined}
+      className={({ isActive }) => `nav-link nav-link--inbox${waiting ? ' has-waiting' : ''}${isActive ? ' active' : ''}`}>
+      受信箱{waiting ? <span className="nav-count" aria-hidden>{waiting}</span> : null}
     </NavLink>
   ) : null;
 }
@@ -42,31 +45,34 @@ export function TaskWorkInbox() {
 function AuthenticatedInbox() {
   const userId = useAccount();
   const inbox = useQuery(api.grokBot.inbox, userId ? { expectedUserId: userId } : 'skip');
-  const schedule = useQuery(api.grokBot.schedule, userId ? { expectedUserId: userId } : 'skip');
   const [first, ...rest] = inbox?.pending ?? [];
+  // Top to bottom: the one bottleneck, the rest needing me, quiet proposals, work waiting on Bots, then the 7-day figures.
+  // Patrol schedules live with the Bot connection settings, not here.
   return <section className="task-action-page task-work-inbox">
     <h1>受信箱</h1>
     {!userId ? <p>受信箱を見るにはサインインしてください。</p> :
       inbox === undefined ? <p role="status">読み込み中…</p> :
       inbox === null ? <p>Grok Botの担当ラベルが設定されていません。</p> :
       <>
-        <p role="status">{inbox.pending.length ? `${inbox.pending.length}件の確認待ち` : '確認待ちはありません。'}</p>
-        {first ? <section className="task-work-card task-work-focus" aria-label="いま最も詰まらせている1件">
-          <h2 className="task-work-heading">いま最も詰まらせている1件</h2>
+        <p role="status" className="task-work-summary">{inbox.pending.length ? `対応待ち ${inbox.pending.length}件` : 'いま対応が必要なものはありません。'}</p>
+        {first ? <section className="task-work-card task-work-focus" aria-labelledby="task-work-next">
+          <h2 className="task-work-heading" id="task-work-next">次に対応する1件</h2>
           <InboxItem key={first.id} row={first} userId={userId} />
         </section> : null}
-        {rest.length ? <ul className="task-work-list">
-          {rest.map(row => <li className="task-work-card" key={row.id}><InboxItem row={row} userId={userId} /></li>)}
-        </ul> : null}
+        {rest.length ? <section className="task-work-group" aria-labelledby="task-work-rest">
+          <h2 className="task-work-heading" id="task-work-rest">ほかの対応待ち <span className="task-work-count">{rest.length}</span></h2>
+          <ul className="task-work-list">
+            {rest.map(row => <li className="task-work-card" key={row.id}><InboxItem row={row} userId={userId} /></li>)}
+          </ul>
+        </section> : null}
         {inbox.proposals.length ? <Proposals rows={inbox.proposals} userId={userId} /> : null}
-        {inbox.answered.length ? <>
-          <h2 className="task-work-heading">Botの反映待ち</h2>
+        {inbox.answered.length ? <section className="task-work-group task-work-awaiting" aria-labelledby="task-work-awaiting">
+          <h2 className="task-work-heading" id="task-work-awaiting">Botの反映待ち</h2>
           <ul className="task-work-list">
             {inbox.answered.map(row => <li className="task-work-card" key={row.id}><InboxItem row={row} userId={userId} /></li>)}
           </ul>
-        </> : null}
+        </section> : null}
         <WorkMetrics metrics={inbox.metrics} />
-        {schedule ? <PatrolSettings key={`${userId}:${schedule.time}:${schedule.enabled}`} schedule={schedule} userId={userId} /> : null}
       </>}
   </section>;
 }
@@ -102,6 +108,7 @@ function Proposals({ rows, userId }: { rows: Proposal[]; userId: string }) {
   const [notice, setNotice] = useState('');
   return <section className="task-work-proposals" aria-labelledby="task-work-proposals">
     <h2 className="task-work-heading" id="task-work-proposals">提案 <span className="task-work-count">{rows.length}</span></h2>
+    <p className="task-work-hint">採用するまで何も変わりません。Botの手も止めません。</p>
     {notice ? <p role="status" className="task-work-status">{notice}</p> : null}
     <ul className="task-work-list">
       {rows.map(row => <li className="task-work-card" key={row.id}><ProposalItem row={row} userId={userId} onChanged={setNotice} /></li>)}
@@ -149,11 +156,28 @@ function ProposalItem({ row, userId, onChanged }: { row: Proposal; userId: strin
     {row.note ? <p className="task-work-text task-work-note">{row.note}</p> : null}
     <p className="task-work-text">{row.reason}</p>
     <div className="task-work-choices">
-      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => adopt(args)); }}>採用</button>
+      <button type="button" className={`ghost-btn${row.kind === 'delete' ? ' is-danger' : ''}`} disabled={busy} onClick={() => { void run(() => adopt(args)); }}>
+        {row.kind === 'delete' ? '採用して削除' : '採用'}</button>
       <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => dismiss(args)); }}>見送り</button>
     </div>
     {error ? <p role="alert" className="settings-error">{error}</p> : null}
   </>;
+}
+
+/** The main Bot's daily patrol, shown with the other Bot connection settings. Renders nothing without a main Bot. */
+export function MainBotPatrolSettings() {
+  return isCloudConfigured ? <AuthenticatedMainBotPatrol /> : null;
+}
+
+function AuthenticatedMainBotPatrol() {
+  const userId = useAccount();
+  const schedule = useQuery(api.grokBot.schedule, userId ? { expectedUserId: userId } : 'skip');
+  return userId && schedule ? <section className="settings-section" aria-labelledby="settings-main-patrol-title">
+    <h3 id="settings-main-patrol-title">メインBotの巡回</h3>
+    <div className="settings-group settings-block">
+      <PatrolSettings key={`${userId}:${schedule.time}:${schedule.enabled}`} schedule={schedule} userId={userId} heading={false} />
+    </div>
+  </section> : null;
 }
 
 export function LabelPatrolSettings({ labelId, vp, userId }: { labelId?: string; vp?: boolean; userId: string }) {
@@ -162,7 +186,7 @@ export function LabelPatrolSettings({ labelId, vp, userId }: { labelId?: string;
   return schedule ? <PatrolSettings key={`${schedule.time}:${schedule.enabled}`} schedule={schedule} userId={userId} target={target} /> : null;
 }
 
-function PatrolSettings({ schedule, userId, target }: { schedule: Schedule; userId: string; target?: { labelId?: string; vp?: true } }) {
+function PatrolSettings({ schedule, userId, target, heading = true }: { schedule: Schedule; userId: string; target?: { labelId?: string; vp?: true }; heading?: boolean }) {
   const save = useMutation(api.grokBot.saveSchedule);
   const [enabled, setEnabled] = useState(schedule.enabled);
   const [time, setTime] = useState(schedule.time);
@@ -186,15 +210,15 @@ function PatrolSettings({ schedule, userId, target }: { schedule: Schedule; user
   }
 
   const lastStatus = schedule.lastStatus === 'accepted' ? 'Grok Botが受付' : schedule.lastStatus === 'failed' ? '呼び出しに失敗' : '呼び出し中';
-  return <section className="task-work-patrol">
-    <h2>Grok Botの巡回</h2>
+  return <section className={`task-work-patrol${heading ? '' : ' is-embedded'}`}>
+    {heading ? <h2>Grok Botの巡回</h2> : null}
     <form onSubmit={event => { void submit(event); }}>
       <label><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> 毎日巡回する</label>
       <label> 巡回時刻 <input type="time" className="inspector-input" value={time} onChange={event => setTime(event.target.value)} required /></label>
-      <button type="submit" className="ghost-btn" disabled={busy || !changed}>保存</button>
+      <button type="submit" className="ghost-btn" disabled={busy || !changed}>{busy ? '保存中…' : '保存'}</button>
     </form>
-    <p>{schedule.timeZone ?? '設定でタイムゾーンを保存してください。'}</p>
-    {schedule.lastRunAt ? <p role="status">前回 {formatTime(schedule.lastRunAt, schedule.timeZone ?? undefined)} · {lastStatus}</p> : null}
+    <p className="task-work-hint">{schedule.timeZone ? `タイムゾーン ${schedule.timeZone}` : '先に 設定 › 一般 でタイムゾーンを保存してください。'}</p>
+    {schedule.lastRunAt ? <p role="status" className="task-work-hint">前回 {formatTime(schedule.lastRunAt, schedule.timeZone ?? undefined)} · {lastStatus}</p> : null}
     {error ? <p role="alert" className="settings-error">{error}</p> : null}
   </section>;
 }
@@ -214,13 +238,13 @@ function AuthenticatedTaskWork({ taskId }: { taskId: string }) {
     {deferredUntil ? <TaskDeferral taskId={taskId} userId={userId} until={deferredUntil} /> : null}
     {canReply ? <TaskDelegation key={userId} taskId={taskId} userId={userId} role={mayExecute ? reviewRequired ? 'checked' : 'execute' : 'review'} /> : null}
     {decisions.length ? <section className="inspector-section">
-      <h3 className="inspector-label">業務連絡</h3>
+      <h3 className="inspector-label">Botとのやりとり</h3>
       <ul className="task-work-list">{decisions.map(row => <li className="task-work-card" key={row.id}>
         <WorkItem key={userId} row={row} userId={userId} canReply={canReply && row.canReply} />
       </li>)}</ul>
     </section> : null}
     {results.length ? <section className="inspector-section">
-      <h3 className="inspector-label">作業結果</h3>
+      <h3 className="inspector-label">Botの作業報告</h3>
       <ul className="task-work-list">{results.map(row => <li className="task-work-card" key={row.id}>
         <span className="task-work-status">{row.status === 'complete' ? '完了報告' : '途中経過'} · {formatTime(row.createdAt)}</span>
         <p className="task-work-text">{row.text}</p>
@@ -269,7 +293,7 @@ function TaskDelegation({ taskId, userId, role }: { taskId: string; userId: stri
     }
   }
 
-  return <div className="inspector-prop">
+  return <div className="inspector-prop task-work-delegation">
     <label className="inspector-label" htmlFor={inputId}>Grok Botの関わり方</label>
     <select id={inputId} className="inspector-input task-work-role" value={role} disabled={busy}
       onChange={event => { void change(event.target.value as Role); }}>
@@ -307,8 +331,8 @@ function statusText(row: Omit<Work, 'canReply'>, canReply: boolean) {
     case 'superseded': return '承認後に新しいコミットで再提出';
     case 'merging': return canReply ? `承認済み・Botのマージ待ち${row.wakeStatus === 'failed' ? '・再開通知に失敗' : ''}` : '受付終了';
     case 'revised': return '差し戻し・反映済み';
-    case 'waiting': return canReply ? '要回答' : '受付終了';
-    case 'review': return canReply ? row.prHeadSha ? 'マージ前の確認待ち' : '完了の確認待ち' : '受付終了';
+    case 'waiting': return canReply ? '回答待ち' : '受付終了';
+    case 'review': return canReply ? row.prHeadSha ? 'マージ前の確認待ち' : '確認待ち' : '受付終了';
     case 'answered': return canReply ? `回答済み・${wake}` : '受付終了';
     case 'returned': return canReply ? `差し戻し・${wake}` : '受付終了';
     default: return '';
@@ -369,13 +393,15 @@ function WorkItem({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; user
     {row.answer ? <p className="task-work-text task-work-answer"><strong>{review ? '差し戻しの理由' : 'あなたの回答'}</strong>{'\n'}{row.answer}</p> : null}
     {open && !review && (choices.length || recommended) ? <div className="task-work-choices" role="group" aria-label="すぐに回答">
       {recommended ? <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void answer(recommended); }}>推奨どおり</button> : null}
-      {choices.map(choice => <button type="button" key={choice} className={`ghost-btn${choice === recommended ? ' is-recommended' : ''}`}
+      {choices.map(choice => <button type="button" key={choice} className={`ghost-btn${choice === recommended ? ' is-primary is-recommended' : ''}`}
         disabled={busy} onClick={() => { void answer(choice); }}>
         {choice}{choice === recommended ? <span className="task-work-badge">推奨</span> : null}
       </button>)}
     </div> : null}
     {open && review ? <div className="task-work-choices">
-      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => approve(args)); }}>{row.prHeadSha ? '承認してマージを任せる' : '承認して完了'}</button>
+      <button type="button" className="ghost-btn is-primary" disabled={busy} aria-describedby={row.prHeadSha ? `${inputId}-merge` : undefined}
+        onClick={() => { void run(() => approve(args)); }}>{row.prHeadSha ? '承認してマージを任せる' : '承認して完了'}</button>
+      {row.prHeadSha ? <p className="task-work-hint" id={`${inputId}-merge`}>承認すると、Botがこのコミットをマージします。マージすると本番に公開されます。</p> : null}
     </div> : null}
     {open ? <form className="task-work-reply" onSubmit={submit}>
       <label htmlFor={inputId}>{review ? '差し戻しの理由' : '回答'}</label>

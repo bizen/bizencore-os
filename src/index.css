@@ -233,12 +233,40 @@ a {
 }
 
 .nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   color: var(--text-secondary);
   text-decoration: none;
   font-size: 0.95rem;
   padding: 0.25rem 0.35rem;
   border-bottom: 2px solid transparent;
+  white-space: nowrap;
   transition: color 0.15s, border-color 0.15s;
+}
+
+.nav-link:focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 受信箱: 何も待っていなければ他のリンクと同じ静けさ。待っているときだけ件数を添える */
+.nav-link--inbox.has-waiting {
+  color: var(--text-primary);
+}
+
+.nav-count {
+  min-width: 1.3rem;
+  padding: 0 0.38rem;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.2);
+  color: var(--accent-text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3rem;
+  text-align: center;
 }
 
 .nav-link:hover {
@@ -3676,31 +3704,45 @@ a.context-title:hover {
 .notification-settings input[type="time"] { color: inherit; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 5px; padding: 0.3rem; }
 
 .task-work-list { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
-.task-work-card { min-width: 0; padding: 0.75rem; border: 1px solid rgba(var(--surface-rgb), 0.16); border-radius: 8px; overflow-wrap: anywhere; }
-.task-work-card h2, .task-work-card h3 { margin: 0 0 0.25rem; font-size: 1rem; }
-.task-work-heading { margin: 1.25rem 0 0.5rem; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; }
-.task-work-card.task-work-focus { margin-bottom: 1.25rem; border-color: var(--accent-color); border-inline-start-width: 3px; }
-.task-work-card .task-work-heading { margin: 0 0 0.35rem; }
+/* 対応待ちのカードは設定の面と同じ card-bg。提案は破線、Botの反映待ちは枠線だけでさらに静かに */
+.task-work-card { min-width: 0; padding: 0.75rem 0.85rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); overflow-wrap: anywhere; }
+.task-work-card h2, .task-work-card h3 { margin: 0 0 0.25rem; font-size: 1rem; font-weight: 600; line-height: 1.5; }
+.task-work-card h3 a { color: var(--text-primary); text-decoration-color: var(--border-color); }
+.task-work-card h3 a:hover { color: var(--link-color); text-decoration-color: currentColor; }
+.task-work-heading { margin: 1.5rem 0 0.5rem; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; }
+.task-work-inbox > .task-work-summary { margin: -0.5rem 0 1rem; font-size: 0.9rem; }
+.task-work-group { margin-top: 1.5rem; }
+.task-work-group > .task-work-heading { margin-top: 0; }
+.task-work-card.task-work-focus { margin-bottom: 0; border-color: rgba(var(--accent-rgb), 0.55); border-inline-start: 3px solid var(--accent-color); }
+.task-work-card .task-work-heading { margin: 0 0 0.35rem; color: var(--accent-text-strong); }
+.task-work-awaiting .task-work-card { background: transparent; border-color: var(--hairline); }
 .task-work-badge { display: inline-block; margin-inline-start: 0.4rem; padding: 0 0.35rem; border: 1px solid currentColor; border-radius: 4px; color: var(--text-primary); font-size: 0.7rem; font-weight: 600; line-height: 1.5; }
-.task-work-card .task-work-note { border-inline-start: 2px solid rgba(var(--surface-rgb), 0.24); padding-inline-start: 0.6rem; }
-.task-work-choices { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
-.task-work-choices .ghost-btn.is-recommended { border-color: var(--accent-color); color: var(--text-primary); }
+.task-work-card .task-work-note { border-inline-start: 2px solid var(--border-color); padding-inline-start: 0.6rem; }
+.task-work-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.6rem; }
 .task-work-choices .task-work-badge { color: inherit; font-weight: 500; }
 .task-work-status { color: var(--text-secondary); font-size: 0.75rem; }
 .task-work-card p.task-work-status { margin: 0 0 0.25rem; }
+:is(.task-work-card, .task-work-proposals, .task-work-patrol, .task-work-inbox) .task-work-hint { flex-basis: 100%; margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.75rem; line-height: 1.6; }
 .inspector-input.task-work-role { width: auto; max-width: 100%; justify-self: start; }
+/* 長いラベルが2行に折れないよう、選択欄はラベルの下に置く */
+.inspector-prop.task-work-delegation { grid-template-columns: minmax(0, 1fr); gap: 0.35rem; }
+.task-work-delegation .inspector-input.task-work-role { min-height: 2.25rem; font-family: inherit; }
 .task-work-card .task-work-text { margin: 0.4rem 0; color: var(--text-primary); white-space: pre-wrap; }
 .task-work-card .task-work-answer { border-inline-start: 2px solid var(--accent-color); padding-inline-start: 0.6rem; }
+/* 注記の見出しは本文より小さく、ラベルとして読ませる */
+.task-work-card :is(.task-work-note, .task-work-answer) > strong { color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
+.task-work-reply .inspector-note { min-height: 3.25rem; }
 .task-work-reply { display: grid; gap: 0.3rem; margin-top: 0.6rem; }
-.task-work-reply label { font-size: 0.8rem; }
+.task-work-reply label { color: var(--text-secondary); font-size: 0.75rem; }
 .task-work-reply .ghost-btn { justify-self: start; }
-.task-work-links { margin: 0.4rem 0 0; padding-inline-start: 1.2rem; }
+.task-work-links { margin: 0.4rem 0 0; padding-inline-start: 1.2rem; font-size: 0.85rem; }
 .task-work-proposals { margin-top: 1.5rem; }
-.task-work-proposals .task-work-heading { display: flex; align-items: center; gap: 0.4rem; }
-.task-work-count { color: var(--text-secondary); font-weight: 400; }
+.task-work-proposals .task-work-heading { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.15rem; }
+.task-work-proposals .task-work-hint { margin-bottom: 0.5rem; }
+.task-work-count { color: var(--text-secondary); font-weight: 400; font-variant-numeric: tabular-nums; }
 .task-work-proposals .task-work-list { gap: 0.5rem; }
-.task-work-proposals .task-work-card { padding: 0.55rem 0.7rem; border-style: dashed; border-color: rgba(var(--surface-rgb), 0.14); font-size: 0.875rem; }
-.task-work-proposals .task-work-card h3 { font-size: 0.9rem; font-weight: 600; }
+.task-work-proposals .task-work-card { padding: 0.55rem 0.75rem; border-style: dashed; background: transparent; font-size: 0.875rem; }
+.task-work-proposals .task-work-card h3 { font-size: 0.9rem; }
 .task-work-proposals .task-work-card .task-work-text { margin: 0.25rem 0; color: var(--text-secondary); }
 .task-work-proposals .task-work-choices { margin-top: 0.4rem; }
 .task-work-proposals .task-work-choices .ghost-btn { padding: 0.2rem 0.65rem; font-size: 0.8rem; }
@@ -3709,19 +3751,28 @@ a.context-title:hover {
 .task-work-deferral p { margin: 0; min-width: 0; font-size: 0.85rem; overflow-wrap: anywhere; }
 .task-work-deferral .task-work-badge { margin-inline-start: 0; }
 .task-work-deferral .settings-error { flex-basis: 100%; }
-.task-work-patrol { margin-top: 1.75rem; border-top: 1px solid rgba(var(--surface-rgb), 0.16); padding-top: 0.75rem; }
+.task-work-patrol { margin-top: 1.75rem; border-top: 1px solid var(--hairline); padding-top: 0.75rem; }
+.task-work-patrol.is-embedded { margin-top: 0; border-top: 0; padding-top: 0; }
 .task-work-patrol h2 { font-size: 1rem; margin-bottom: 0.5rem; }
-.task-work-patrol form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
-.task-work-patrol p { margin: 0.35rem 0; font-size: 0.85rem; }
+.task-work-patrol form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; font-size: 0.9rem; }
+.task-work-patrol form label { display: inline-flex; align-items: center; gap: 0.4rem; }
+.task-work-patrol input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent-color); }
+.task-work-patrol .inspector-input { min-height: 2.25rem; }
+.task-work-patrol .task-work-hint { margin-top: 0.5rem; }
 .task-work-card .task-work-pr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; margin: 0.4rem 0; font-size: 0.85rem; }
 .task-work-pr a { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
 .task-work-pr code { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary); }
-.task-work-metrics { margin-top: 1.5rem; }
+.task-work-metrics { margin-top: 2rem; padding-top: 0.25rem; border-top: 1px solid var(--hairline); }
 .task-work-metrics dl { display: flex; flex-wrap: wrap; gap: 0.5rem 1.75rem; margin: 0; }
 .task-work-metrics dl > div { min-width: 0; }
 .task-work-metrics dt { color: var(--text-secondary); font-size: 0.75rem; }
 .task-work-metrics dd { margin: 0.1rem 0 0; color: var(--text-primary); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 .task-work-metrics .task-work-count { font-size: 0.75rem; }
+@media (max-width: 640px) {
+  /* 指で押す操作は 40px 以上にそろえる */
+  :is(.task-work-choices, .task-work-reply, .task-work-patrol, .task-work-deferral) .ghost-btn { min-height: 2.5rem; }
+  .task-work-proposals .task-work-choices .ghost-btn { padding-inline: 0.85rem; }
+}
 
 .meta-grok {
   position: relative;
