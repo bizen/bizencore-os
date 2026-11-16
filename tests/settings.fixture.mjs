@@ -22,7 +22,7 @@ const { outputFiles } = await build({
     }
     createRoot(document.getElementById('root')).render(<Fixture/>);
   ` },
-  bundle: true, write: false, format: 'iife', jsx: 'automatic',
+  bundle: true, write: false, format: 'iife', jsx: 'automatic', loader: { '.png': 'dataurl' },
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': JSON.stringify({ VITE_CONVEX_URL: 'https://fixture.convex.cloud', VITE_CLERK_PUBLISHABLE_KEY: 'fixture' }) },
   plugins: [{ name: 'settings-fixture', setup(builder) {
     builder.onResolve({ filter: /^(@clerk\/clerk-react|convex\/react)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
@@ -47,6 +47,7 @@ const { outputFiles } = await build({
         window.fixtureNotify();
       };}
       export function useAction(){return async()=>{throw Error('Preview never deletes accounts');};}
+      export const useConvexAuth=()=>({isAuthenticated:true,isLoading:false});
     ` : `
       export const useAuth=()=>({isSignedIn:true,userId:'fixture-user'});
       export const SignedIn=({children})=>children;

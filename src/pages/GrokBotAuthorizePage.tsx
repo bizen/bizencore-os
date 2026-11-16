@@ -52,7 +52,9 @@ function Authorize({ connection }: { connection: Connection }) {
   if (!isAuthenticated || label === null) return <p>この接続を開けません。Terminalのアカウントを確認してください。</p>;
   if (label === undefined) return <p role="status">担当ラベルを確認中…</p>;
   return <>
-    <p>Grok Botに「{label.name}」のタスクの確認・起票と、判断依頼・結果の記録を許可します。</p>
+    <p>{'vp' in label && label.vp
+      ? 'Grok BotをVPとして、全ラベルと未仕分けのタスクの閲覧と、提案の送信を許可します。タスクを直接変更することはできません。'
+      : `Grok Botに「${label.name}」のタスクの確認・起票と、判断依頼・結果の記録を許可します。`}</p>
     <button type="button" className="primary-btn" disabled={busy} onClick={() => void allow()}>{busy ? '接続中…' : '接続を許可'}</button>
     {error && <p role="alert" className="settings-error">{error}</p>}
   </>;

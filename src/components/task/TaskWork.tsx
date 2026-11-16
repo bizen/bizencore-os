@@ -8,6 +8,7 @@ import { isCloudConfigured } from '../../lib/cloudConfig';
 
 type Work = NonNullable<FunctionReturnType<typeof api.grokBot.taskHistory>>['rows'][number];
 type Pending = NonNullable<FunctionReturnType<typeof api.grokBot.inbox>>['pending'][number];
+type Proposal = NonNullable<FunctionReturnType<typeof api.grokBot.inbox>>['proposals'][number];
 type Schedule = NonNullable<FunctionReturnType<typeof api.grokBot.schedule>>;
 const reviewStatuses: Work['status'][] = ['review', 'approved', 'returned', 'revised'];
 const isReview = (row: Pick<Work, 'status'>) => reviewStatuses.includes(row.status);
@@ -55,6 +56,7 @@ function AuthenticatedInbox() {
         {rest.length ? <ul className="task-work-list">
           {rest.map(row => <li className="task-work-card" key={row.id}><InboxItem row={row} userId={userId} /></li>)}
         </ul> : null}
+        {inbox.proposals.length ? <Proposals rows={inbox.proposals} userId={userId} /> : null}
         {inbox.answered.length ? <>
           <h2 className="task-work-heading">Botの反映待ち</h2>
           <ul className="task-work-list">
@@ -74,12 +76,75 @@ function InboxItem({ row, userId }: { row: Omit<Pending, 'stalled' | 'openTasks'
   </>;
 }
 
-export function LabelPatrolSettings({ labelId, userId }: { labelId: string; userId: string }) {
-  const schedule = useQuery(api.grokBot.schedule, { expectedUserId: userId, labelId });
-  return schedule ? <PatrolSettings key={`${schedule.time}:${schedule.enabled}`} schedule={schedule} userId={userId} labelId={labelId} /> : null;
+const proposalKinds: Record<Proposal['kind'], string> = { delete: '削除', defer: '延期', move: '仕分け', new_task: '新しいタスク' };
+const formatDay = (day: string) => day.replaceAll('-', '/');
+
+/** Bot ideas. Quieter than decisions: they never block a Bot and only change anything once adopted. */
+function Proposals({ rows, userId }: { rows: Proposal[]; userId: string }) {
+  const [notice, setNotice] = useState('');
+  return <section className="task-work-proposals" aria-labelledby="task-work-proposals">
+    <h2 className="task-work-heading" id="task-work-proposals">提案 <span className="task-work-count">{rows.length}</span></h2>
+    {notice ? <p role="status" className="task-work-status">{notice}</p> : null}
+    <ul className="task-work-list">
+      {rows.map(row => <li className="task-work-card" key={row.id}><ProposalItem row={row} userId={userId} onChanged={setNotice} /></li>)}
+    </ul>
+  </section>;
 }
 
-function PatrolSettings({ schedule, userId, labelId }: { schedule: Schedule; userId: string; labelId?: string }) {
+function proposalEffect(row: Proposal) {
+  switch (row.kind) {
+    case 'delete': return row.count && row.count > 1 ? `サブタスクを含む${row.count}件を削除` : '削除';
+    case 'defer': return `${formatDay(row.until ?? '')}まで延期（それまでBotの一覧に出ません）`;
+    case 'move': return `「${row.labelName ?? '見つからないラベル'}」へ移動`;
+    case 'new_task': return row.labelId ? `「${row.labelName ?? '見つからないラベル'}」に追加` : '未仕分けに追加';
+  }
+}
+
+function ProposalItem({ row, userId, onChanged }: { row: Proposal; userId: string; onChanged: (notice: string) => void }) {
+  const adopt = useMutation(api.grokBot.adoptProposal);
+  const dismiss = useMutation(api.grokBot.dismissProposal);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const subject = row.kind === 'new_task' ? row.title : row.taskTitle;
+  async function run(action: () => Promise<unknown>) {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await action();
+      if (result && typeof result === 'object' && 'status' in result && result.status === 'changed') {
+        onChanged(`「${subject ?? 'タスク'}」は提案のあとに変わったため、${proposalKinds[row.kind]}しませんでした。`);
+      }
+    } catch (error) {
+      const data = (error as { data?: unknown })?.data;
+      setError(typeof data === 'string' ? data : '送信できませんでした。もう一度お試しください。');
+    } finally {
+      setBusy(false);
+    }
+  }
+  const args = { id: row.id, expectedUserId: userId };
+  return <>
+    <p className="task-work-status">{row.vp ? 'VP' : `${row.proposer}のBot`} · {proposalKinds[row.kind]}の提案</p>
+    <h3>{row.kind === 'new_task' ? row.title : row.taskId && subject !== undefined
+      ? <Link to={`/?task=${encodeURIComponent(row.taskId)}`}>{subject}</Link> : '見つからないタスク'}</h3>
+    <p className="task-work-effect">{proposalEffect(row)}</p>
+    {row.note ? <p className="task-work-text task-work-note">{row.note}</p> : null}
+    <p className="task-work-text">{row.reason}</p>
+    <div className="task-work-choices">
+      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => adopt(args)); }}>採用</button>
+      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => dismiss(args)); }}>見送り</button>
+    </div>
+    {error ? <p role="alert" className="settings-error">{error}</p> : null}
+  </>;
+}
+
+export function LabelPatrolSettings({ labelId, vp, userId }: { labelId?: string; vp?: boolean; userId: string }) {
+  const target = vp ? { vp: true as const } : { labelId };
+  const schedule = useQuery(api.grokBot.schedule, { expectedUserId: userId, ...target });
+  return schedule ? <PatrolSettings key={`${schedule.time}:${schedule.enabled}`} schedule={schedule} userId={userId} target={target} /> : null;
+}
+
+function PatrolSettings({ schedule, userId, target }: { schedule: Schedule; userId: string; target?: { labelId?: string; vp?: true } }) {
   const save = useMutation(api.grokBot.saveSchedule);
   const [enabled, setEnabled] = useState(schedule.enabled);
   const [time, setTime] = useState(schedule.time);
@@ -93,7 +158,7 @@ function PatrolSettings({ schedule, userId, labelId }: { schedule: Schedule; use
     setBusy(true);
     setError('');
     try {
-      await save({ expectedUserId: userId, enabled, time, ...(labelId ? { labelId } : {}) });
+      await save({ expectedUserId: userId, enabled, time, ...target });
     } catch (error) {
       const data = (error as { data?: unknown })?.data;
       setError(typeof data === 'string' ? data : '巡回時刻を保存できませんでした。');
@@ -124,10 +189,11 @@ function AuthenticatedTaskWork({ taskId }: { taskId: string }) {
   const userId = useAccount();
   const data = useQuery(api.grokBot.taskHistory, userId ? { taskId, expectedUserId: userId } : 'skip');
   if (!userId || !data) return null;
-  const { rows, canReply, mayExecute, reviewRequired } = data;
+  const { rows, canReply, mayExecute, reviewRequired, deferredUntil } = data;
   const decisions = rows.filter(row => row.status === 'waiting' || row.status === 'answered' || row.status === 'applied' || isReview(row));
   const results = rows.filter(row => row.status === 'progress' || row.status === 'complete');
   return <>
+    {deferredUntil ? <TaskDeferral taskId={taskId} userId={userId} until={deferredUntil} /> : null}
     {canReply ? <TaskDelegation key={userId} taskId={taskId} userId={userId} role={mayExecute ? reviewRequired ? 'checked' : 'execute' : 'review'} /> : null}
     {decisions.length ? <section className="inspector-section">
       <h3 className="inspector-label">業務連絡</h3>
@@ -144,6 +210,24 @@ function AuthenticatedTaskWork({ taskId }: { taskId: string }) {
       </li>)}</ul>
     </section> : null}
   </>;
+}
+
+function TaskDeferral({ taskId, userId, until }: { taskId: string; userId: string; until: string }) {
+  const cancel = useMutation(api.grokBot.cancelDeferral);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return <div className="inspector-prop task-work-deferral">
+    <p><span className="task-work-badge">延期</span> {formatDay(until)}まで。それまでGrok Botの一覧に出ません。</p>
+    <button type="button" className="ghost-btn" disabled={busy} onClick={() => {
+      setBusy(true);
+      setError('');
+      cancel({ expectedUserId: userId, taskId }).catch(() => {
+        setError('延期を取り消せませんでした。もう一度お試しください。');
+        setBusy(false);
+      });
+    }}>延期を取り消す</button>
+    {error ? <p role="alert" className="settings-error">{error}</p> : null}
+  </div>;
 }
 
 type Role = 'review' | 'execute' | 'checked';

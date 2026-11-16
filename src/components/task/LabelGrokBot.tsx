@@ -54,6 +54,32 @@ export function LabelGrokBotMark({ labelId, labelName, onFocus }: { labelId: str
   </>;
 }
 
+/** The user's VP: one cross-label Bot that only reads and proposes. Managed from settings with the label connection UI. */
+export function VpGrokBotSettings() {
+  return isCloudConfigured ? <CloudVpSettings /> : <p className="settings-muted">クラウド接続が設定されていません。</p>;
+}
+
+function CloudVpSettings() {
+  const { userId: subject } = useAuth();
+  const { isAuthenticated } = useConvexAuth();
+  const userId = isAuthenticated ? subject ?? null : null;
+  const vp = useQuery(api.grokBot.vp, userId ? { expectedUserId: userId } : 'skip');
+  const [credential, setCredential] = useState<{ userId: string; token: string }>();
+  const token = credential?.userId === userId && !vp?.connectorConnected ? credential.token : '';
+  return <div className="label-bot-vp">
+    <p className="settings-muted">VPは全ラベルと未仕分けのタスクを見て、削除・延期・仕分け・新しいタスクを提案するだけの枠です。自分では何も変更できず、受信箱の「提案」で採用したものだけが反映されます。</p>
+    {!userId ? <p className="settings-muted">VPを接続するには、Terminalにサインインしてください。</p> :
+      vp === undefined ? <p role="status">接続状況を読み込んでいます…</p> : <>
+        {vp ? <div className="label-bot-heading">
+          <BotAvatar assignment={vp} size={28} />
+          <div><h4>VP</h4><p>{vp.connected ? '全ラベルを見て提案します' : '接続を続けてください'}</p></div>
+        </div> : null}
+        <AssignmentSettings vp labelId="" labelName="VP" userId={userId} assignment={vp ?? undefined} token={token}
+          onToken={next => setCredential(next ? { userId, token: next } : undefined)} />
+      </>}
+  </div>;
+}
+
 function BotAvatar({ assignment, size }: { assignment?: Assignment; size: number }) {
   const [failedImage, setFailedImage] = useState<string>();
   const skin = assignment?.skin;
@@ -87,18 +113,21 @@ const grokBotTemplateUrl = 'https://x.ai/bot/hPGmSCsPi8Y_tUpPjDjwl';
 const routineName = 'Terminalからの依頼';
 const terminalOrigin = () => location.protocol === 'https:' ? location.origin : 'https://app.bizencore.com';
 
-function routineInstructions(name: string) {
-  return `Create or update and enable a webhook routine named "${name}" using that connector. On connection_check exit without work. On patrol check answered tasks first. On reply use task_id and question_id. Review by default, execute only if bot_role=execute, and record results in Terminal. Reply in Japanese with the routine's webhook settings link. Ask me to paste POST to and key into Terminal. Never put the key in chat.`;
+function routineInstructions(name: string, vp?: boolean) {
+  const work = vp
+    ? 'On patrol read all_tasks and propose only a few high-value ideas; never act on tasks.'
+    : 'On patrol check answered tasks first. On reply use task_id and question_id. Review by default, execute only if bot_role=execute, and record results in Terminal.';
+  return `Create or update and enable a webhook routine named "${name}" using that connector. On connection_check exit without work. ${work} Reply in Japanese with the routine's webhook settings link. Ask me to paste POST to and key into Terminal. Never put the key in chat.`;
 }
 
-function guidedSetup(assignmentId: string, labelName: string, connectorName: string, webhookConfigured: boolean, botId: string) {
+function guidedSetup(assignmentId: string, labelName: string, connectorName: string, webhookConfigured: boolean, botId: string, vp?: boolean) {
   const endpoint = `${terminalOrigin()}/grok-bot/mcp/${assignmentId}`;
   const label = JSON.stringify(Array.from(labelName).slice(0, 32).join(''));
   const prompt = [
-    `Set up bizencore Terminal for label ${label}. Add or reconnect the custom MCP connector ${JSON.stringify(connectorName)} at ${endpoint}. Show the OAuth authorization card. Use assigned_tasks to verify access after approval.`,
+    `${vp ? 'Set up bizencore Terminal as my VP: read every label, propose only.' : `Set up bizencore Terminal for label ${label}.`} Add or reconnect the custom MCP connector ${JSON.stringify(connectorName)} at ${endpoint}. Show the OAuth authorization card. Use ${vp ? 'all_tasks' : 'assigned_tasks'} to verify access after approval.`,
     webhookConfigured
       ? 'Keep the existing routine and confirm in Japanese.'
-      : routineInstructions(`${routineName} · ${assignmentId.slice(-8)}`),
+      : routineInstructions(`${routineName} · ${assignmentId.slice(-8)}`, vp),
   ].join(' ');
   const link = new URL('grokbot://app/v1/prompt');
   if (botId) link.searchParams.set('id', botId);
@@ -144,8 +173,8 @@ async function prepareSkin(file: File) {
   }
 }
 
-function AssignmentSettings({ labelId, labelName, userId, assignment, token, onToken }: {
-  labelId: string; labelName: string; userId: string; assignment?: Assignment; token: string; onToken: (token: string) => void;
+function AssignmentSettings({ labelId, labelName, userId, assignment, token, onToken, vp }: {
+  labelId: string; labelName: string; userId: string; assignment?: Assignment; token: string; onToken: (token: string) => void; vp?: boolean;
 }) {
   const add = useMutation(api.grokBot.addAssignment);
   const connect = useAction(api.grokBot.connectAssignmentWebhook);
@@ -162,7 +191,7 @@ function AssignmentSettings({ labelId, labelName, userId, assignment, token, onT
   useEffect(() => {
     if (connectorConnected) setOpenRoutine(true);
   }, [connectorConnected]);
-  const args = { expectedUserId: userId, labelId };
+  const args = vp ? { expectedUserId: userId, vp: true as const } : { expectedUserId: userId, labelId };
 
   async function perform(work: () => Promise<unknown>) {
     if (busy) return;
@@ -198,14 +227,14 @@ function AssignmentSettings({ labelId, labelName, userId, assignment, token, onT
     <a href="https://x.ai/bot" target="_blank" rel="noopener noreferrer">Grok Botを入手</a>
   </div>;
   if (!assignment) return <div className="label-bot-intro">
-    <p>{botId ? '選んだBot' : 'メインBot'}に、このラベルの確認・監査を任せます。</p>
+    <p>{botId ? '選んだBot' : 'メインBot'}に、{vp ? '全体を見て提案するVPを任せます。' : 'このラベルの確認・監査を任せます。'}</p>
     <button type="button" className="primary-btn label-bot-open" disabled={busy || invalidBotLink} onClick={() => {
       if (busy) return;
       const handoff = location.protocol === 'https:' ? window.open('about:blank', '_blank') : null;
       void perform(async () => {
         try {
           const id = await add({ ...args, token: grokBotRandomCode() });
-          const setup = guidedSetup(id, labelName, `Terminal ${id.slice(-8)}`, false, botId);
+          const setup = guidedSetup(id, labelName, `Terminal ${id.slice(-8)}`, false, botId, vp);
           if (handoff && !handoff.closed) {
             handoff.opener = null;
             handoff.location.href = setup.webLink;
@@ -226,12 +255,12 @@ function AssignmentSettings({ labelId, labelName, userId, assignment, token, onT
   </div>;
 
   const setup = assignment.id ? guidedSetup(assignment.id, labelName,
-    `Terminal ${assignment.id.slice(-8)}`, assignment.webhookConfigured, botId) : null;
+    `Terminal ${assignment.id.slice(-8)}`, assignment.webhookConfigured, botId, vp) : null;
 
   return <>
     {assignment.connected ? <>
       <p className="label-bot-status" role="status"><Check size={16} aria-hidden />接続済み</p>
-      <LabelPatrolSettings labelId={labelId} userId={userId} />
+      {vp ? <LabelPatrolSettings vp userId={userId} /> : <LabelPatrolSettings labelId={labelId} userId={userId} />}
       {assignment.id && <label className="label-bot-skin">{assignment.skin ? 'スキン画像を変更' : 'スキン画像を追加'}
         <input type="file" accept={skinFileTypes} disabled={busy} onChange={event => {
           const file = event.currentTarget.files?.[0];
@@ -281,13 +310,13 @@ function AssignmentSettings({ labelId, labelName, userId, assignment, token, onT
           await remove(args);
           onToken('');
           setShowManual(false);
-        })}>割り当てを解除</button>
+        })}>{vp ? 'VPを外す' : '割り当てを解除'}</button>
       </div>
       {showManual && !assignment.connectorConnected && <>
         {token ? <ConnectorSettings token={token} connectorName={assignment.connectorName} /> :
           <button type="button" className="ghost-btn" disabled={busy} onClick={resetConnection}>接続キーを再発行</button>}
         {assignment.connectorName && !assignment.webhookConfigured &&
-          <CopySetupValue value={`Use the Terminal connector ${JSON.stringify(assignment.connectorName)}. ${routineInstructions(`${routineName} · ${labelId.slice(-8)}`)}`} label="手動設定の依頼文をコピー" />}
+          <CopySetupValue value={`Use the Terminal connector ${JSON.stringify(assignment.connectorName)}. ${routineInstructions(`${routineName} · ${vp ? 'VP' : labelId.slice(-8)}`, vp)}`} label="手動設定の依頼文をコピー" />}
       </>}
     </details>}
   </>;

@@ -13,6 +13,7 @@ import { SETTINGS_PAGES, findSettingsPages, type SettingsPage } from '../lib/set
 import { PartnerSettings } from './PartnerSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { AccountDeletionSetting } from './AccountDeletionSetting';
+import { VpGrokBotSettings } from './task/LabelGrokBot';
 
 function McpConnectionHistory() {
   const connections = useQuery(api.sync.listMcpConnections);
@@ -329,6 +330,15 @@ export function SettingsPanel({
     ),
     connections: (
       <>
+        <section
+          className="settings-section"
+          aria-labelledby="settings-vp-title"
+        >
+          <h3 id="settings-vp-title">VP（Grok Bot）</h3>
+          <div className="settings-group settings-block">
+            <VpGrokBotSettings />
+          </div>
+        </section>
         <section
           className="settings-section"
           aria-labelledby="settings-mcp-title"

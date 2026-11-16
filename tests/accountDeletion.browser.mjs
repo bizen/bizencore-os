@@ -19,7 +19,7 @@ const { outputFiles } = await build({
     createRoot(document.getElementById('root')).render(<AccountDeletionBoundary>
       <div id="editable-app">Editing enabled</div><SettingsPanel onClose={() => {}} theme="black" onThemeChange={() => {}} />
     </AccountDeletionBoundary>);
-  ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic',
+  ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', loader: { '.png': 'dataurl' },
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': JSON.stringify({ VITE_CONVEX_URL: 'https://fixture.convex.cloud', VITE_CLERK_PUBLISHABLE_KEY: 'fixture' }) },
   plugins: [{ name: 'isolated-deletion', setup(builder) {
     builder.onResolve({ filter: /^(@clerk\/clerk-react|convex\/react)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
@@ -36,6 +36,7 @@ const { outputFiles } = await build({
         return null;
       }
       export function useMutation() { return async () => { throw new Error('unrelated mutation'); }; }
+      export const useConvexAuth = () => ({ isAuthenticated: true, isLoading: false });
       export function useAction(ref) { return args => {
         const f = globalThis.fixture; f.calls.push({ name: getFunctionName(ref), args });
         return new Promise((resolve, reject) => { f.resolve = resolve; f.reject = reject; });

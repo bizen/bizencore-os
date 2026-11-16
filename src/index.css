@@ -3627,6 +3627,20 @@ a.context-title:hover {
 .task-work-reply label { font-size: 0.8rem; }
 .task-work-reply .ghost-btn { justify-self: start; }
 .task-work-links { margin: 0.4rem 0 0; padding-inline-start: 1.2rem; }
+.task-work-proposals { margin-top: 1.5rem; }
+.task-work-proposals .task-work-heading { display: flex; align-items: center; gap: 0.4rem; }
+.task-work-count { color: var(--text-secondary); font-weight: 400; }
+.task-work-proposals .task-work-list { gap: 0.5rem; }
+.task-work-proposals .task-work-card { padding: 0.55rem 0.7rem; border-style: dashed; border-color: rgba(var(--surface-rgb), 0.14); font-size: 0.875rem; }
+.task-work-proposals .task-work-card h3 { font-size: 0.9rem; font-weight: 600; }
+.task-work-proposals .task-work-card .task-work-text { margin: 0.25rem 0; color: var(--text-secondary); }
+.task-work-proposals .task-work-choices { margin-top: 0.4rem; }
+.task-work-proposals .task-work-choices .ghost-btn { padding: 0.2rem 0.65rem; font-size: 0.8rem; }
+.task-work-card .task-work-effect { margin: 0.15rem 0; color: var(--text-primary); font-size: 0.8rem; }
+.task-work-deferral { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }
+.task-work-deferral p { margin: 0; min-width: 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+.task-work-deferral .task-work-badge { margin-inline-start: 0; }
+.task-work-deferral .settings-error { flex-basis: 100%; }
 .task-work-patrol { margin-top: 1.75rem; border-top: 1px solid rgba(var(--surface-rgb), 0.16); padding-top: 0.75rem; }
 .task-work-patrol h2 { font-size: 1rem; margin-bottom: 0.5rem; }
 .task-work-patrol form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }

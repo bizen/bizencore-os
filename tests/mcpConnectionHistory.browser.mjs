@@ -25,7 +25,7 @@ const { outputFiles } = await build({
     globalThis.fixtureRevision = 0; globalThis.fixtureListeners = new Set();
     globalThis.fixtureSetRows = rows => { globalThis.fixtureRows = rows; globalThis.fixtureRevision++; globalThis.fixtureListeners.forEach(fn => fn()); };
     createRoot(document.getElementById('root')).render(<SettingsPanel onClose={() => {}} theme="black" onThemeChange={() => {}} />);
-  ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic',
+  ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', loader: { '.png': 'dataurl' },
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': JSON.stringify({ VITE_CONVEX_URL: 'https://fixture.convex.cloud', VITE_CLERK_PUBLISHABLE_KEY: 'fixture' }) },
   plugins: [{ name: 'isolated-connection-history', setup(builder) {
     builder.onResolve({ filter: /^(@clerk\/clerk-react|convex\/react)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
@@ -42,6 +42,7 @@ const { outputFiles } = await build({
       }
       export function useMutation() { return async () => { throw new Error('Mutations are not allowed in this fixture'); }; }
       export const useAction = useMutation;
+      export const useConvexAuth = () => ({ isAuthenticated: true, isLoading: false });
     ` : `
       export const SignedIn = ({ children }) => children;
       export const SignedOut = () => null;
