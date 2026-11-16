@@ -3645,6 +3645,15 @@ a.context-title:hover {
 .task-work-patrol h2 { font-size: 1rem; margin-bottom: 0.5rem; }
 .task-work-patrol form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
 .task-work-patrol p { margin: 0.35rem 0; font-size: 0.85rem; }
+.task-work-card .task-work-pr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; margin: 0.4rem 0; font-size: 0.85rem; }
+.task-work-pr a { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.task-work-pr code { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary); }
+.task-work-metrics { margin-top: 1.5rem; }
+.task-work-metrics dl { display: flex; flex-wrap: wrap; gap: 0.5rem 1.75rem; margin: 0; }
+.task-work-metrics dl > div { min-width: 0; }
+.task-work-metrics dt { color: var(--text-secondary); font-size: 0.75rem; }
+.task-work-metrics dd { margin: 0.1rem 0 0; color: var(--text-primary); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.task-work-metrics .task-work-count { font-size: 0.75rem; }
 
 .meta-grok {
   position: relative;

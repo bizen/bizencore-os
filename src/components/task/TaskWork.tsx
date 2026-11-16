@@ -5,12 +5,14 @@ import { Link, NavLink } from 'react-router-dom';
 import type { FunctionReturnType } from 'convex/server';
 import { api } from '../../../convex/_generated/api';
 import { isCloudConfigured } from '../../lib/cloudConfig';
+import { formatDuration, pullRequest } from '../../lib/grokBotWork';
 
 type Work = NonNullable<FunctionReturnType<typeof api.grokBot.taskHistory>>['rows'][number];
 type Pending = NonNullable<FunctionReturnType<typeof api.grokBot.inbox>>['pending'][number];
 type Proposal = NonNullable<FunctionReturnType<typeof api.grokBot.inbox>>['proposals'][number];
+type Metrics = NonNullable<FunctionReturnType<typeof api.grokBot.inbox>>['metrics'];
 type Schedule = NonNullable<FunctionReturnType<typeof api.grokBot.schedule>>;
-const reviewStatuses: Work['status'][] = ['review', 'approved', 'returned', 'revised'];
+const reviewStatuses: Work['status'][] = ['review', 'approved', 'returned', 'revised', 'merging', 'merged', 'superseded'];
 const isReview = (row: Pick<Work, 'status'>) => reviewStatuses.includes(row.status);
 
 function useAccount() {
@@ -63,6 +65,7 @@ function AuthenticatedInbox() {
             {inbox.answered.map(row => <li className="task-work-card" key={row.id}><InboxItem row={row} userId={userId} /></li>)}
           </ul>
         </> : null}
+        <WorkMetrics metrics={inbox.metrics} />
         {schedule ? <PatrolSettings key={`${userId}:${schedule.time}:${schedule.enabled}`} schedule={schedule} userId={userId} /> : null}
       </>}
   </section>;
@@ -70,10 +73,25 @@ function AuthenticatedInbox() {
 
 function InboxItem({ row, userId }: { row: Omit<Pending, 'stalled' | 'openTasks'> & { stalled?: boolean }; userId: string }) {
   return <>
-    <p className="task-work-status">{row.label} · {isReview(row) ? '完了の確認' : '判断依頼'}{row.stalled ? ' · Botの手が止まっています' : ''}</p>
+    <p className="task-work-status">{row.label} · {isReview(row) ? row.prUrl ? 'プルリクエストの確認' : '完了の確認' : '判断依頼'}{row.stalled ? ' · Botの手が止まっています' : ''}</p>
     <h3><Link to={`/?task=${encodeURIComponent(row.taskId)}`}>{row.title}</Link></h3>
     <WorkItem key={userId} row={row} userId={userId} canReply />
   </>;
+}
+
+/** Quiet outcome figures for the last 7 days. Not a score: no colours, no streaks. */
+function WorkMetrics({ metrics }: { metrics: Metrics }) {
+  const none = '—';
+  return <section className="task-work-metrics" aria-labelledby="task-work-metrics">
+    <h2 className="task-work-heading" id="task-work-metrics">直近7日</h2>
+    <dl>
+      <div><dt>回答までの時間（中央値）</dt><dd>{metrics.medianAnswerMs === null ? none : formatDuration(metrics.medianAnswerMs)}</dd></div>
+      <div><dt>差し戻し率</dt><dd>{metrics.returnRate === null ? none : <>{Math.round(metrics.returnRate * 100)}%
+        <span className="task-work-count"> {metrics.returned}/{metrics.reviewed}件</span></>}</dd></div>
+      <div><dt>前に進んだ件数</dt><dd>{metrics.forwardWeek ? <>{metrics.forwardWeek}件
+        <span className="task-work-count"> 今日 {metrics.forwardToday}件</span></> : none}</dd></div>
+    </dl>
+  </section>;
 }
 
 const proposalKinds: Record<Proposal['kind'], string> = { delete: '削除', defer: '延期', move: '仕分け', new_task: '新しいタスク' };
@@ -265,10 +283,19 @@ function TaskDelegation({ taskId, userId, role }: { taskId: string; userId: stri
 
 const formatTime = (time: number, timeZone?: string) => new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short', timeZone }).format(time);
 
-function WorkLinks({ links }: { links?: string[] }) {
+function WorkLinks({ links: all, except }: { links?: string[]; except?: string }) {
+  const links = all?.filter(link => link !== except);
   return links?.length ? <ul className="task-work-links">{links.map(link =>
     <li key={link}><a href={link} target="_blank" rel="noopener noreferrer">{link}</a></li>
   )}</ul> : null;
+}
+
+function PullRequest({ url, sha }: { url: string; sha?: string }) {
+  return <p className="task-work-pr">
+    <span className="task-work-status">プルリクエスト</span>
+    <a href={url} target="_blank" rel="noopener noreferrer">{pullRequest(url)?.label ?? url}</a>
+    {sha ? <code title={sha}>{sha.slice(0, 7)}</code> : null}
+  </p>;
 }
 
 function statusText(row: Omit<Work, 'canReply'>, canReply: boolean) {
@@ -276,9 +303,12 @@ function statusText(row: Omit<Work, 'canReply'>, canReply: boolean) {
   switch (row.status) {
     case 'applied': return '反映済み';
     case 'approved': return '承認済み';
+    case 'merged': return '承認済み・マージ済み';
+    case 'superseded': return '承認後に新しいコミットで再提出';
+    case 'merging': return canReply ? `承認済み・Botのマージ待ち${row.wakeStatus === 'failed' ? '・再開通知に失敗' : ''}` : '受付終了';
     case 'revised': return '差し戻し・反映済み';
     case 'waiting': return canReply ? '要回答' : '受付終了';
-    case 'review': return canReply ? '完了の確認待ち' : '受付終了';
+    case 'review': return canReply ? row.prHeadSha ? 'マージ前の確認待ち' : '完了の確認待ち' : '受付終了';
     case 'answered': return canReply ? `回答済み・${wake}` : '受付終了';
     case 'returned': return canReply ? `差し戻し・${wake}` : '受付終了';
     default: return '';
@@ -296,7 +326,7 @@ function WorkItem({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; user
   const [error, setError] = useState('');
   const [retryReady, setRetryReady] = useState(false);
   const review = isReview(row);
-  const awaitsBot = row.status === 'answered' || row.status === 'returned';
+  const awaitsBot = row.status === 'answered' || row.status === 'returned' || row.status === 'merging';
   useEffect(() => {
     if (!awaitsBot || !row.wakeAt) return;
     const timer = setTimeout(() => setRetryReady(true), Math.max(0, row.wakeAt + 60_000 - Date.now()));
@@ -334,7 +364,8 @@ function WorkItem({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; user
     <p className="task-work-text">{row.text}</p>
     {recommended && !choices.includes(recommended) ? <p className="task-work-text task-work-note"><strong>推奨</strong>{'\n'}{recommended}</p> : null}
     {row.assumptions ? <p className="task-work-text task-work-note"><strong>Botが補った前提・判断</strong>{'\n'}{row.assumptions}</p> : null}
-    <WorkLinks links={row.links} />
+    {row.prUrl ? <PullRequest url={row.prUrl} sha={row.prHeadSha} /> : null}
+    <WorkLinks links={row.links} except={row.prUrl} />
     {row.answer ? <p className="task-work-text task-work-answer"><strong>{review ? '差し戻しの理由' : 'あなたの回答'}</strong>{'\n'}{row.answer}</p> : null}
     {open && !review && (choices.length || recommended) ? <div className="task-work-choices" role="group" aria-label="すぐに回答">
       {recommended ? <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void answer(recommended); }}>推奨どおり</button> : null}
@@ -344,7 +375,7 @@ function WorkItem({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; user
       </button>)}
     </div> : null}
     {open && review ? <div className="task-work-choices">
-      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => approve(args)); }}>承認して完了</button>
+      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => approve(args)); }}>{row.prHeadSha ? '承認してマージを任せる' : '承認して完了'}</button>
     </div> : null}
     {open ? <form className="task-work-reply" onSubmit={submit}>
       <label htmlFor={inputId}>{review ? '差し戻しの理由' : '回答'}</label>

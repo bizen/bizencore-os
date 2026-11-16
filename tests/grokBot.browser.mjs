@@ -17,8 +17,8 @@ export function useQuery(ref, args) {
   const rows = window.workRows ?? [row];
   switch (getFunctionName(ref)) {
     case 'grokBot:inbox': return { pending: rows.filter(row => row.status === 'waiting' || row.status === 'review'),
-      answered: rows.filter(row => row.status === 'answered' || row.status === 'returned').map(({ stalled: _stalled, openTasks: _open, ...row }) => row),
-      proposals: window.proposals ?? [] };
+      answered: rows.filter(row => ['answered', 'returned', 'merging'].includes(row.status)).map(({ stalled: _stalled, openTasks: _open, ...row }) => row),
+      proposals: window.proposals ?? [], metrics: window.metrics ?? { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0 } };
     case 'grokBot:schedule': return window.schedule;
     case 'grokBot:taskHistory': return { rows: (window.workRows ?? [row, window.result]).filter(Boolean).map(row => ({ ...row, canReply: true })),
       canReply: true, mayExecute: !!window.mayExecute, reviewRequired: !!window.reviewRequired, deferredUntil: window.deferredUntil ?? null };
@@ -35,7 +35,8 @@ export const useMutation = ref => async args => {
     if (window.workRows) patch({ status: 'answered', wakeStatus: 'accepted', answer: args.answer });
     else window.decision = { ...window.decision, status: 'answered', wakeStatus: 'accepted', answer: args.answer };
   }
-  if (getFunctionName(ref) === 'grokBot:approveReview') patch({ status: 'approved' });
+  if (getFunctionName(ref) === 'grokBot:approveReview') patch(window.workRows.find(row => row.id === args.id).prHeadSha
+    ? { status: 'merging', wakeStatus: 'queued', wakeAt: Date.now() } : { status: 'approved' });
   if (getFunctionName(ref) === 'grokBot:returnReview') patch({ status: 'returned', answer: args.comment, wakeStatus: 'failed', wakeAt: Date.now() });
   if (getFunctionName(ref) === 'grokBot:retry') patch({ wakeStatus: 'accepted' });
   if (getFunctionName(ref) === 'grokBot:setDelegation') { window.mayExecute = args.execute; window.reviewRequired = !!args.reviewCompletion; }
@@ -182,6 +183,56 @@ async function decisionsAndReviews(width) {
   await page.close();
 }
 
+const sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+const prReview = () => [{ id: 'pr', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'review', text: '告知ページの修正をPRにしました。',
+  links: ['https://example.test/preview/launch', 'https://github.com/example/press-site/pull/128'], prUrl: 'https://github.com/example/press-site/pull/128', prHeadSha: sha,
+  stalled: true, openTasks: 1, createdAt: Date.now() - 1_200_000 }];
+const metrics = { medianAnswerMs: 45 * 60_000, answered: 8, returnRate: 1 / 3, returned: 2, reviewed: 6, forwardWeek: 3, forwardToday: 1 };
+
+async function pullRequestAndMetrics(width) {
+  const page = await open(width, '/inbox');
+  await page.evaluate(([rows, figures]) => { window.workRows = rows; window.metrics = figures; }, [prReview(), metrics]);
+  await page.addScriptTag({ content: outputFiles[0].text });
+  const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
+  const focus = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  await focus.getByText('広報 · プルリクエストの確認').waitFor();
+  const link = focus.getByRole('link', { name: 'example/press-site#128' });
+  assert.equal(await link.getAttribute('href'), 'https://github.com/example/press-site/pull/128');
+  await focus.getByText('a1b2c3d', { exact: true }).waitFor();
+  assert.equal(await focus.getByRole('link', { name: 'https://github.com/example/press-site/pull/128' }).count(), 0, 'the PR link is shown once');
+  await focus.getByRole('link', { name: 'https://example.test/preview/launch' }).waitFor();
+  const strip = page.getByRole('region', { name: '直近7日' });
+  assert.deepEqual(await strip.locator('dl > div').evaluateAll(rows => rows.map(row => [row.querySelector('dt').textContent, row.querySelector('dd').textContent])),
+    [['回答までの時間（中央値）', '45分'], ['差し戻し率', '33% 2/6件'], ['前に進んだ件数', '3件 今日 1件']]);
+  await noOverflow();
+  if (shots) await page.screenshot({ path: `${shots}/inbox-pr-${width}.png`, fullPage: true });
+  await focus.getByRole('button', { name: '承認してマージを任せる' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:approveReview');
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'pr', expectedUserId: 'alice' });
+  await page.getByText('確認待ちはありません。').waitFor();
+  const waiting = page.getByRole('listitem').filter({ hasText: '承認済み・Botのマージ待ち' });
+  await waiting.getByRole('link', { name: 'example/press-site#128' }).waitFor();
+  assert.ok(await page.evaluate(() => [...document.querySelectorAll('h2')].some(node => node.textContent === 'Botの反映待ち')));
+  assert.equal(await waiting.getByRole('button').count(), 0, 'nothing to approve twice');
+  await noOverflow();
+  if (shots) await page.screenshot({ path: `${shots}/inbox-merging-${width}.png`, fullPage: true });
+
+  await page.evaluate(() => { window.metrics = undefined; window.refresh(); });
+  await strip.getByText('45分').waitFor({ state: 'detached' });
+  assert.equal(await strip.getByText('—', { exact: true }).count(), 3);
+  await noOverflow();
+  if (shots) await page.screenshot({ path: `${shots}/inbox-metrics-empty-${width}.png`, fullPage: true });
+
+  await page.getByRole('link', { name: '告知文' }).first().click();
+  await page.getByLabel('Grok Botの関わり方').waitFor();
+  await page.getByText('業務連絡', { exact: true }).waitFor();
+  await page.getByRole('status').filter({ hasText: '承認済み・Botのマージ待ち' }).waitFor();
+  await page.getByRole('link', { name: 'example/press-site#128' }).waitFor();
+  await noOverflow();
+  if (shots) await page.screenshot({ path: `${shots}/task-merging-${width}.png`, fullPage: true });
+  await page.close();
+}
+
 async function proposalsAndDeferral(width) {
   const page = await open(width, '/inbox');
   await page.evaluate(([rows, ideas]) => { window.workRows = rows; window.proposals = ideas; }, [workRows(), proposals()]);
@@ -284,6 +335,7 @@ async function vpSettings(width) {
 
 try {
   for (const width of [1280, 390]) await decisionsAndReviews(width);
+  for (const width of [1280, 390]) await pullRequestAndMetrics(width);
   for (const width of [1280, 390]) await proposalsAndDeferral(width);
   for (const width of [1280, 390]) await vpSettings(width);
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -440,7 +492,7 @@ try {
   const callback = new URL(page.url());
   assert.equal(callback.searchParams.get('state'), 'fixture-state');
   assert.match(callback.searchParams.get('code'), /^[a-f0-9]{64}$/);
-  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox. 1280/390: structured decisions and reviews, proposals, deferral and VP settings.');
+  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox. 1280/390: structured decisions and reviews, pull request approval and metrics, proposals, deferral and VP settings.');
 } finally {
   await browser.close();
 }
