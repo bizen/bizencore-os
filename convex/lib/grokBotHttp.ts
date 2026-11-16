@@ -38,9 +38,15 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
     if (assignment !== undefined && (typeof assignment !== 'string' || !grokBotIdPattern.test(assignment))) return unauthorized();
     const connection = await ctx.runQuery(internal.grokBot.authorize, { token, assignment });
     if (!connection) return unauthorized();
-    const { userId, assignmentId } = connection;
+    const { userId, assignmentId, vp } = connection;
     const scope = { userId, assignmentId };
-    if (assignmentId && !connection.webhookConfigured && body.operation !== 'auth' && body.operation !== 'assigned_tasks') {
+    const reads = vp ? 'all_tasks' : 'assigned_tasks';
+    // The VP only reads and proposes; label Bots never get the cross-label read. Enforced here and again in each function.
+    if (typeof body.operation !== 'string' || !['auth', 'propose', reads].includes(body.operation) &&
+        (vp || body.operation === 'all_tasks')) {
+        return Response.json({ error: vp ? 'The VP can only read all_tasks and propose; it cannot act on tasks' : 'This operation is only for the VP' }, { status: 403 });
+    }
+    if (assignmentId && !connection.webhookConfigured && body.operation !== 'auth' && body.operation !== reads) {
         return Response.json({ error: 'Finish setting up the routine in Terminal before writing to this label' }, { status: 403 });
     }
     const input = 'args' in body ? body.args : undefined;
@@ -50,10 +56,20 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
                 if (assignmentId && connection.tokenHash && !connection.connectedAt) {
                     await ctx.runMutation(internal.grokBot.markConnected, { assignmentId, tokenHash: connection.tokenHash });
                 }
-                return Response.json({ authorized: true });
+                return Response.json(vp ? { authorized: true, role: 'vp' } : { authorized: true });
             case 'assigned_tasks': {
                 const args = grokBotTools.assigned_tasks.parse(input);
                 return Response.json(await ctx.runQuery(internal.grokBot.assignedTasks, { ...scope, taskId: args.task_id, offset: args.offset }));
+            }
+            case 'all_tasks': {
+                const args = grokBotTools.all_tasks.parse(input);
+                if (!assignmentId) return unauthorized();
+                return Response.json(await ctx.runQuery(internal.grokBot.allTasks, { userId, assignmentId, taskId: args.task_id, offset: args.offset }));
+            }
+            case 'propose': {
+                const args = grokBotTools.propose.parse(input);
+                return Response.json(await ctx.runMutation(internal.grokBot.propose, { ...scope, kind: args.kind, taskId: args.task_id, labelId: args.label_id,
+                    title: args.title, note: args.note, until: args.until, reason: args.reason, key: args.idempotency_key }));
             }
             case 'add_assigned_task': {
                 const args = grokBotTools.add_assigned_task.parse(input);

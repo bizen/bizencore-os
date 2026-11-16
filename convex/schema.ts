@@ -83,8 +83,9 @@ export default defineSchema({
         .index('by_user_task', ['userId', 'taskId']).index('by_user_task_key_assignment', ['userId', 'taskId', 'key', 'assignmentId'])
         .index('by_user_task_assignment', ['userId', 'taskId', 'assignmentId'])
         .index('by_user_task_status', ['userId', 'taskId', 'status']),
+    // role 'vp': the user's single cross-label idea slot. It has no label (labelId '') and may only read and propose.
     grokBotAssignments: defineTable({
-        userId: v.string(), labelId: v.string(), name: v.optional(v.string()), connectorName: v.optional(v.string()), tokenHash: v.string(),
+        userId: v.string(), labelId: v.string(), role: v.optional(v.literal('vp')), name: v.optional(v.string()), connectorName: v.optional(v.string()), tokenHash: v.string(),
         webhookUrl: v.optional(v.string()), webhookKey: v.optional(v.string()), connectedAt: v.optional(v.number()),
         oauthTokenHash: v.optional(v.string()),
         oauthGrant: v.optional(v.object({
@@ -103,6 +104,23 @@ export default defineSchema({
     }).index('by_user', ['userId']).index('by_user_assignment', ['userId', 'assignmentId']).index('by_next', ['nextCheckAt']),
     grokBotDelegations: defineTable({ userId: v.string(), taskId: v.string(), labelId: v.string(), assignmentId: v.optional(v.id('grokBotAssignments')),
         reviewCompletion: v.optional(v.boolean()) })
+        .index('by_user', ['userId']).index('by_user_task', ['userId', 'taskId']),
+    /** Bot suggestions that change nothing until the human adopts them. assignmentId is absent for the pilot. */
+    grokBotProposals: defineTable({
+        userId: v.string(), assignmentId: v.optional(v.id('grokBotAssignments')), key: v.string(),
+        kind: v.union(v.literal('delete'), v.literal('defer'), v.literal('move'), v.literal('new_task')),
+        taskId: v.optional(v.string()), labelId: v.optional(v.string()), title: v.optional(v.string()), note: v.optional(v.string()),
+        until: v.optional(v.string()), reason: v.string(),
+        // delete: the subtree the human is shown, so a changed task is never deleted.
+        count: v.optional(v.number()), revision: v.optional(v.string()),
+        status: v.union(v.literal('pending'), v.literal('adopted'), v.literal('dismissed'), v.literal('changed')),
+        resolvedAt: v.optional(v.number()), createdTaskId: v.optional(v.string()),
+    }).index('by_user', ['userId']).index('by_user_status', ['userId', 'status'])
+        .index('by_user_assignment_status', ['userId', 'assignmentId', 'status'])
+        .index('by_user_assignment_key', ['userId', 'assignmentId', 'key'])
+        .index('by_user_kind_task', ['userId', 'kind', 'taskId']),
+    /** Adopted deferrals: hidden from Bot task lists while today (user's time zone) is before until. */
+    grokBotDeferrals: defineTable({ userId: v.string(), taskId: v.string(), until: v.string(), proposalId: v.optional(v.id('grokBotProposals')) })
         .index('by_user', ['userId']).index('by_user_task', ['userId', 'taskId']),
 
     userPreferences: defineTable({

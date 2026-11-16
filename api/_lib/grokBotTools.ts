@@ -12,8 +12,13 @@ const link = z.string().trim().max(4096).refine(value => {
   }
 }, 'Use an HTTPS link without credentials');
 
+const reason = z.string().trim().min(1).max(2000).describe('Why, in one or two sentences the user can judge quickly.');
+const until = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('defer only: the first day the task should come back, YYYY-MM-DD in the user’s time zone, after today.');
+const listArgs = z.object({ task_id: task_id.optional(), offset: z.number().int().min(0).optional() });
+
 export const grokBotTools = {
-  assigned_tasks: z.object({ task_id: task_id.optional(), offset: z.number().int().min(0).optional() }),
+  assigned_tasks: listArgs,
+  all_tasks: listArgs,
   add_assigned_task: z.object({ title: z.string().trim().min(1).max(500), note: text.optional(), idempotency_key }),
   request_decision: z.object({
     task_id, question: text, idempotency_key,
@@ -34,5 +39,19 @@ export const grokBotTools = {
     applied_question_id: task_id.optional().describe('The answered question or returned review ID, once this result reflects it.'),
     claim_key: z.string().uuid().optional().describe('The claim key used to claim the applied decision or returned review.'),
     idempotency_key,
+  }),
+  /** Every kind; the server decides which kinds the caller may use. */
+  propose: z.object({
+    kind: z.enum(['delete', 'defer', 'move', 'new_task']).describe('delete: not needed. defer: not now. move: sort an unsorted task into a label. new_task: a missing task.'),
+    task_id: task_id.optional().describe('The task for delete, defer and move.'),
+    label_id: task_id.optional().describe('move: the destination label. new_task: optional label; omit for unsorted.'),
+    title: z.string().trim().min(1).max(500).optional().describe('new_task only.'),
+    note: text.optional().describe('new_task only.'),
+    until: until.optional(), reason, idempotency_key,
+  }),
+  /** The label Bot's view of propose: only delete and defer of its own tasks. */
+  propose_in_label: z.object({
+    kind: z.enum(['delete', 'defer']).describe('delete: the task is not needed. defer: not now; set until.'),
+    task_id, until: until.optional(), reason, idempotency_key,
   }),
 };

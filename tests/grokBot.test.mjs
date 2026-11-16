@@ -28,7 +28,7 @@ function fixture(t) {
   let next = 0;
   const jobs = [];
   const rows = {
-    accountDeletions: [], taskWork: [], syncItems: [], grokBotSchedules: [], grokBotAssignments: [], grokBotSkins: [], grokBotDelegations: [], mcpIdempotency: [],
+    accountDeletions: [], taskWork: [], syncItems: [], grokBotSchedules: [], grokBotAssignments: [], grokBotSkins: [], grokBotDelegations: [], grokBotProposals: [], grokBotDeferrals: [], mcpIdempotency: [],
     notificationDevices: [], notificationDeliveries: [], fileOwners: [],
     userPreferences: [{ userId: 'alice', timeZone: 'Australia/Melbourne' }],
   };
@@ -335,7 +335,7 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', clientInfo: { name: 'fixture', version: '1' }, capabilities: {} });
   assert.equal(init.payload.result.serverInfo.name, 'bizencore-grok-bot');
   const { payload } = await rpc('tools/list');
-  assert.deepEqual(payload.result.tools.map(tool => tool.name).sort(), ['add_assigned_task', 'assigned_tasks', 'claim_decision', 'record_work_result', 'request_decision']);
+  assert.deepEqual(payload.result.tools.map(tool => tool.name).sort(), ['add_assigned_task', 'assigned_tasks', 'claim_decision', 'propose', 'record_work_result', 'request_decision']);
   const schema = name => payload.result.tools.find(tool => tool.name === name).inputSchema.properties;
   assert.ok(['needs_review', 'assumptions'].every(key => key in schema('record_work_result')));
   assert.ok(['kind', 'options', 'recommendation', 'irreversible'].every(key => key in schema('request_decision')));
@@ -615,4 +615,238 @@ test('a patrol schedule defaults to 06:00 until a time is saved', async t => {
   assert.equal((await f.call('schedule', web)).time, '06:00');
   await f.call('saveSchedule', { ...web, enabled: true, time: '03:15' });
   assert.equal((await f.call('schedule', web)).time, '03:15');
+});
+
+const proposal = (kind, extra = {}) => ({ kind, reason: '理由', idempotency_key: `${kind}-${extra.task_id ?? extra.title}`, ...extra });
+const json = async pending => {
+  const response = await pending;
+  return { status: response.status, body: await response.json() };
+};
+
+test('a label Bot proposes only deletion or deferral of open tasks in its own label, once, and the user decides', async t => {
+  const f = fixture(t);
+  const propose = args => json(f.http('propose', args));
+  for (const args of [proposal('move', { task_id: 'mine', label_id: 'other-label' }), proposal('new_task', { title: '新規' })]) {
+    assert.match((await propose(args)).body.error, /Only the VP/);
+  }
+  for (const id of ['other', 'foreign-nested', 'another-user', 'label']) assert.equal((await propose(proposal('delete', { task_id: id }))).status, 400);
+  assert.match((await propose(proposal('defer', { task_id: 'mine' }))).body.error, /until/);
+  assert.match((await propose(proposal('delete', { task_id: 'mine', until: '2026-12-01' }))).body.error, /only for defer/);
+
+  const removal = await propose(proposal('delete', { task_id: 'mine' }));
+  assert.deepEqual([removal.status, removal.body.status, removal.body.kind], [200, 'pending', 'delete']);
+  assert.equal((await propose(proposal('delete', { task_id: 'mine' }))).body.id, removal.body.id, 'a retry with the same key is idempotent');
+  assert.match((await propose(proposal('delete', { task_id: 'mine', reason: '別の理由' }))).body.error, /Idempotency/);
+  assert.match((await propose(proposal('delete', { task_id: 'mine', idempotency_key: 'again' }))).body.error, /already pending/);
+  for (const until of ['2026-11-12', '2026-11-13']) {
+    assert.match((await propose(proposal('defer', { task_id: 'nested', until, idempotency_key: until }))).body.error, /after today \(2026-11-13\)/);
+  }
+  const later = await propose(proposal('defer', { task_id: 'nested', until: '2026-11-20' }));
+  assert.equal(later.body.status, 'pending');
+
+  const inbox = await f.call('inbox', web);
+  assert.equal(inbox.pending.length, 0, 'proposals never count as pending decisions');
+  assert.deepEqual(inbox.proposals.map(row => [row.kind, row.taskId, row.proposer, row.vp, row.count]),
+    [['delete', 'mine', 'label', false, 4], ['defer', 'nested', 'label', false, undefined]]);
+  assert.deepEqual((await f.call('assignedTasks', { userId: 'alice' })).proposals.map(row => [row.kind, row.status]), [['delete', 'pending'], ['defer', 'pending']]);
+
+  f.identify('bob');
+  await assert.rejects(f.call('adoptProposal', { expectedUserId: 'bob', id: removal.body.id }));
+  await assert.rejects(f.call('dismissProposal', { expectedUserId: 'bob', id: removal.body.id }));
+  f.identify('alice');
+  await f.call('dismissProposal', { ...web, id: removal.body.id });
+  await f.call('dismissProposal', { ...web, id: removal.body.id });
+  await assert.rejects(f.call('adoptProposal', { ...web, id: removal.body.id }), /見送り/);
+  assert.equal(itemOf(f, 'mine').deletedAt, undefined);
+  assert.match((await propose(proposal('delete', { task_id: 'mine', reason: '言い換え', idempotency_key: 'reworded' }))).body.error, /dismissed/);
+  const detail = await f.call('assignedTasks', { userId: 'alice', taskId: 'mine' });
+  assert.deepEqual(detail.proposals.map(row => [row.kind, row.status]), [['delete', 'dismissed']]);
+  assert.equal(f.jobs.length, 0, 'neither dismissing nor adopting wakes a Bot');
+
+  assert.deepEqual(await f.call('adoptProposal', { ...web, id: later.body.id }), { status: 'adopted' });
+  assert.deepEqual(await f.call('adoptProposal', { ...web, id: later.body.id }), { status: 'adopted' });
+  assert.equal(f.jobs.length, 0);
+  assert.deepEqual((await f.call('assignedTasks', { userId: 'alice' })).tasks.map(row => row.id), ['mine']);
+  assert.equal((await f.call('assignedTasks', { userId: 'alice', taskId: 'nested' })).deferred_until, '2026-11-20');
+  assert.equal((await f.call('taskHistory', { ...web, taskId: 'nested' })).deferredUntil, '2026-11-20');
+  assert.match((await json(f.http('request_decision', { task_id: 'nested', question: '進めますか。', idempotency_key: 'ask' }))).body.error, /deferred this task until 2026-11-20/);
+  assert.match((await propose(proposal('defer', { task_id: 'nested', until: '2026-12-01', idempotency_key: 'longer' }))).body.error, /already deferred/);
+  await f.call('setDelegation', { ...web, taskId: 'nested', execute: true });
+  await assert.rejects(f.call('recordWorkResult', { ...task, taskId: 'nested', summary: '済み', links: [], complete: true, key: 'done',
+    expectedTaskVersion: await versionOf(f, 'nested') }), /deferred/);
+
+  f.setTime('2026-11-20T00:30:00+11:00');
+  assert.deepEqual((await f.call('assignedTasks', { userId: 'alice' })).tasks.map(row => row.id), ['mine', 'nested'], 'a deferral expires on its own');
+  assert.equal((await f.call('taskHistory', { ...web, taskId: 'nested' })).deferredUntil, null);
+  const again = await propose(proposal('defer', { task_id: 'nested', until: '2026-12-01', idempotency_key: 'defer-2' }));
+  await f.call('adoptProposal', { ...web, id: again.body.id });
+  assert.deepEqual((await f.call('assignedTasks', { userId: 'alice' })).tasks.map(row => row.id), ['mine']);
+  await f.call('cancelDeferral', { ...web, taskId: 'nested' });
+  assert.deepEqual((await f.call('assignedTasks', { userId: 'alice' })).tasks.map(row => row.id), ['mine', 'nested']);
+  assert.equal(f.rows.grokBotDeferrals.length, 0);
+});
+
+test('an adopted deletion removes the shown subtree only while it is unchanged', async t => {
+  const f = fixture(t);
+  for (const [id, parent] of [['old', 'label'], ['old-child', 'old'], ['stale', 'label'], ['stale-child', 'stale']]) f.seed(id, parent);
+  const propose = async id => (await json(f.http('propose', proposal('delete', { task_id: id })))).body;
+  const old = await propose('old');
+  const stale = await propose('stale');
+  assert.deepEqual((await f.call('inbox', web)).proposals.map(row => [row.taskId, row.count]), [['old', 2], ['stale', 2]]);
+  assert.deepEqual(await f.call('adoptProposal', { ...web, id: old.id }), { status: 'adopted' });
+  assert.ok(itemOf(f, 'old').deletedAt && f.rows.syncItems.find(row => row.itemId === 'old-child').deletedAt);
+  f.seed('stale-grandchild', 'stale-child');
+  assert.deepEqual(await f.call('adoptProposal', { ...web, id: stale.id }), { status: 'changed' });
+  assert.equal(f.rows.syncItems.find(row => row.itemId === 'stale').deletedAt, undefined);
+  assert.deepEqual((await f.call('inbox', web)).proposals, []);
+  assert.deepEqual((await f.call('assignedTasks', { userId: 'alice' })).proposals.map(row => [row.task_id, row.status]),
+    [['old', 'adopted'], ['stale', 'changed']]);
+});
+
+test('the VP reads every label and unsorted task, can only propose, and each kind applies on adoption', async t => {
+  const f = fixture(t);
+  const previousSite = process.env.CONVEX_SITE_URL;
+  process.env.CONVEX_SITE_URL = 'https://fixture.convex.site';
+  t.after(() => { if (previousSite === undefined) delete process.env.CONVEX_SITE_URL; else process.env.CONVEX_SITE_URL = previousSite; });
+  const key = 'e'.repeat(64);
+  const vpArgs = { ...web, vp: true };
+  await assert.rejects(f.call('addAssignment', { ...vpArgs, labelId: 'label', token: key }));
+  const vpId = await f.call('addAssignment', { ...vpArgs, token: key, webhookUrl: 'https://api2.cursor.sh/automations/webhook/vp', webhookKey: 'vp-key' });
+  await assert.rejects(f.call('addAssignment', { ...vpArgs, token: 'f'.repeat(64) }), /VP/);
+  assert.deepEqual((await f.call('assignments', web)).map(row => row.labelId), ['label'], 'the VP is not a label Bot');
+  assert.deepEqual(await f.call('vp', web), { id: vpId, labelId: '', name: 'Grok Bot', connectorName: undefined, connectorConnected: false,
+    webhookConfigured: true, connected: false, managed: true, skin: undefined });
+  f.identify('bob');
+  assert.equal(await f.call('vp', { expectedUserId: 'bob' }), null);
+  f.identify('alice');
+  assert.deepEqual((await json(f.http('auth', {}, key))).body, { authorized: true, role: 'vp' });
+  assert.equal((await f.call('vp', web)).connected, true);
+
+  f.seed('loose', null); f.seed('loose-child', 'loose'); f.seed('loose-2', null); f.seed('closed', null, 'task', 'alice', { done: true });
+  for (let i = 0; i < 50; i++) f.seed(`bulk-${i}`, 'other-label');
+  const first = (await json(f.http('all_tasks', {}, key))).body;
+  assert.deepEqual(first.labels.map(row => [row.id, row.has_bot]), [['label', true], ['other-label', false], ['foreign-section', false]]);
+  assert.equal(first.tasks.length, 50);
+  const rest = (await json(f.http('all_tasks', { offset: first.next_offset }, key))).body;
+  assert.equal(rest.next_offset, null);
+  const listed = new Map([...first.tasks, ...rest.tasks].map(row => [row.id, row]));
+  assert.deepEqual([...listed.keys()].filter(id => !id.startsWith('bulk-')), ['mine', 'nested', 'other', 'foreign-nested', 'loose', 'loose-child', 'loose-2']);
+  assert.deepEqual(['mine', 'other', 'foreign-nested', 'loose', 'loose-child'].map(id => {
+    const row = listed.get(id);
+    return [row.label_id, row.label, row.unsorted, row.bot_role];
+  }), [['label', 'label', false, 'review'], ['other-label', 'other-label', false, null], ['foreign-section', 'foreign-section', false, null],
+    [null, null, true, null], [null, null, false, null]]);
+  const one = (await json(f.http('all_tasks', { task_id: 'other' }, key))).body;
+  assert.deepEqual([one.task.id, one.label_id, one.deferred_until, one.work], ['other', 'other-label', null, []]);
+  assert.equal((await f.http('all_tasks', { task_id: 'another-user' }, key)).status, 400);
+
+  // Execution is refused on the server, both at the route and inside each function.
+  for (const [operation, args] of [['assigned_tasks', {}], ['add_assigned_task', { title: 'X', idempotency_key: 'x' }],
+    ['request_decision', { task_id: 'mine', question: 'Q', idempotency_key: 'q' }],
+    ['claim_decision', { task_id: 'mine', question_id: 'taskWork-1', claim_key: crypto.randomUUID() }],
+    ['record_work_result', { task_id: 'mine', summary: 'S', complete: true, idempotency_key: 'r' }]]) {
+    assert.equal((await f.http(operation, args, key)).status, 403, operation);
+  }
+  const asVp = { userId: 'alice', assignmentId: vpId };
+  await assert.rejects(f.call('assignedTasks', asVp), /unavailable/);
+  await assert.rejects(f.call('addAssignedTask', { ...asVp, title: 'X', key: 'x' }), /unavailable/);
+  await assert.rejects(f.call('requestDecision', { ...asVp, taskId: 'mine', question: 'Q', key: 'q' }), /unavailable/);
+  await assert.rejects(f.call('claimDecision', { ...asVp, taskId: 'mine', questionId: 'taskWork-1', claimKey: 'c' }), /unavailable/);
+  await assert.rejects(f.call('recordWorkResult', { ...asVp, taskId: 'mine', summary: 'S', links: [], complete: false, key: 'r' }), /unavailable/);
+  assert.equal((await f.http('all_tasks', {})).status, 403, 'a label Bot cannot read across labels');
+  await assert.rejects(f.call('allTasks', { userId: 'alice', assignmentId: 'grokbotassignments-999' }), /VP connection/);
+
+  const propose = async args => json(f.http('propose', args, key));
+  assert.match((await propose(proposal('move', { task_id: 'mine', label_id: 'other-label' }))).body.error, /unsorted/);
+  assert.match((await propose(proposal('move', { task_id: 'loose-child', label_id: 'other-label' }))).body.error, /unsorted/);
+  assert.match((await propose(proposal('move', { task_id: 'loose', label_id: 'mine' }))).body.error, /Label not found/);
+  assert.match((await propose(proposal('new_task', { title: 'X', task_id: 'mine' }))).body.error, /title, not a task_id/);
+  assert.match((await propose(proposal('delete', { task_id: 'closed' }))).body.error, /closed/);
+  const ids = {};
+  for (const [name, args] of Object.entries({
+    move: proposal('move', { task_id: 'loose', label_id: 'other-label' }),
+    stale: proposal('move', { task_id: 'loose-2', label_id: 'label' }),
+    filed: proposal('new_task', { title: 'プレスキットを作る', note: '素材をまとめる', label_id: 'label' }),
+    unsorted: proposal('new_task', { title: '請求書を整理する' }),
+    removal: proposal('delete', { task_id: 'other' }),
+    later: proposal('defer', { task_id: 'mine', until: '2026-12-01' }),
+  })) {
+    const { status, body } = await propose(args);
+    assert.equal(status, 200, `${name}: ${body.error}`);
+    ids[name] = body.id;
+  }
+  assert.match((await propose(proposal('new_task', { title: ' ﾌﾟﾚｽｷｯﾄを作る ', idempotency_key: 'dup' }))).body.error, /same new task/);
+  const inbox = await f.call('inbox', web);
+  assert.deepEqual(inbox.proposals.map(row => [row.kind, row.proposer, row.vp, row.taskTitle ?? row.title, row.labelName]), [
+    ['move', 'VP', true, 'loose', 'other-label'], ['move', 'VP', true, 'loose-2', 'label'], ['new_task', 'VP', true, 'プレスキットを作る', 'label'],
+    ['new_task', 'VP', true, '請求書を整理する', undefined], ['delete', 'VP', true, 'other', undefined], ['defer', 'VP', true, 'mine', undefined]]);
+
+  assert.deepEqual(await f.call('adoptProposal', { ...web, id: ids.move }), { status: 'adopted' });
+  assert.equal(itemOf(f, 'loose').parentId, 'other-label');
+  await f.invoke('mcpTasks:move', { userId: 'alice', taskId: 'loose-2', label: 'other-label' });
+  assert.deepEqual(await f.call('adoptProposal', { ...web, id: ids.stale }), { status: 'changed' });
+  assert.equal(itemOf(f, 'loose-2').parentId, 'other-label');
+  await f.call('adoptProposal', { ...web, id: ids.filed });
+  await f.call('adoptProposal', { ...web, id: ids.unsorted });
+  const created = f.rows.grokBotProposals.filter(row => row.createdTaskId).map(row => itemOf(f, row.createdTaskId));
+  assert.deepEqual(created.map(item => [item.text, item.parentId, item.createdBy, item.note ?? null]),
+    [['プレスキットを作る', 'label', 'ai', '素材をまとめる'], ['請求書を整理する', null, 'ai', null]]);
+  await f.call('adoptProposal', { ...web, id: ids.removal });
+  assert.ok(itemOf(f, 'other') && f.rows.syncItems.find(row => row.itemId === 'other').deletedAt);
+  await f.call('adoptProposal', { ...web, id: ids.later });
+  assert.ok(!(await json(f.http('all_tasks', {}, key))).body.tasks.some(row => row.id === 'mine'));
+  assert.equal((await json(f.http('all_tasks', {}, key))).body.deferred_tasks, 1);
+  assert.deepEqual((await json(f.http('all_tasks', { task_id: 'mine' }, key))).body.deferred_until, '2026-12-01');
+  assert.ok(!(await f.call('assignedTasks', { userId: 'alice' })).tasks.some(row => row.id === 'mine'), 'hidden from the label Bot too');
+  assert.deepEqual((await json(f.http('all_tasks', {}, key))).body.proposals.map(row => row.status).sort(),
+    ['adopted', 'adopted', 'adopted', 'adopted', 'adopted', 'changed']);
+
+  // MCP: the VP gets its own tools and instructions.
+  t.mock.method(globalThis, 'fetch', (url, init) => grokBotHttp._handler(f.ctx, new Request(url, init)));
+  const rpc = async (method, params = {}) => {
+    const response = await mcp.POST(new Request('https://fixture.test/api/grok-bot', {
+      method: 'POST', headers: { Authorization: `Bearer ${key}`, Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    }));
+    const body = await response.text();
+    return JSON.parse(body.startsWith('event:') ? body.split('\n').find(line => line.startsWith('data: ')).slice(6) : body);
+  };
+  const init = await rpc('initialize', { protocolVersion: '2025-06-18', clientInfo: { name: 'fixture', version: '1' }, capabilities: {} });
+  assert.equal(init.result.serverInfo.name, 'bizencore-grok-bot-vp');
+  assert.match(init.result.instructions, /idea slot/);
+  assert.deepEqual((await rpc('tools/list')).result.tools.map(tool => tool.name).sort(), ['all_tasks', 'propose']);
+
+  await f.call('removeAssignment', vpArgs);
+  assert.equal(await f.call('vp', web), null);
+  assert.equal(f.rows.grokBotProposals.length, 0);
+  assert.equal((await f.http('auth', {}, key)).status, 401);
+});
+
+test('proposals are capped per Bot and the VP connects like a label Bot', async t => {
+  const f = fixture(t);
+  delete process.env.GROK_BOT_PILOT;
+  const key = 'e'.repeat(64);
+  const vpId = await f.call('addAssignment', { ...web, vp: true, token: key });
+  assert.equal((await f.call('vp', web)).connectorName, 'Terminal · VP');
+  assert.deepEqual(await f.call('oauthLabel', { ...web, assignment: vpId }), { id: vpId, name: 'VP', vp: true });
+  assert.equal((await f.http('auth', {}, key)).status, 200);
+  assert.equal((await f.http('all_tasks', {}, key)).status, 200, 'reading works before the routine is registered');
+  assert.equal((await f.http('propose', proposal('delete', { task_id: 'mine' }), key)).status, 403);
+  t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 200 }));
+  await f.call('connectAssignmentWebhook', { ...web, vp: true, webhookUrl: 'https://api2.cursor.sh/automations/webhook/vp', webhookKey: 'vp-key' });
+  assert.equal((await f.call('vp', web)).connected, true);
+  await f.call('saveSchedule', { ...web, vp: true, enabled: true, time: '13:00' });
+  assert.equal((await f.call('schedule', { ...web, vp: true })).enabled, true);
+  f.setTime('2026-11-13T13:00:00+11:00');
+  await bot.dispatchDuePatrol(f.ctx, Date.now());
+  assert.equal(f.jobs.length, 1);
+  await f.invoke(f.jobs[0].name, f.jobs[0].args);
+  assert.equal((await f.call('schedule', { ...web, vp: true })).lastStatus, 'accepted');
+
+  for (let i = 0; i < 11; i++) f.seed(`cap-${i}`, null);
+  for (let i = 0; i < 10; i++) assert.equal((await f.http('propose', proposal('delete', { task_id: `cap-${i}` }), key)).status, 200);
+  assert.match((await json(f.http('propose', proposal('delete', { task_id: 'cap-10' }), key))).body.error, /10 pending/);
+  await f.call('rotateAssignmentToken', { ...web, vp: true, token: 'f'.repeat(64) });
+  assert.equal((await f.http('auth', {}, key)).status, 401);
+  assert.deepEqual((await f.call('assignments', web)), []);
 });

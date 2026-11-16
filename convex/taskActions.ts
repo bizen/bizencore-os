@@ -25,7 +25,7 @@ async function find(ctx: Ctx, userId: string, requestId: string) {
     return request;
 }
 
-function snapshot(items: Awaited<ReturnType<typeof loadItems>>, taskId: string) {
+export function snapshot(items: Awaited<ReturnType<typeof loadItems>>, taskId: string) {
     const target = items.find(item => item.id === taskId && item.type === 'task');
     if (!target) return null;
     const tree = subtreeOf(items, taskId);

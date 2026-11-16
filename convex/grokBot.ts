@@ -5,8 +5,9 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import { accountActive, requireActiveAccount } from './accountAccess';
 import { grokBotConfig } from './lib/grokBotConfig';
 import { loadItem, loadItems, subtreeOf, toView } from './mcpTasks';
+import { snapshot } from './taskActions';
 import { deadlineInstant } from '../src/lib/taskNotifications';
-import { dateInTimeZone, isTimeString, timeInTimeZone } from '../src/lib/taskDates';
+import { dateInTimeZone, isDateString, isTimeString, timeInTimeZone } from '../src/lib/taskDates';
 import { grokBotChallengePattern, isGrokBotRedirect } from '../src/lib/grokBotOAuth';
 
 type Item = Awaited<ReturnType<typeof loadItems>>[number];
@@ -15,10 +16,15 @@ type AssignmentId = Id<'grokBotAssignments'>;
 const botScope = { userId: v.string(), assignmentId: v.optional(v.id('grokBotAssignments')) };
 const userTask = { ...botScope, taskId: v.string() };
 const retryAfter = 60_000;
-const assignmentsFor = (ctx: QueryCtx, userId: string) =>
-    ctx.db.query('grokBotAssignments').withIndex('by_user', q => q.eq('userId', userId));
-const assignmentFor = (ctx: QueryCtx, userId: string, labelId: string) =>
-    ctx.db.query('grokBotAssignments').withIndex('by_user_label', q => q.eq('userId', userId).eq('labelId', labelId)).unique();
+/** The VP is stored as an assignment with role 'vp' and no label; it never counts as a label's Bot. */
+const isVp = (row: { role?: 'vp' } | null | undefined) => row?.role === 'vp';
+const vpLabelId = '';
+const labelAssignments = async (ctx: QueryCtx, userId: string) =>
+    (await ctx.db.query('grokBotAssignments').withIndex('by_user', q => q.eq('userId', userId)).collect()).filter(row => !isVp(row));
+const assignmentFor = async (ctx: QueryCtx, userId: string, labelId: string) =>
+    (await ctx.db.query('grokBotAssignments').withIndex('by_user_label', q => q.eq('userId', userId).eq('labelId', labelId)).collect()).find(row => !isVp(row)) ?? null;
+const vpFor = async (ctx: QueryCtx, userId: string) =>
+    (await ctx.db.query('grokBotAssignments').withIndex('by_user_label', q => q.eq('userId', userId).eq('labelId', vpLabelId)).collect()).find(isVp) ?? null;
 const pilotFor = (userId: string) => {
     const pilot = grokBotConfig();
     return pilot?.userId === userId ? pilot : null;
@@ -30,8 +36,21 @@ function webhookFor({ webhookUrl, webhookKey }: { webhookUrl?: string; webhookKe
 
 async function connectionFor(ctx: QueryCtx, userId: string, assignmentId?: AssignmentId) {
     const connection = assignmentId ? await ctx.db.get(assignmentId) : pilotFor(userId);
-    return connection?.userId === userId ? connection : null;
+    return connection?.userId === userId && !('role' in connection && isVp(connection)) ? connection : null;
 }
+
+function labelIn(byId: Map<string, Item>, task: Item) {
+    const seen = new Set([task.id]);
+    for (let parent = task.parentId ? byId.get(task.parentId) : undefined; parent && !seen.has(parent.id);
+        parent = parent.parentId ? byId.get(parent.parentId) : undefined) {
+        if (parent.type === 'section') return parent;
+        seen.add(parent.id);
+    }
+    return null;
+}
+
+/** 未仕分け: a root-level task (its parent is missing or absent) that no label contains. */
+const unsorted = (byId: Map<string, Item>, task: Item) => task.type === 'task' && !(task.parentId && byId.has(task.parentId));
 
 async function labelOfTask(ctx: QueryCtx, userId: string, task: Item) {
     const seen = new Set([task.id]);
@@ -136,7 +155,7 @@ async function history(ctx: QueryCtx, userId: string, taskId: string, forBot?: {
  */
 export async function officerInbox(ctx: QueryCtx, userId: string, includeAnswered = true) {
     const pilot = pilotFor(userId);
-    const assignments = await assignmentsFor(ctx, userId).collect();
+    const assignments = await labelAssignments(ctx, userId);
     if (!pilot && !assignments.length) return null;
     const rowsFor = (status: Work['status']) => ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', status)).collect();
     const none = Promise.resolve<Work[]>([]);
@@ -150,15 +169,7 @@ export async function officerInbox(ctx: QueryCtx, userId: string, includeAnswere
         if (item.type !== 'task' || !item.parentId) continue;
         children.set(item.parentId, [...(children.get(item.parentId) ?? []), item]);
     }
-    const labelOf = (task: Item) => {
-        const seen = new Set([task.id]);
-        for (let parent = task.parentId ? byId.get(task.parentId) : undefined; parent && !seen.has(parent.id);
-            parent = parent.parentId ? byId.get(parent.parentId) : undefined) {
-            if (parent.type === 'section') return parent;
-            seen.add(parent.id);
-        }
-        return null;
-    };
+    const labelOf = (task: Item) => labelIn(byId, task);
     const place = (row: Work) => {
         const task = byId.get(row.taskId);
         const label = task?.type === 'task' && open(task) ? labelOf(task) : null;
@@ -209,23 +220,36 @@ export const assignments = query({
     handler: async (ctx, { expectedUserId }) => {
         const userId = await currentUser(ctx, expectedUserId);
         if (!userId) return [];
-        const rows = await assignmentsFor(ctx, userId).collect();
+        const rows = await labelAssignments(ctx, userId);
         const skins = rows.length ? await ctx.db.query('grokBotSkins').withIndex('by_user', q => q.eq('userId', userId)).collect() : [];
         const imageByAssignment = new Map(skins.map(skin => [skin.assignmentId, skin.image]));
         const pilot = pilotFor(userId);
-        return [...rows.map(row => ({
-            id: row._id, labelId: row.labelId, name: row.name ?? 'Grok Bot', connectorName: row.connectorName, connectorConnected: !!row.connectedAt,
-            webhookConfigured: !!webhookFor(row), connected: !!row.connectedAt && !!webhookFor(row),
-            managed: true, skin: imageByAssignment.get(row._id),
-        })), ...(pilot ? [{
+        return [...rows.map(row => assignmentView(row, imageByAssignment.get(row._id))), ...(pilot ? [{
             id: undefined, labelId: pilot.labelId, name: 'Grok Bot', connectorName: undefined, connectorConnected: true,
             webhookConfigured: true, connected: true, managed: false, skin: undefined,
         }] : [])];
     },
 });
 
-const labelArgs = { expectedUserId: v.string(), labelId: v.string() };
+function assignmentView(row: Doc<'grokBotAssignments'>, skin?: string) {
+    return { id: row._id, labelId: row.labelId, name: row.name ?? 'Grok Bot', connectorName: row.connectorName, connectorConnected: !!row.connectedAt,
+        webhookConfigured: !!webhookFor(row), connected: !!row.connectedAt && !!webhookFor(row), managed: true, skin };
+}
+
+/** The user's VP connection, shaped like a label assignment so the same connection UI can manage it. */
+export const vp = query({
+    args: { expectedUserId: v.string() },
+    handler: async (ctx, { expectedUserId }) => {
+        const userId = await currentUser(ctx, expectedUserId);
+        const row = userId ? await vpFor(ctx, userId) : null;
+        return row ? assignmentView(row, (await skinFor(ctx, row._id))?.image) : null;
+    },
+});
+
+/** A connection target: a label's Bot, or with vp the user's VP. */
+const labelArgs = { expectedUserId: v.string(), labelId: v.optional(v.string()), vp: v.optional(v.literal(true)) };
 const credentialArgs = { ...labelArgs, token: v.string() };
+type Target = { expectedUserId: string; labelId?: string; vp?: true };
 const webhookArgs = { webhookUrl: v.string(), webhookKey: v.string() };
 const skinFor = (ctx: QueryCtx, assignmentId: AssignmentId) =>
     ctx.db.query('grokBotSkins').withIndex('by_assignment', q => q.eq('assignmentId', assignmentId)).unique();
@@ -242,6 +266,19 @@ async function requireLabel(ctx: QueryCtx, expectedUserId: string, labelId: stri
     if (!userId || label?.type !== 'section') throw new ConvexError('ラベルが見つかりません。同期後にもう一度お試しください。');
     return { userId, label };
 }
+
+async function requireTarget(ctx: QueryCtx, { expectedUserId, labelId, vp }: Target) {
+    if (!vp) {
+        const { userId, label } = await requireLabel(ctx, expectedUserId, labelId ?? '');
+        return { userId, vp: false, labelId: label.id, labelName: label.text };
+    }
+    const userId = await currentUser(ctx, expectedUserId);
+    if (!userId || labelId !== undefined) throw new ConvexError('サインインしてください。');
+    return { userId, vp: true, labelId: vpLabelId, labelName: 'VP' };
+}
+
+const targetAssignment = (ctx: QueryCtx, target: { userId: string; vp: boolean; labelId: string }) =>
+    target.vp ? vpFor(ctx, target.userId) : assignmentFor(ctx, target.userId, target.labelId);
 
 async function newTokenHash(ctx: QueryCtx, token: string) {
     if (!/^[a-f0-9]{64}$/.test(token)) throw new ConvexError('接続キーを発行できませんでした。');
@@ -264,18 +301,20 @@ function validateWebhook(url: string, key: string) {
 export const addAssignment = mutation({
     args: { ...credentialArgs, name: v.optional(v.string()), webhookUrl: v.optional(v.string()), webhookKey: v.optional(v.string()), skin: v.optional(v.string()) },
     handler: async (ctx, args) => {
-        const { labelId, token } = args;
-        const { userId, label } = await requireLabel(ctx, args.expectedUserId, labelId);
-        if (pilotFor(userId)?.labelId === labelId || await assignmentFor(ctx, userId, labelId)) throw new ConvexError('このラベルにはすでに担当Botがいます。');
+        const target = await requireTarget(ctx, args);
+        const { userId, labelId } = target;
+        if ((!target.vp && pilotFor(userId)?.labelId === labelId) || await targetAssignment(ctx, target)) {
+            throw new ConvexError(target.vp ? 'VPはすでに接続されています。' : 'このラベルにはすでに担当Botがいます。');
+        }
         const name = args.name?.trim();
         if (name !== undefined && (!name || name.length > 80)) throw new ConvexError('Bot名は80文字まで入力できます。');
         const webhook = args.webhookUrl !== undefined || args.webhookKey !== undefined
             ? validateWebhook(args.webhookUrl ?? '', args.webhookKey ?? '') : {};
-        const labelName = Array.from(label.text.trim() || 'ラベル').slice(0, 32).join('');
-        const connectorName = 'webhookUrl' in webhook ? undefined : `Terminal · ${labelName} · ${labelId.slice(-8)}`;
+        const labelName = Array.from(target.labelName.trim() || 'ラベル').slice(0, 32).join('');
+        const connectorName = 'webhookUrl' in webhook ? undefined : target.vp ? 'Terminal · VP' : `Terminal · ${labelName} · ${labelId.slice(-8)}`;
         if (args.skin !== undefined) validateSkin(args.skin);
         const assignmentId = await ctx.db.insert('grokBotAssignments', {
-            userId, labelId, name, connectorName, ...webhook, tokenHash: await newTokenHash(ctx, token),
+            userId, labelId, ...(target.vp ? { role: 'vp' as const } : {}), name, connectorName, ...webhook, tokenHash: await newTokenHash(ctx, args.token),
         });
         if (args.skin !== undefined) await ctx.db.insert('grokBotSkins', { userId, assignmentId, image: args.skin });
         return assignmentId;
@@ -284,9 +323,8 @@ export const addAssignment = mutation({
 
 export const webhookSetupTarget = internalQuery({
     args: labelArgs,
-    handler: async (ctx, { expectedUserId, labelId }) => {
-        const { userId } = await requireLabel(ctx, expectedUserId, labelId);
-        const assignment = await assignmentFor(ctx, userId, labelId);
+    handler: async (ctx, args) => {
+        const assignment = await targetAssignment(ctx, await requireTarget(ctx, args));
         if (!assignment || webhookFor(assignment)) throw new ConvexError('接続画面を開き直してください。');
         return { assignmentId: assignment._id, tokenHash: assignment.tokenHash };
     },
@@ -294,10 +332,11 @@ export const webhookSetupTarget = internalQuery({
 
 export const saveAssignmentWebhook = internalMutation({
     args: { ...labelArgs, ...webhookArgs, assignmentId: v.id('grokBotAssignments'), tokenHash: v.string() },
-    handler: async (ctx, { expectedUserId, labelId, assignmentId, tokenHash, webhookUrl, webhookKey }) => {
-        const { userId } = await requireLabel(ctx, expectedUserId, labelId);
+    handler: async (ctx, { assignmentId, tokenHash, webhookUrl, webhookKey, ...args }) => {
+        const target = await requireTarget(ctx, args);
         const assignment = await ctx.db.get(assignmentId);
-        if (assignment?.userId !== userId || assignment.labelId !== labelId || assignment.tokenHash !== tokenHash || webhookFor(assignment)) {
+        if (assignment?.userId !== target.userId || assignment.labelId !== target.labelId || isVp(assignment) !== target.vp ||
+            assignment.tokenHash !== tokenHash || webhookFor(assignment)) {
             throw new ConvexError('接続設定が更新されました。接続画面を開き直してください。');
         }
         await ctx.db.patch(assignmentId, { webhookUrl, webhookKey });
@@ -331,9 +370,8 @@ export const setAssignmentSkin = mutation({
 
 export const rotateAssignmentToken = mutation({
     args: credentialArgs,
-    handler: async (ctx, { expectedUserId, labelId, token }) => {
-        const { userId } = await requireLabel(ctx, expectedUserId, labelId);
-        const assignment = await assignmentFor(ctx, userId, labelId);
+    handler: async (ctx, { token, ...args }) => {
+        const assignment = await targetAssignment(ctx, await requireTarget(ctx, args));
         if (!assignment) throw new ConvexError('担当Botが見つかりません。');
         await ctx.db.patch(assignment._id, { tokenHash: await newTokenHash(ctx, token), connectedAt: undefined,
             oauthGrant: undefined, oauthTokenHash: undefined });
@@ -348,7 +386,7 @@ export const approveOAuth = mutation({
         }
         const userId = await currentUser(ctx, expectedUserId);
         const assignment = userId ? await ctx.db.get(assignmentId) : null;
-        if (!assignment || assignment.userId !== userId || (await loadItem(ctx, userId, assignment.labelId))?.type !== 'section') {
+        if (!assignment || assignment.userId !== userId || (!isVp(assignment) && (await loadItem(ctx, userId, assignment.labelId))?.type !== 'section')) {
             throw new ConvexError('このラベルの接続を開けません。Terminalでラベルを確認してください。');
         }
         await ctx.db.patch(assignmentId, { oauthGrant: { codeHash, challenge, redirectUri, expiresAt: Date.now() + 120_000 } });
@@ -362,6 +400,7 @@ export const oauthLabel = query({
         const id = ctx.db.normalizeId('grokBotAssignments', assignment);
         const row = userId && id ? await ctx.db.get(id) : null;
         if (!userId || !row || row.userId !== userId) return null;
+        if (isVp(row)) return { id: row._id, name: 'VP', vp: true };
         const label = await loadItem(ctx, userId, row.labelId);
         return label?.type === 'section' ? { id: row._id, name: label.text.trim() || 'ラベル' } : null;
     },
@@ -376,7 +415,7 @@ export const exchangeOAuth = internalMutation({
         if (!id || !assignment || !grant || grant.expiresAt <= Date.now() || grant.codeHash !== codeHash ||
             grant.challenge !== challenge || grant.redirectUri !== redirectUri ||
             !(await accountActive(ctx, assignment.userId)) ||
-            (await loadItem(ctx, assignment.userId, assignment.labelId))?.type !== 'section') return false;
+            (!isVp(assignment) && (await loadItem(ctx, assignment.userId, assignment.labelId))?.type !== 'section')) return false;
         await ctx.db.patch(id, { oauthGrant: undefined, oauthTokenHash: tokenHash });
         return true;
     },
@@ -384,14 +423,16 @@ export const exchangeOAuth = internalMutation({
 
 export const removeAssignment = mutation({
     args: labelArgs,
-    handler: async (ctx, { expectedUserId, labelId }) => {
+    handler: async (ctx, { expectedUserId, labelId, vp }) => {
         const userId = await currentUser(ctx, expectedUserId);
         if (!userId) throw new ConvexError('サインインしてください。');
-        const assignment = await assignmentFor(ctx, userId, labelId);
+        const assignment = vp ? await vpFor(ctx, userId) : labelId !== undefined ? await assignmentFor(ctx, userId, labelId) : null;
         if (!assignment) return;
-        const [saved, skin] = await Promise.all([scheduleFor(ctx, userId, assignment._id), skinFor(ctx, assignment._id)]);
+        const [saved, skin, proposals] = await Promise.all([scheduleFor(ctx, userId, assignment._id), skinFor(ctx, assignment._id),
+            ctx.db.query('grokBotProposals').withIndex('by_user_assignment_status', q => q.eq('userId', userId).eq('assignmentId', assignment._id)).collect()]);
         if (saved) await ctx.db.delete(saved._id);
         if (skin) await ctx.db.delete(skin._id);
+        for (const proposal of proposals) await ctx.db.delete(proposal._id);
         await ctx.db.delete(assignment._id);
     },
 });
@@ -403,15 +444,15 @@ export const authorize = internalQuery({
         if (pilot && assignment === undefined) {
             let mismatch = token.length ^ pilot.token.length;
             for (let i = 0; i < pilot.token.length; i++) mismatch |= pilot.token.charCodeAt(i) ^ (token.charCodeAt(i) || 0);
-            if (!mismatch) return await accountActive(ctx, pilot.userId) ? { userId: pilot.userId } : null;
+            if (!mismatch) return await accountActive(ctx, pilot.userId) ? { userId: pilot.userId, vp: false } : null;
         }
         const tokenHash = await hashToken(token);
         const row = assignment === undefined
             ? await ctx.db.query('grokBotAssignments').withIndex('by_token', q => q.eq('tokenHash', tokenHash)).unique()
             : await ctx.db.query('grokBotAssignments').withIndex('by_oauth_token', q => q.eq('oauthTokenHash', tokenHash)).unique();
         if (assignment !== undefined && row?._id !== assignment) return null;
-        if (!row || !(await accountActive(ctx, row.userId)) || (await loadItem(ctx, row.userId, row.labelId))?.type !== 'section') return null;
-        return { userId: row.userId, assignmentId: row._id, tokenHash, connectedAt: row.connectedAt, webhookConfigured: !!webhookFor(row) };
+        if (!row || !(await accountActive(ctx, row.userId)) || (!isVp(row) && (await loadItem(ctx, row.userId, row.labelId))?.type !== 'section')) return null;
+        return { userId: row.userId, assignmentId: row._id, tokenHash, connectedAt: row.connectedAt, webhookConfigured: !!webhookFor(row), vp: isVp(row) };
     },
 });
 
@@ -429,7 +470,10 @@ export const inbox = query({
     args: { expectedUserId: v.string() },
     handler: async (ctx, { expectedUserId }) => {
         const userId = await currentUser(ctx, expectedUserId);
-        return userId ? officerInbox(ctx, userId) : null;
+        if (!userId) return null;
+        const [officer, vpRow] = await Promise.all([officerInbox(ctx, userId), vpFor(ctx, userId)]);
+        if (!officer && !vpRow) return null;
+        return { ...(officer ?? { pending: [], answered: [] }), proposals: await proposalInbox(ctx, userId) };
     },
 });
 
@@ -438,12 +482,12 @@ export const taskHistory = query({
     handler: async (ctx, { expectedUserId, taskId }) => {
         const userId = await currentUser(ctx, expectedUserId);
         if (!userId) return null;
-        const [rows, hasAssignment] = await Promise.all([history(ctx, userId, taskId), assignmentsFor(ctx, userId).take(1)]);
+        const [rows, hasAssignment, deferredUntil] = await Promise.all([history(ctx, userId, taskId), labelAssignments(ctx, userId), deferral(ctx, userId, taskId)]);
         const assigned = hasAssignment.length || pilotFor(userId) ? await taskAssignment(ctx, userId, taskId) : null;
-        if (!rows.length && !assigned) return null;
+        if (!rows.length && !assigned && !deferredUntil) return null;
         const role = assigned ? await botRole(ctx, userId, taskId, assigned.label.id, assigned.assignmentId) : null;
         return { rows: rows.map(row => ({ ...view(row), canReply: !!assigned && row.assignmentId === assigned.assignmentId })),
-            canReply: !!assigned, mayExecute: !!role?.execute, reviewRequired: !!role?.reviewRequired };
+            canReply: !!assigned, mayExecute: !!role?.execute, reviewRequired: !!role?.reviewRequired, deferredUntil };
     },
 });
 
@@ -473,9 +517,11 @@ export const assignedTasks = internalQuery({
             const task = taskInScope(assigned, taskId);
             const subtasks = subtreeOf([...assigned.tasks.values()], taskId).slice(1);
             return { task: await toView(ctx, userId, task, assigned.label.text, subtasks), task_version: task.updatedAt,
-                ...await roleOf(task.id), work: (await history(ctx, userId, taskId, { assignmentId })).map(view) };
+                ...await roleOf(task.id), deferred_until: await deferral(ctx, userId, taskId),
+                work: (await history(ctx, userId, taskId, { assignmentId })).map(view), proposals: await taskProposals(ctx, userId, assignmentId, taskId) };
         }
-        const tasks = [...assigned.tasks.values()].filter(open);
+        const deferred = await deferrals(ctx, userId);
+        const tasks = [...assigned.tasks.values()].filter(task => open(task) && !deferred.has(task.id));
         const page = tasks.slice(offset, offset + 50);
         const count = async (id: string, status: Work['status']) => (await taskDecisions(ctx, userId, id, status, { assignmentId })).length;
         return { label: assigned.label.text, tasks: await Promise.all(page.map(async task => ({
@@ -486,7 +532,8 @@ export const assignedTasks = internalQuery({
             answered: await count(task.id, 'answered'),
             awaiting_review: await count(task.id, 'review'),
             returned: await count(task.id, 'returned'),
-        }))), next_offset: offset + page.length < tasks.length ? offset + page.length : null };
+        }))), next_offset: offset + page.length < tasks.length ? offset + page.length : null,
+        proposals: await ownProposals(ctx, userId, assignmentId) };
     },
 });
 
@@ -543,6 +590,7 @@ export const requestDecision = internalMutation({
             return view(previous);
         }
         if (!open(task)) throw new ConvexError('Task is already closed');
+        await requireNotDeferred(ctx, userId, taskId);
         const waiting = await taskDecisions(ctx, userId, taskId, 'waiting', { assignmentId });
         if (waiting.some(row => row.text === question)) throw new ConvexError('This question is already waiting for a reply');
         if (waiting.length >= 10) throw new ConvexError('This task already has 10 open questions');
@@ -592,6 +640,7 @@ export const recordWorkResult = internalMutation({
         }
         const role = await botRole(ctx, userId, taskId, assigned.label.id, assignmentId);
         if (complete && !role.execute) throw new ConvexError('This task is review-only for Grok Bot');
+        if (complete) await requireNotDeferred(ctx, userId, taskId);
         if (complete && expectedTaskVersion !== task.updatedAt) throw new ConvexError('Task changed; read it again before reporting completion');
         const review = complete && !task.done && (!!needsReview || role.reviewRequired);
         if (complete && !task.done) {
@@ -766,9 +815,13 @@ export async function refreshPatrolTimeZone(ctx: MutationCtx, userId: string, ti
     }
 }
 
-const scheduleArgs = { expectedUserId: v.string(), labelId: v.optional(v.string()) };
+const scheduleArgs = { expectedUserId: v.string(), labelId: v.optional(v.string()), vp: v.optional(v.literal(true)) };
 
-async function scheduleAssignment(ctx: QueryCtx, userId: string, labelId?: string) {
+async function scheduleAssignment(ctx: QueryCtx, userId: string, labelId?: string, vp?: true) {
+    if (vp) {
+        const row = labelId === undefined ? await vpFor(ctx, userId) : null;
+        return row ? { assignmentId: row._id, labelId: vpLabelId, vp: true } : null;
+    }
     const pilot = pilotFor(userId);
     if (!labelId) return pilot ? { assignmentId: undefined, labelId: pilot.labelId } : null;
     const assignment = await assignmentFor(ctx, userId, labelId);
@@ -778,9 +831,9 @@ async function scheduleAssignment(ctx: QueryCtx, userId: string, labelId?: strin
 
 export const schedule = query({
     args: scheduleArgs,
-    handler: async (ctx, { expectedUserId, labelId }) => {
+    handler: async (ctx, { expectedUserId, labelId, vp }) => {
         const userId = await currentUser(ctx, expectedUserId);
-        const target = userId ? await scheduleAssignment(ctx, userId, labelId) : null;
+        const target = userId ? await scheduleAssignment(ctx, userId, labelId, vp) : null;
         if (!userId || !target) return null;
         const [saved, timeZone] = await Promise.all([scheduleFor(ctx, userId, target.assignmentId), timezoneFor(ctx, userId)]);
         return { timeZone, enabled: saved?.enabled ?? false, time: saved?.time ?? '06:00',
@@ -790,10 +843,10 @@ export const schedule = query({
 
 export const saveSchedule = mutation({
     args: { ...scheduleArgs, enabled: v.boolean(), time: v.string() },
-    handler: async (ctx, { expectedUserId, labelId, enabled, time }) => {
+    handler: async (ctx, { expectedUserId, labelId, vp, enabled, time }) => {
         const userId = await currentUser(ctx, expectedUserId);
-        const target = userId ? await scheduleAssignment(ctx, userId, labelId) : null;
-        if (!userId || !target || (await loadItem(ctx, userId, target.labelId))?.type !== 'section') throw new ConvexError('Grok Botの担当ラベルが見つかりません。');
+        const target = userId ? await scheduleAssignment(ctx, userId, labelId, vp) : null;
+        if (!userId || !target || (!('vp' in target) && (await loadItem(ctx, userId, target.labelId))?.type !== 'section')) throw new ConvexError('Grok Botの担当ラベルが見つかりません。');
         if (!isTimeString(time)) throw new ConvexError('巡回時刻を入力してください。');
         const [saved, timeZone] = await Promise.all([scheduleFor(ctx, userId, target.assignmentId), timezoneFor(ctx, userId)]);
         if (enabled && !timeZone) throw new ConvexError('先に設定でタイムゾーンを保存してください。');
@@ -809,8 +862,8 @@ export async function dispatchDuePatrol(ctx: MutationCtx, now: number) {
     for (const saved of due) {
         const assignment = saved.assignmentId ? await ctx.db.get(saved.assignmentId) : null;
         const timeZone = saved.enabled && assignment && await accountActive(ctx, saved.userId) ? await timezoneFor(ctx, saved.userId) : null;
-        const label = assignment && timeZone ? await loadItem(ctx, saved.userId, assignment.labelId) : null;
-        if (!timeZone || label?.type !== 'section') {
+        const label = assignment && timeZone && !isVp(assignment) ? await loadItem(ctx, saved.userId, assignment.labelId) : null;
+        if (!assignment || !timeZone || (!isVp(assignment) && label?.type !== 'section')) {
             await ctx.db.patch(saved._id, { nextCheckAt: undefined });
             continue;
         }
@@ -820,7 +873,7 @@ export async function dispatchDuePatrol(ctx: MutationCtx, now: number) {
         await ctx.db.patch(saved._id, shouldRun
             ? { nextCheckAt, lastDay: day, lastRunAt: now, lastStatus: 'queued' }
             : { nextCheckAt });
-        if (shouldRun) await ctx.scheduler.runAfter(0, internal.grokBot.runPatrol, { id: saved._id, at: now, labelId: label.id });
+        if (shouldRun) await ctx.scheduler.runAfter(0, internal.grokBot.runPatrol, { id: saved._id, at: now, labelId: assignment.labelId });
     }
     const config = grokBotConfig();
     if (!config || !(await accountActive(ctx, config.userId))) return;
@@ -841,9 +894,9 @@ export const patrolTarget = internalQuery({
         const saved = await ctx.db.get(id);
         if (!saved?.enabled || saved.savedAt > at || saved.lastRunAt !== at || saved.lastStatus !== 'queued' ||
             !(await accountActive(ctx, saved.userId))) return null;
-        const target = await connectionFor(ctx, saved.userId, saved.assignmentId);
-        if (target?.labelId !== labelId || ('_id' in target && !target.connectedAt) ||
-            (await loadItem(ctx, saved.userId, labelId))?.type !== 'section') return null;
+        const target = saved.assignmentId ? await ctx.db.get(saved.assignmentId) : pilotFor(saved.userId);
+        if (target?.userId !== saved.userId || target.labelId !== labelId || ('_id' in target && !target.connectedAt) ||
+            (!('role' in target && isVp(target)) && (await loadItem(ctx, saved.userId, labelId))?.type !== 'section')) return null;
         return webhookFor(target);
     },
 });
@@ -863,5 +916,278 @@ export const runPatrol = internalAction({
         const target = await ctx.runQuery(internal.grokBot.patrolTarget, args);
         const accepted = !!target && await notifyBot(target, { trigger: 'patrol' });
         await ctx.runMutation(internal.grokBot.patrolResult, { ...args, accepted });
+    },
+});
+
+/* ---------- Deferrals: adopted "not now" proposals, kept beside the Bot tables rather than in the synced Item ---------- */
+
+const todayFor = async (ctx: QueryCtx, userId: string) => dateInTimeZone(await timezoneFor(ctx, userId) ?? 'UTC', Date.now());
+const deferralRow = (ctx: QueryCtx, userId: string, taskId: string) =>
+    ctx.db.query('grokBotDeferrals').withIndex('by_user_task', q => q.eq('userId', userId).eq('taskId', taskId)).unique();
+
+/** The date a task stays hidden from Bots until, or null once that day has come in the user's time zone. */
+async function deferral(ctx: QueryCtx, userId: string, taskId: string) {
+    const row = await deferralRow(ctx, userId, taskId);
+    return row && row.until > await todayFor(ctx, userId) ? row.until : null;
+}
+
+async function deferrals(ctx: QueryCtx, userId: string) {
+    const rows = await ctx.db.query('grokBotDeferrals').withIndex('by_user', q => q.eq('userId', userId)).collect();
+    const today = rows.length ? await todayFor(ctx, userId) : '';
+    return new Map(rows.filter(row => row.until > today).map(row => [row.taskId, row.until]));
+}
+
+async function requireNotDeferred(ctx: QueryCtx, userId: string, taskId: string) {
+    const until = await deferral(ctx, userId, taskId);
+    if (until) throw new ConvexError(`The user deferred this task until ${until}; leave it until then`);
+}
+
+export const cancelDeferral = mutation({
+    args: { expectedUserId: v.string(), taskId: v.string() },
+    handler: async (ctx, { expectedUserId, taskId }) => {
+        const userId = await currentUser(ctx, expectedUserId);
+        if (!userId) throw new ConvexError('サインインしてください。');
+        const row = await deferralRow(ctx, userId, taskId);
+        if (row) await ctx.db.delete(row._id);
+    },
+});
+
+/* ---------- Proposals: Bot ideas that change nothing until the human adopts them ---------- */
+
+type Proposal = Doc<'grokBotProposals'>;
+const proposalKind = v.union(v.literal('delete'), v.literal('defer'), v.literal('move'), v.literal('new_task'));
+const maxPendingProposals = 10;
+const sameTitle = (a?: string, b?: string) => !!a && !!b && a.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ') ===
+    b.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
+/** Two proposals carry the same idea: same kind and task, and for move the same label, for new_task the same title. */
+const sameIdea = (a: Pick<Proposal, 'kind' | 'taskId' | 'labelId' | 'title'>, b: Pick<Proposal, 'kind' | 'taskId' | 'labelId' | 'title'>) =>
+    a.kind === b.kind && a.taskId === b.taskId && (a.kind === 'move' ? a.labelId === b.labelId : a.kind === 'new_task' ? sameTitle(a.title, b.title) : true);
+
+function proposalView(row: Proposal) {
+    return { id: row._id, kind: row.kind, status: row.status, task_id: row.taskId, label_id: row.labelId, title: row.title, until: row.until,
+        reason: row.reason, created_at: row._creationTime, resolved_at: row.resolvedAt };
+}
+
+const proposalsWith = (ctx: QueryCtx, userId: string, assignmentId: AssignmentId | undefined, status: Proposal['status']) =>
+    ctx.db.query('grokBotProposals').withIndex('by_user_assignment_status', q => q.eq('userId', userId).eq('assignmentId', assignmentId).eq('status', status));
+
+/** A Bot's pending proposals and its most recent outcomes, so it can learn what the user adopts. */
+async function ownProposals(ctx: QueryCtx, userId: string, assignmentId?: AssignmentId) {
+    const [pending, ...resolved] = await Promise.all([
+        proposalsWith(ctx, userId, assignmentId, 'pending').collect(),
+        ...(['adopted', 'dismissed', 'changed'] as const).map(status => proposalsWith(ctx, userId, assignmentId, status).order('desc').take(15)),
+    ]);
+    return [...pending, ...resolved.flat().sort((a, b) => b._creationTime - a._creationTime)].slice(0, 25).map(proposalView);
+}
+
+async function taskProposals(ctx: QueryCtx, userId: string, assignmentId: AssignmentId | undefined, taskId: string) {
+    const rows = await Promise.all((['delete', 'defer', 'move'] as const).map(kind => ctx.db.query('grokBotProposals')
+        .withIndex('by_user_kind_task', q => q.eq('userId', userId).eq('kind', kind).eq('taskId', taskId)).collect()));
+    return rows.flat().filter(row => row.assignmentId === assignmentId).sort((a, b) => b._creationTime - a._creationTime).map(proposalView);
+}
+
+async function requireVp(ctx: QueryCtx, userId: string, assignmentId?: AssignmentId) {
+    const row = assignmentId ? await ctx.db.get(assignmentId) : null;
+    if (!row || row.userId !== userId || !isVp(row)) throw new ConvexError('The VP connection is unavailable');
+    return row;
+}
+
+export const propose = internalMutation({
+    args: { ...botScope, kind: proposalKind, taskId: v.optional(v.string()), labelId: v.optional(v.string()), title: v.optional(v.string()),
+        note: v.optional(v.string()), until: v.optional(v.string()), reason: v.string(), key: v.string() },
+    handler: async (ctx, { userId, assignmentId, kind, taskId, labelId, until, key, ...text }) => {
+        const bot = assignmentId ? await ctx.db.get(assignmentId) : null;
+        const vp = !!bot && bot.userId === userId && isVp(bot);
+        const reason = text.reason.trim();
+        const title = text.title?.trim() || undefined;
+        const note = text.note?.trim() || undefined;
+        const fields = { kind, taskId, labelId, title, note, until, reason };
+        const previous = await ctx.db.query('grokBotProposals').withIndex('by_user_assignment_key', q =>
+            q.eq('userId', userId).eq('assignmentId', assignmentId).eq('key', key)).unique();
+        if (previous) {
+            const signature = (row: Pick<Proposal, keyof typeof fields>) => JSON.stringify([row.kind, row.taskId, row.labelId, row.title, row.note, row.until, row.reason]);
+            if (signature(previous) !== signature(fields)) throw new ConvexError('Idempotency key already used');
+            return proposalView(previous);
+        }
+        if (!vp && kind !== 'delete' && kind !== 'defer') throw new ConvexError('Only the VP can propose move or new_task; a label Bot may propose delete or defer');
+        if (!reason || reason.length > 2000) throw new ConvexError('The reason must be 1 to 2000 characters');
+        if ((kind === 'new_task') === (taskId !== undefined)) throw new ConvexError(kind === 'new_task' ? 'new_task takes a title, not a task_id' : `${kind} needs a task_id`);
+        if ((kind === 'move') !== (labelId !== undefined) && kind !== 'new_task') throw new ConvexError(kind === 'move' ? 'move needs a label_id' : 'label_id is only for move and new_task');
+        if (kind === 'new_task' ? !title || title.length > 500 || (note?.length ?? 0) > 8000 : title !== undefined || note !== undefined) {
+            throw new ConvexError(kind === 'new_task' ? 'new_task needs a title of 1 to 500 characters and a note of at most 8000' : 'title and note are only for new_task');
+        }
+        if ((kind === 'defer') !== (until !== undefined)) throw new ConvexError(kind === 'defer' ? 'defer needs until (YYYY-MM-DD)' : 'until is only for defer');
+
+        // A label Bot is held to its own label; the VP may name any open task, label or unsorted.
+        const scoped = vp ? null : await requireScope(ctx, userId, assignmentId);
+        const items = scoped?.items ?? await loadItems(ctx, userId);
+        const byId = new Map(items.map(item => [item.id, item]));
+        let revision = {};
+        if (taskId !== undefined) {
+            const task = scoped ? taskInScope(scoped, taskId) : byId.get(taskId);
+            if (task?.type !== 'task' || !task.text.trim()) throw new ConvexError('Task not found');
+            if (!open(task)) throw new ConvexError('Task is already closed');
+            if (kind === 'move' && (!unsorted(byId, task) || labelIn(byId, task))) throw new ConvexError('Only an unsorted root-level task can be moved into a label');
+            if (kind === 'delete') {
+                const current = snapshot(items, task.id)!;
+                revision = { count: current.count, revision: current.revision };
+            }
+        }
+        if (labelId !== undefined && byId.get(labelId)?.type !== 'section') throw new ConvexError('Label not found');
+        if (until !== undefined) {
+            if (!isDateString(until)) throw new ConvexError('until must be YYYY-MM-DD');
+            const today = await todayFor(ctx, userId);
+            if (until <= today) throw new ConvexError(`until must be after today (${today}) in the user’s time zone`);
+            const current = await deferral(ctx, userId, taskId!);
+            if (current) throw new ConvexError(`The task is already deferred until ${current}`);
+        }
+
+        const related = await ctx.db.query('grokBotProposals').withIndex('by_user_kind_task', q => q.eq('userId', userId).eq('kind', kind).eq('taskId', taskId)).collect();
+        if (related.some(row => row.status === 'pending' && row.assignmentId === assignmentId && (kind !== 'new_task' || sameIdea(row, fields)))) {
+            throw new ConvexError(kind === 'new_task' ? 'The same new task is already proposed' : `A ${kind} proposal for this task is already pending`);
+        }
+        if (related.some(row => row.status === 'dismissed' && sameIdea(row, fields))) {
+            throw new ConvexError('The user already dismissed this proposal; do not propose it again');
+        }
+        if ((await proposalsWith(ctx, userId, assignmentId, 'pending').take(maxPendingProposals)).length >= maxPendingProposals) {
+            throw new ConvexError(`You already have ${maxPendingProposals} pending proposals; wait for the user to decide`);
+        }
+        const id = await ctx.db.insert('grokBotProposals', { userId, assignmentId, key, ...fields, ...revision, status: 'pending' });
+        return proposalView((await ctx.db.get(id))!);
+    },
+});
+
+/** Pending proposals for the inbox. They never count toward the inbox number. */
+async function proposalInbox(ctx: QueryCtx, userId: string) {
+    const rows = await ctx.db.query('grokBotProposals').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', 'pending')).collect();
+    if (!rows.length) return [];
+    const [items, bots] = await Promise.all([loadItems(ctx, userId), ctx.db.query('grokBotAssignments').withIndex('by_user', q => q.eq('userId', userId)).collect()]);
+    const byId = new Map(items.map(item => [item.id, item]));
+    const botById = new Map(bots.map(bot => [bot._id, bot]));
+    const pilot = pilotFor(userId);
+    return rows.flatMap(row => {
+        const bot = row.assignmentId ? botById.get(row.assignmentId) : pilot;
+        if (!bot) return [];
+        const vp = '_id' in bot && isVp(bot);
+        const task = row.taskId ? byId.get(row.taskId) : undefined;
+        const target = row.labelId ? byId.get(row.labelId) : undefined;
+        return [{ id: row._id, kind: row.kind, vp, proposer: vp ? 'VP' : byId.get(bot.labelId)?.text.trim() || 'ラベル',
+            taskId: row.taskId, taskTitle: task?.type === 'task' ? task.text : undefined, taskOpen: task?.type === 'task' && open(task),
+            labelId: row.labelId, labelName: target?.type === 'section' ? target.text.trim() || 'ラベル' : undefined,
+            title: row.title, note: row.note, until: row.until, reason: row.reason, count: row.count, createdAt: row._creationTime }];
+    }).sort((a, b) => a.createdAt - b.createdAt);
+}
+
+async function ownProposal(ctx: QueryCtx, id: Id<'grokBotProposals'>, expectedUserId: string) {
+    const userId = await currentUser(ctx, expectedUserId);
+    const row = await ctx.db.get(id);
+    if (!userId || row?.userId !== userId) throw new ConvexError('提案が見つかりません。');
+    return { userId, row };
+}
+
+/** Apply an adopted proposal in this transaction. false when its target changed since it was proposed. */
+async function applyProposal(ctx: MutationCtx, userId: string, row: Proposal): Promise<false | { createdTaskId?: string }> {
+    const items = await loadItems(ctx, userId);
+    const byId = new Map(items.map(item => [item.id, item]));
+    const task = row.taskId ? byId.get(row.taskId) : undefined;
+    const label = row.labelId ? byId.get(row.labelId) : undefined;
+    switch (row.kind) {
+        case 'delete': {
+            const current = row.taskId ? snapshot(items, row.taskId) : null;
+            if (!current || !open(task) || current.revision !== row.revision || current.count !== row.count) return false;
+            await ctx.runMutation(internal.mcpTasks.remove, { userId, taskId: row.taskId!, expectedText: current.text, expectedCount: current.count });
+            return {};
+        }
+        case 'defer': {
+            if (task?.type !== 'task' || !open(task) || !row.until || row.until <= await todayFor(ctx, userId)) return false;
+            const existing = await deferralRow(ctx, userId, task.id);
+            if (existing) await ctx.db.patch(existing._id, { until: row.until, proposalId: row._id });
+            else await ctx.db.insert('grokBotDeferrals', { userId, taskId: task.id, until: row.until, proposalId: row._id });
+            return {};
+        }
+        case 'move': {
+            if (task?.type !== 'task' || !open(task) || !unsorted(byId, task) || label?.type !== 'section') return false;
+            await ctx.runMutation(internal.mcpTasks.move, { userId, taskId: task.id, labelId: label.id });
+            return {};
+        }
+        case 'new_task': {
+            if ((row.labelId && label?.type !== 'section') || !row.title) return false;
+            const created: unknown = await ctx.runMutation(internal.mcpTasks.add, { userId, text: row.title, note: row.note, parentId: row.labelId,
+                idempotencyKey: `grok-bot-proposal:${row._id}`, clientName: 'Grok Bot VP' });
+            return { createdTaskId: created && typeof created === 'object' && 'id' in created && typeof created.id === 'string' ? created.id : undefined };
+        }
+    }
+}
+
+export const adoptProposal = mutation({
+    args: { id: v.id('grokBotProposals'), expectedUserId: v.string() },
+    handler: async (ctx, { id, expectedUserId }): Promise<{ status: 'adopted' | 'changed' }> => {
+        const { userId, row } = await ownProposal(ctx, id, expectedUserId);
+        if (row.status === 'adopted' || row.status === 'changed') return { status: row.status };
+        if (row.status !== 'pending') throw new ConvexError('この提案はすでに見送りました。');
+        const applied = await applyProposal(ctx, userId, row);
+        const status = applied ? 'adopted' : 'changed';
+        await ctx.db.patch(id, { status, resolvedAt: Date.now(), ...(applied ? applied : {}) });
+        return { status };
+    },
+});
+
+export const dismissProposal = mutation({
+    args: { id: v.id('grokBotProposals'), expectedUserId: v.string() },
+    handler: async (ctx, { id, expectedUserId }) => {
+        const { row } = await ownProposal(ctx, id, expectedUserId);
+        if (row.status === 'dismissed') return;
+        if (row.status !== 'pending') throw new ConvexError('この提案はすでに対応済みです。');
+        await ctx.db.patch(id, { status: 'dismissed', resolvedAt: Date.now() });
+    },
+});
+
+/* ---------- VP read: every open task across labels and 未仕分け, read-only ---------- */
+
+export const allTasks = internalQuery({
+    args: { userId: v.string(), assignmentId: v.id('grokBotAssignments'), taskId: v.optional(v.string()), offset: v.optional(v.number()) },
+    handler: async (ctx, { userId, assignmentId, taskId, offset = 0 }) => {
+        await requireVp(ctx, userId, assignmentId);
+        const [items, assignments, delegations, deferred] = await Promise.all([loadItems(ctx, userId), labelAssignments(ctx, userId),
+            ctx.db.query('grokBotDelegations').withIndex('by_user', q => q.eq('userId', userId)).collect(), deferrals(ctx, userId)]);
+        const byId = new Map(items.map(item => [item.id, item]));
+        const pilot = pilotFor(userId);
+        const botOf = (labelId: string) => {
+            const assignment = assignments.find(row => row.labelId === labelId);
+            return assignment ? webhookFor(assignment) ? { assignmentId: assignment._id } : null : pilot?.labelId === labelId ? { assignmentId: undefined } : null;
+        };
+        const placeOf = (task: Item) => {
+            const label = labelIn(byId, task);
+            const bot = label ? botOf(label.id) : null;
+            const delegation = delegations.find(row => row.taskId === task.id);
+            const execute = !!label && !!bot && delegation?.labelId === label.id && delegation.assignmentId === bot.assignmentId;
+            return { label_id: label?.id ?? null, label: label?.text ?? null, unsorted: !label && unsorted(byId, task),
+                bot_role: bot ? execute ? 'execute' : 'review' : null, review_required: execute && !!delegation?.reviewCompletion };
+        };
+        if (taskId) {
+            const task = byId.get(taskId);
+            if (task?.type !== 'task' || !task.text.trim()) throw new ConvexError('Task not found');
+            const place = placeOf(task);
+            const subtasks = subtreeOf(items, taskId).slice(1).filter(item => item.type === 'task');
+            return { task: await toView(ctx, userId, task, place.label ?? undefined, subtasks), task_version: task.updatedAt, ...place,
+                deferred_until: deferred.get(taskId) ?? null, work: (await history(ctx, userId, taskId)).map(view),
+                proposals: await taskProposals(ctx, userId, assignmentId, taskId) };
+        }
+        const statusRows = (status: Work['status']) => ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', status)).collect();
+        const [waiting, reviews] = await Promise.all([statusRows('waiting'), statusRows('review')]);
+        const counts = (rows: Work[]) => rows.reduce((map, row) => map.set(row.taskId, (map.get(row.taskId) ?? 0) + 1), new Map<string, number>());
+        const [awaitingReply, awaitingReview] = [counts(waiting), counts(reviews)];
+        const openTasks = items.filter(item => item.type === 'task' && open(item));
+        const tasks = openTasks.filter(task => !deferred.has(task.id));
+        const page = tasks.slice(offset, offset + 50);
+        return {
+            labels: items.filter(item => item.type === 'section').map(label => ({ id: label.id, name: label.text, has_bot: !!botOf(label.id) })),
+            tasks: page.map(task => ({ id: task.id, title: task.text, parent_id: task.parentId && byId.has(task.parentId) ? task.parentId : null,
+                ...placeOf(task), locked: !!task.locked, due_date: task.dueDate, due_time: task.dueTime,
+                awaiting_reply: awaitingReply.get(task.id) ?? 0, awaiting_review: awaitingReview.get(task.id) ?? 0 })),
+            deferred_tasks: openTasks.length - tasks.length,
+            next_offset: offset + page.length < tasks.length ? offset + page.length : null,
+            proposals: await ownProposals(ctx, userId, assignmentId),
+        };
     },
 });

@@ -985,14 +985,17 @@ export const move = internalMutation({
         taskId: v.string(),
         label: v.optional(v.string()),
         parentTaskId: v.optional(v.string()),
+        /** 名前の重複に左右されない、ラベル id での指定 */
+        labelId: v.optional(v.string()),
     },
-    handler: async (ctx, { userId, taskId, label, parentTaskId }) => {
+    handler: async (ctx, { userId, taskId, label, parentTaskId, labelId }) => {
         const items = await loadItems(ctx, userId);
         const byId = new Map(items.map((i) => [i.id, i]));
         const target = byId.get(taskId);
         if (!target || target.type !== "task") throw new ConvexError("task not found");
+        if (labelId !== undefined && byId.get(labelId)?.type !== "section") throw new ConvexError("label not found");
 
-        const parent = resolveDestination(items, byId, label, parentTaskId);
+        const parent = labelId ?? resolveDestination(items, byId, label, parentTaskId);
         if (parent && isInside(byId, parent, target.id)) {
             throw new ConvexError("cannot move a task into itself");
         }
