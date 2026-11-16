@@ -453,7 +453,8 @@ test('morning notifications link to the inbox when there is an open decision', a
   await f.invoke('notifications:collect');
   const [notice] = await f.invoke('notifications:pending', { deviceId });
   assert.equal(notice.inbox, true);
-  assert.equal(notice.body, '1件の回答を待っています。');
+  assert.equal(notice.title, '受信箱に対応待ちがあります');
+  assert.equal(notice.body, '1件があなたの対応を待っています。');
 });
 
 const execute = (f, taskId, reviewCompletion) => f.call('setDelegation', { ...web, taskId, execute: true, ...(reviewCompletion ? { reviewCompletion } : {}) });

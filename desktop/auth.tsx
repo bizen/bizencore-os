@@ -19,7 +19,7 @@ function PendingAuth() {
   }, []);
   return <AuthScreen>{timedOut ? <>
     <p role="alert">ログインを確認できませんでした。</p><ReloadButton />
-  </> : <p className="desktop-auth-status" role="status"><LoaderCircle size={18} aria-hidden />ログインを確認しています...</p>}</AuthScreen>;
+  </> : <p className="desktop-auth-status" role="status"><LoaderCircle size={18} aria-hidden />ログインを確認しています…</p>}</AuthScreen>;
 }
 
 function ReloadButton() {

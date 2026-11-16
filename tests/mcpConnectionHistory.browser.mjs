@@ -88,7 +88,7 @@ try {
     await page.evaluate(({ rows, name }) => globalThis.fixtureSetRows(rows.map((row, index) => index === 0 ? { ...row, clientName: name } : row)), { rows, name });
     assert.equal(await connections.nth(0).locator('strong').textContent(), name, 'explicit CLI/Desktop names are retained');
   }
-  for (const [value, message] of [[undefined, '読み込み中...'], [null, '表示するにはサインインしてください。'], [[], '記録されたMCPの利用はまだありません。']]) {
+  for (const [value, message] of [[undefined, '読み込み中…'], [null, '表示するにはサインインしてください。'], [[], '記録されたMCPの利用はまだありません。']]) {
     await page.evaluate(value => globalThis.fixtureSetRows(value), value);
     assert.equal(await history.count(), 0);
     assert.ok(await page.locator('[aria-labelledby="settings-mcp-title"]').getByText(message, { exact: true }).isVisible());

@@ -38,7 +38,7 @@ function CloudBoundary({ children }: { children: ReactNode }) {
     return () => { active = false; };
   }, [deleting, userId]);
 
-  if (isLoaded === false || (userId && status === undefined && !deleting)) return <div className="account-deletion-status" role="status">読み込み中...</div>;
+  if (isLoaded === false || (userId && status === undefined && !deleting)) return <div className="account-deletion-status" role="status">読み込み中…</div>;
   if (!deleting) return children;
   const complete = status?.userId === userId && status.phase === 'complete';
   return (

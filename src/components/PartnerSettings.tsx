@@ -43,7 +43,7 @@ function AccountSettings({ accountId }: { accountId: string }) {
     catch (cause) { setError(cause instanceof ConvexError && typeof cause.data === 'string' ? cause.data : '操作できませんでした。接続を確認して再試行してください。'); }
     finally { setBusy(false); }
   };
-  if (state === undefined) return <p className="settings-muted" role="status">読み込み中...</p>;
+  if (state === undefined) return <p className="settings-muted" role="status">読み込み中…</p>;
   if (!state || state.accountId !== accountId) return <p className="settings-muted">サインインを確認してください。</p>;
   const invite = state.invite;
   const link = invite ? `${window.location.origin}/#partner-invite=${invite.code}` : '';
@@ -84,7 +84,7 @@ function AccountSettings({ accountId }: { accountId: string }) {
             const parsed = partnerInviteCode(draft); setCode(parsed); setError(parsed ? '' : '招待リンクを確認してください。');
           }}><Link2 size={14} aria-hidden />確認</button>
         </div>
-        {code && preview === undefined ? <p className="settings-muted" role="status">招待を確認中...</p> : null}
+        {code && preview === undefined ? <p className="settings-muted" role="status">招待を確認中…</p> : null}
         {code && preview === null ? <p className="context-error" role="alert">招待が無効か期限切れです。</p> : null}
         {code && preview ? <div className="partner-accept"><span>{preview.name} からの招待</span>
           <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(async () => {

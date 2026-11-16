@@ -297,14 +297,14 @@ function CountPageLayout({
       <textarea
         className="count-textarea"
         data-reload-storage-key={STORAGE_KEY}
-        placeholder="ここに文字を入力..."
+        placeholder="ここに文字を入力…"
         value={text}
         onChange={onTextChange}
       />
 
       <section className="count-stocks" aria-label="ストック一覧">
         {stocksLoading ? (
-          <p className="muted count-stocks-loading">loading...</p>
+          <p className="muted count-stocks-loading">読み込み中…</p>
         ) : (
           <ul className="count-stock-list">
             {stocks.map((s) => (
