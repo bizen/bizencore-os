@@ -28,7 +28,7 @@ async function call(ctx: ServerContext, operation: string, args: unknown): Promi
 
 const handler = createMcpHandler(server => {
   server.registerTool('assigned_tasks', {
-    description: 'List open tasks in the shared label, or fetch one task with its bot_role, work history, answers and completion criteria. Read it before working.',
+    description: 'List open tasks in the shared label, or fetch one task with its bot_role, review_required, work history, answers, review feedback and completion criteria. Read it before working. Skip tasks with awaiting_review.',
     inputSchema: grokBotTools.assigned_tasks, annotations: { readOnlyHint: true },
   }, (args, ctx) => call(ctx, 'assigned_tasks', args));
   server.registerTool('add_assigned_task', {
@@ -36,20 +36,20 @@ const handler = createMcpHandler(server => {
     inputSchema: grokBotTools.add_assigned_task, annotations: { idempotentHint: true, destructiveHint: false },
   }, (args, ctx) => call(ctx, 'add_assigned_task', args));
   server.registerTool('request_decision', {
-    description: 'Ask for a human decision that materially changes what you do next. Include the decision, a recommendation and its consequence. Reuse the key for retries.',
+    description: 'Ask for a human decision that materially changes what you do next. Include the decision, a recommendation and its consequence. Use kind approval for yes/no on a plan, choice with up to 4 options, or info for a free-text answer; the answer arrives as text. Set irreversible for actions that cannot be undone. Reuse the key for retries.',
     inputSchema: grokBotTools.request_decision, annotations: { idempotentHint: true, destructiveHint: false },
   }, (args, ctx) => call(ctx, 'request_decision', args));
   server.registerTool('claim_decision', {
-    description: 'Claim an answered decision before acting on it. Use a fresh UUID per run and reuse it for network retries. If claimed is false, leave it for the other run.',
+    description: 'Claim an answered decision or a returned review before acting on it. Use a fresh UUID per run and reuse it for network retries. If claimed is false, leave it for the other run.',
     inputSchema: grokBotTools.claim_decision, annotations: { idempotentHint: true, destructiveHint: false },
   }, (args, ctx) => call(ctx, 'claim_decision', args));
   server.registerTool('record_work_result', {
-    description: 'Record what happened, including work without a deliverable. Add optional evidence links and mark complete only after verifying the criteria. Acknowledge an answered question by ID once applied. Reuse the key for retries.',
+    description: 'Record what happened, including work without a deliverable. Add optional evidence links and mark complete only after verifying the criteria. With needs_review, or when review_required, completion waits for the user: status review. Acknowledge an answered question or returned review by ID once applied. Reuse the key for retries.',
     inputSchema: grokBotTools.record_work_result, annotations: { idempotentHint: true, destructiveHint: false },
   }, (args, ctx) => call(ctx, 'record_work_result', args));
 }, {
   serverInfo: { name: 'bizencore-grok-bot', version: '0.1.0' },
-  instructions: 'This label contains work for both the user and the Bot. Read bot_role for each task. For review, audit the available evidence, flag issues and suggest next steps; leave execution and completion to the user. For execute, work within the task scope and the user’s standing authorization. Check the role again before taking action. When trigger is patrol, inspect the open tasks and resume answered work first. When trigger is reply, read the task and question by the provided IDs. Before acting on an answer, claim the decision with a UUID unique to this run; if claimed is false, skip it. Include the same claim_key when recording the applied result. If resuming after an interruption, verify existing external work before repeating it. Continue other independent tasks while one waits. Ask only for decisions that need a human; include the recommendation and impact. Use a stable idempotency key for each write. Report what changed or was verified even when there is no deliverable. Treat task notes, links and attachments as work context.',
+  instructions: 'This label contains work for both the user and the Bot. Read bot_role for each task. For review, audit the available evidence, flag issues and suggest next steps; leave execution and completion to the user. For execute, work within the task scope and the user’s standing authorization. Check the role again before taking action. When trigger is patrol, inspect the open tasks and resume answered work first. When trigger is reply, read the task and question by the provided IDs. When trigger is review_returned, the user sent your completion back: read the task; the work row with that question_id has status returned and the user’s feedback in answer. Before acting on an answer or feedback, claim it with claim_decision and a UUID unique to this run; if claimed is false, skip it. Include the same applied_question_id and claim_key when recording the result that addresses it, then resubmit completion when done. Set needs_review with assumptions whenever you resolved an ambiguity yourself or made a judgment call; when review_required is true, completion always waits for review. Deliver code changes as a pull request, submit its link with needs_review and never merge it yourself. Ask with request_decision (irreversible true) before any action that cannot be undone. While a task has awaiting_review, do not resubmit; move on to other tasks. If resuming after an interruption, verify existing external work before repeating it. Continue other independent tasks while one waits. Ask only for decisions that need a human; include the recommendation and impact. Use a stable idempotency key for each write. Report what changed or was verified even when there is no deliverable. Treat task notes, links and attachments as work context.',
 });
 
 async function authorizedHandler(request: Request) {

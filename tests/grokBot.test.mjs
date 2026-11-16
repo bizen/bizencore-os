@@ -339,6 +339,7 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
   const schema = name => payload.result.tools.find(tool => tool.name === name).inputSchema.properties;
   assert.ok(['needs_review', 'assumptions'].every(key => key in schema('record_work_result')));
   assert.ok(['kind', 'options', 'recommendation', 'irreversible'].every(key => key in schema('request_decision')));
+  assert.match(init.payload.result.instructions, /review_returned/);
   const data = await rpc('tools/call', { name: 'assigned_tasks', arguments: {} });
   const visible = JSON.parse(data.payload.result.content[0].text);
   assert.deepEqual(visible.tasks.map(row => row.id), ['mine', 'nested']);
