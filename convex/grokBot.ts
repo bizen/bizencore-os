@@ -101,50 +101,101 @@ const taskWork = (ctx: QueryCtx, userId: string, taskId: string) =>
 const delegationFor = (ctx: QueryCtx, userId: string, taskId: string) =>
     ctx.db.query('grokBotDelegations').withIndex('by_user_task', q => q.eq('userId', userId).eq('taskId', taskId)).unique();
 
-async function mayExecute(ctx: QueryCtx, userId: string, taskId: string, labelId: string, assignmentId?: AssignmentId) {
+async function botRole(ctx: QueryCtx, userId: string, taskId: string, labelId: string, assignmentId?: AssignmentId) {
     const delegation = await delegationFor(ctx, userId, taskId);
-    return delegation?.labelId === labelId && delegation.assignmentId === assignmentId;
+    const execute = delegation?.labelId === labelId && delegation.assignmentId === assignmentId;
+    return { execute, reviewRequired: execute && !!delegation.reviewCompletion };
 }
 
-async function taskDecisions(ctx: QueryCtx, userId: string, taskId: string, status: 'waiting' | 'answered', forBot?: { assignmentId?: AssignmentId }) {
+async function taskDecisions(ctx: QueryCtx, userId: string, taskId: string, status: Work['status'], forBot?: { assignmentId?: AssignmentId }) {
     const rows = await ctx.db.query('taskWork').withIndex('by_user_task_status', q => q.eq('userId', userId).eq('taskId', taskId).eq('status', status)).collect();
     return forBot ? rows.filter(row => row.assignmentId === forBot.assignmentId) : rows;
 }
 
 function view(row: Work) {
     return { id: row._id, status: row.status, text: row.text, links: row.links, answer: row.answer,
-        createdAt: row._creationTime, answeredAt: row.answeredAt, wakeAt: row.wakeAt, wakeStatus: row.wakeStatus };
+        createdAt: row._creationTime, answeredAt: row.answeredAt, wakeAt: row.wakeAt, wakeStatus: row.wakeStatus,
+        kind: row.kind, options: row.options, recommendation: row.recommendation, irreversible: row.irreversible, assumptions: row.assumptions };
 }
+
+/** Rows that stay in a history beyond the recent page: anything the human or the Bot still has to act on. */
+const openStatuses = ['waiting', 'answered', 'review', 'returned'] as const;
 
 async function history(ctx: QueryCtx, userId: string, taskId: string, forBot?: { assignmentId?: AssignmentId }) {
-    const [recent, waiting, answered] = await Promise.all([
+    const [recent, ...unresolved] = await Promise.all([
         (forBot ? ctx.db.query('taskWork').withIndex('by_user_task_assignment', q =>
             q.eq('userId', userId).eq('taskId', taskId).eq('assignmentId', forBot.assignmentId)) : taskWork(ctx, userId, taskId)).order('desc').take(50),
-        taskDecisions(ctx, userId, taskId, 'waiting', forBot),
-        taskDecisions(ctx, userId, taskId, 'answered', forBot),
+        ...openStatuses.map(status => taskDecisions(ctx, userId, taskId, status, forBot)),
     ]);
-    return [...new Map([...recent, ...waiting, ...answered].map(row => [row._id, row])).values()];
+    return [...new Map([...recent, ...unresolved.flat()].map(row => [row._id, row])).values()];
 }
 
+/**
+ * Waiting decisions and pending reviews, most blocking first: a label whose Bot cannot execute anything else,
+ * then the larger open subtree, then the oldest. Answered rows wait for the Bot and follow separately.
+ */
 export async function officerInbox(ctx: QueryCtx, userId: string, includeAnswered = true) {
     const pilot = pilotFor(userId);
-    if (!pilot && !(await assignmentsFor(ctx, userId).take(1)).length) return null;
-    const taskScopes = new Map<string, ReturnType<typeof taskAssignment>>();
-    const decisions = async (status: 'waiting' | 'answered') => {
-        const rows = await ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', status)).collect();
-        return (await Promise.all(rows.map(async row => {
-            let lookup = taskScopes.get(row.taskId);
-            if (!lookup) {
-                lookup = taskAssignment(ctx, userId, row.taskId);
-                taskScopes.set(row.taskId, lookup);
-            }
-            const assigned = await lookup;
-            return assigned && assigned.assignmentId === row.assignmentId
-                ? { ...view(row), taskId: assigned.task.id, title: assigned.task.text, label: assigned.label.text } : null;
-        }))).filter(row => row !== null);
+    const assignments = await assignmentsFor(ctx, userId).collect();
+    if (!pilot && !assignments.length) return null;
+    const rowsFor = (status: Work['status']) => ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', status)).collect();
+    const none = Promise.resolve<Work[]>([]);
+    const [waiting, reviews, answered, returned] = await Promise.all([rowsFor('waiting'), rowsFor('review'),
+        includeAnswered ? rowsFor('answered') : none, includeAnswered ? rowsFor('returned') : none]);
+    if (!waiting.length && !reviews.length && !answered.length && !returned.length) return { pending: [], answered: [] };
+    const items = await loadItems(ctx, userId);
+    const byId = new Map(items.map(item => [item.id, item]));
+    const children = new Map<string, Item[]>();
+    for (const item of items) {
+        if (item.type !== 'task' || !item.parentId) continue;
+        children.set(item.parentId, [...(children.get(item.parentId) ?? []), item]);
+    }
+    const labelOf = (task: Item) => {
+        const seen = new Set([task.id]);
+        for (let parent = task.parentId ? byId.get(task.parentId) : undefined; parent && !seen.has(parent.id);
+            parent = parent.parentId ? byId.get(parent.parentId) : undefined) {
+            if (parent.type === 'section') return parent;
+            seen.add(parent.id);
+        }
+        return null;
     };
-    const waiting = await decisions('waiting');
-    return { waiting, answered: includeAnswered ? await decisions('answered') : [] };
+    const place = (row: Work) => {
+        const task = byId.get(row.taskId);
+        const label = task?.type === 'task' && open(task) ? labelOf(task) : null;
+        if (!task || !label) return null;
+        const assignment = assignments.find(candidate => candidate.labelId === label.id);
+        if (assignment ? !webhookFor(assignment) || assignment._id !== row.assignmentId : pilot?.labelId !== label.id || row.assignmentId !== undefined) return null;
+        return { ...view(row), taskId: task.id, title: task.text, label: label.text, labelId: label.id, assignmentId: row.assignmentId };
+    };
+    const placed = (rows: Work[]) => rows.map(place).filter(row => row !== null);
+    const pending = placed([...waiting, ...reviews]);
+    const openCounts = new Map<string, number>();
+    const openTasksIn = (id: string, seen = new Set<string>()): number => {
+        const known = openCounts.get(id);
+        if (known !== undefined) return known;
+        if (seen.has(id)) return 0;
+        seen.add(id);
+        const count = (open(byId.get(id)) ? 1 : 0) + (children.get(id) ?? []).reduce((sum, child) => sum + openTasksIn(child.id, seen), 0);
+        openCounts.set(id, count);
+        return count;
+    };
+    const blocked = new Set(pending.map(row => `${row.labelId}:${row.taskId}`));
+    const delegations = pending.length ? await ctx.db.query('grokBotDelegations').withIndex('by_user', q => q.eq('userId', userId)).collect() : [];
+    const stalledLabels = new Map<string, boolean>();
+    const stalled = (labelId: string, assignmentId?: AssignmentId) => {
+        const known = stalledLabels.get(labelId);
+        if (known !== undefined) return known;
+        const executable = delegations.filter(row => {
+            const task = byId.get(row.taskId);
+            return row.labelId === labelId && row.assignmentId === assignmentId && task?.type === 'task' && open(task) && labelOf(task)?.id === labelId;
+        });
+        const result = executable.length > 0 && executable.every(row => blocked.has(`${labelId}:${row.taskId}`));
+        stalledLabels.set(labelId, result);
+        return result;
+    };
+    const ordered = pending.map(row => ({ ...row, stalled: stalled(row.labelId, row.assignmentId), openTasks: openTasksIn(row.taskId) }))
+        .sort((a, b) => Number(b.stalled) - Number(a.stalled) || b.openTasks - a.openTasks || a.createdAt - b.createdAt);
+    return { pending: ordered, answered: placed([...answered, ...returned]).sort((a, b) => a.createdAt - b.createdAt) };
 }
 
 async function currentUser(ctx: QueryCtx, expectedUserId: string) {
@@ -390,19 +441,20 @@ export const taskHistory = query({
         const [rows, hasAssignment] = await Promise.all([history(ctx, userId, taskId), assignmentsFor(ctx, userId).take(1)]);
         const assigned = hasAssignment.length || pilotFor(userId) ? await taskAssignment(ctx, userId, taskId) : null;
         if (!rows.length && !assigned) return null;
+        const role = assigned ? await botRole(ctx, userId, taskId, assigned.label.id, assigned.assignmentId) : null;
         return { rows: rows.map(row => ({ ...view(row), canReply: !!assigned && row.assignmentId === assigned.assignmentId })),
-            canReply: !!assigned, mayExecute: !!assigned && await mayExecute(ctx, userId, taskId, assigned.label.id, assigned.assignmentId) };
+            canReply: !!assigned, mayExecute: !!role?.execute, reviewRequired: !!role?.reviewRequired };
     },
 });
 
 export const setDelegation = mutation({
-    args: { expectedUserId: v.string(), taskId: v.string(), execute: v.boolean() },
-    handler: async (ctx, { expectedUserId, taskId, execute }) => {
+    args: { expectedUserId: v.string(), taskId: v.string(), execute: v.boolean(), reviewCompletion: v.optional(v.boolean()) },
+    handler: async (ctx, { expectedUserId, taskId, execute, reviewCompletion }) => {
         const userId = await currentUser(ctx, expectedUserId);
         const assigned = userId ? await taskAssignment(ctx, userId, taskId) : null;
         if (!userId || !assigned) throw new ConvexError('現在の担当範囲にあるタスクを選んでください。');
         const existing = await delegationFor(ctx, userId, taskId);
-        const role = { labelId: assigned.label.id, assignmentId: assigned.assignmentId };
+        const role = { labelId: assigned.label.id, assignmentId: assigned.assignmentId, reviewCompletion: reviewCompletion || undefined };
         if (execute && existing) await ctx.db.patch(existing._id, role);
         else if (execute) await ctx.db.insert('grokBotDelegations', { userId, taskId, ...role });
         else if (existing) await ctx.db.delete(existing._id);
@@ -413,20 +465,27 @@ export const assignedTasks = internalQuery({
     args: { ...botScope, taskId: v.optional(v.string()), offset: v.optional(v.number()) },
     handler: async (ctx, { userId, assignmentId, taskId, offset = 0 }) => {
         const assigned = await requireScope(ctx, userId, assignmentId);
+        const roleOf = async (id: string) => {
+            const role = await botRole(ctx, userId, id, assigned.label.id, assignmentId);
+            return { bot_role: role.execute ? 'execute' : 'review', review_required: role.reviewRequired };
+        };
         if (taskId) {
             const task = taskInScope(assigned, taskId);
             const subtasks = subtreeOf([...assigned.tasks.values()], taskId).slice(1);
             return { task: await toView(ctx, userId, task, assigned.label.text, subtasks), task_version: task.updatedAt,
-                bot_role: await mayExecute(ctx, userId, task.id, assigned.label.id, assignmentId) ? 'execute' : 'review', work: (await history(ctx, userId, taskId, { assignmentId })).map(view) };
+                ...await roleOf(task.id), work: (await history(ctx, userId, taskId, { assignmentId })).map(view) };
         }
         const tasks = [...assigned.tasks.values()].filter(open);
         const page = tasks.slice(offset, offset + 50);
+        const count = async (id: string, status: Work['status']) => (await taskDecisions(ctx, userId, id, status, { assignmentId })).length;
         return { label: assigned.label.text, tasks: await Promise.all(page.map(async task => ({
             id: task.id, title: task.text, parent_id: task.parentId, locked: !!task.locked,
-            bot_role: await mayExecute(ctx, userId, task.id, assigned.label.id, assignmentId) ? 'execute' : 'review',
+            ...await roleOf(task.id),
             due_date: task.dueDate, due_time: task.dueTime,
-            awaiting_reply: (await taskDecisions(ctx, userId, task.id, 'waiting', { assignmentId })).length,
-            answered: (await taskDecisions(ctx, userId, task.id, 'answered', { assignmentId })).length,
+            awaiting_reply: await count(task.id, 'waiting'),
+            answered: await count(task.id, 'answered'),
+            awaiting_review: await count(task.id, 'review'),
+            returned: await count(task.id, 'returned'),
         }))), next_offset: offset + page.length < tasks.length ? offset + page.length : null };
     },
 });
@@ -446,25 +505,48 @@ export const addAssignedTask = internalMutation({
     },
 });
 
+/** An answered decision or a returned review: the human acted and the Bot has yet to apply it. */
+const awaitsBot = (row: Work) => row.status === 'answered' || row.status === 'returned';
+
 function priorWork(ctx: QueryCtx, userId: string, taskId: string, key: string, assignmentId?: AssignmentId) {
     return ctx.db.query('taskWork').withIndex('by_user_task_key_assignment', q =>
         q.eq('userId', userId).eq('taskId', taskId).eq('key', key).eq('assignmentId', assignmentId)).unique();
 }
 
+const decisionKind = v.union(v.literal('approval'), v.literal('choice'), v.literal('info'));
+
+function decisionShape({ kind = 'info', options, recommendation, irreversible }:
+    { kind?: 'approval' | 'choice' | 'info'; options?: string[]; recommendation?: string; irreversible?: boolean }) {
+    const choices = options?.map(option => option.trim());
+    if (kind === 'choice' ? !choices?.length || choices.length > 4 : choices !== undefined) {
+        throw new ConvexError(kind === 'choice' ? 'A choice needs 1 to 4 options' : 'Options are only for kind choice');
+    }
+    if (choices && (choices.some(option => !option || option.length > 100) || new Set(choices).size !== choices.length)) {
+        throw new ConvexError('Options must be distinct and 1 to 100 characters');
+    }
+    const recommended = recommendation?.trim();
+    if (recommendation !== undefined && (!recommended || recommended.length > 500)) throw new ConvexError('The recommendation must be 1 to 500 characters');
+    if (choices && recommended !== undefined && !choices.includes(recommended)) throw new ConvexError('The recommendation must be one of the options');
+    return { kind, options: choices, recommendation: recommended, irreversible: irreversible || undefined };
+}
+
 export const requestDecision = internalMutation({
-    args: { ...userTask, question: v.string(), key: v.string() },
-    handler: async (ctx, { userId, assignmentId, taskId, question, key }) => {
+    args: { ...userTask, question: v.string(), key: v.string(), kind: v.optional(decisionKind), options: v.optional(v.array(v.string())),
+        recommendation: v.optional(v.string()), irreversible: v.optional(v.boolean()) },
+    handler: async (ctx, { userId, assignmentId, taskId, question, key, ...decision }) => {
         const task = taskInScope(await requireScope(ctx, userId, assignmentId), taskId);
+        const shape = decisionShape(decision);
         const previous = await priorWork(ctx, userId, taskId, key, assignmentId);
         if (previous) {
-            if (previous.text !== question || previous.links !== undefined) throw new ConvexError('Idempotency key already used');
+            const same = (row: { kind?: string; options?: string[]; recommendation?: string; irreversible?: boolean }) => JSON.stringify([row.kind ?? 'info', row.options, row.recommendation, !!row.irreversible]);
+            if (previous.text !== question || previous.links !== undefined || same(previous) !== same(shape)) throw new ConvexError('Idempotency key already used');
             return view(previous);
         }
         if (!open(task)) throw new ConvexError('Task is already closed');
         const waiting = await taskDecisions(ctx, userId, taskId, 'waiting', { assignmentId });
         if (waiting.some(row => row.text === question)) throw new ConvexError('This question is already waiting for a reply');
         if (waiting.length >= 10) throw new ConvexError('This task already has 10 open questions');
-        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, text: question, key, status: 'waiting' });
+        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, text: question, key, status: 'waiting', ...shape });
         return { id, status: 'waiting' };
     },
 });
@@ -476,7 +558,7 @@ export const claimDecision = internalMutation({
         if (!open(task)) throw new ConvexError('Task is already closed');
         const id = ctx.db.normalizeId('taskWork', questionId);
         const row = id ? await ctx.db.get(id) : null;
-        if (!row || row.userId !== userId || row.taskId !== taskId || row.assignmentId !== assignmentId || row.status !== 'answered') return { claimed: false };
+        if (!row || row.userId !== userId || row.taskId !== taskId || row.assignmentId !== assignmentId || !awaitsBot(row)) return { claimed: false };
         const now = Date.now();
         if ((row.claimUntil ?? 0) > now && row.claimKey !== claimKey) return { claimed: false };
         await ctx.db.patch(row._id, { claimKey, claimUntil: now + 30 * 60_000 });
@@ -486,40 +568,88 @@ export const claimDecision = internalMutation({
 
 export const recordWorkResult = internalMutation({
     args: { ...userTask, summary: v.string(), links: v.array(v.string()), complete: v.boolean(),
+        needsReview: v.optional(v.boolean()), assumptions: v.optional(v.string()),
         appliedQuestionId: v.optional(v.string()), claimKey: v.optional(v.string()), expectedTaskVersion: v.optional(v.number()), key: v.string() },
-    handler: async (ctx, { userId, assignmentId, taskId, summary, links, complete, appliedQuestionId, claimKey, expectedTaskVersion, key }) => {
+    handler: async (ctx, { userId, assignmentId, taskId, summary, links, complete, needsReview, appliedQuestionId, claimKey, expectedTaskVersion, key, ...args }) => {
         const assigned = await requireScope(ctx, userId, assignmentId);
         const task = taskInScope(assigned, taskId);
-        const status = complete ? 'complete' : 'progress';
+        const assumptions = args.assumptions?.trim() || undefined;
+        if (assumptions && assumptions.length > 8000) throw new ConvexError('Assumptions must be at most 8000 characters');
+        if (complete && needsReview && !assumptions) throw new ConvexError('Describe the assumptions or judgment calls the user should check');
         const previous = await priorWork(ctx, userId, taskId, key, assignmentId);
         if (previous) {
-            if (previous.status !== status || previous.text !== summary || previous.appliedQuestionId !== appliedQuestionId || JSON.stringify(previous.links) !== JSON.stringify(links)) {
+            if ((previous.status === 'progress') === complete || previous.text !== summary || previous.appliedQuestionId !== appliedQuestionId ||
+                previous.assumptions !== assumptions || JSON.stringify(previous.links) !== JSON.stringify(links)) {
                 throw new ConvexError('Idempotency key already used');
             }
             return view(previous);
         }
         const questionId = appliedQuestionId ? ctx.db.normalizeId('taskWork', appliedQuestionId) : null;
-        if (appliedQuestionId) {
-            const question = questionId ? await ctx.db.get(questionId) : null;
-            if (!question || question.userId !== userId || question.taskId !== taskId || question.assignmentId !== assignmentId || question.status !== 'answered' || !claimKey || question.claimKey !== claimKey) {
-                throw new ConvexError('An active claim is required to apply this answer');
-            }
+        const question = questionId ? await ctx.db.get(questionId) : null;
+        if (appliedQuestionId && (!question || question.userId !== userId || question.taskId !== taskId || question.assignmentId !== assignmentId ||
+            !awaitsBot(question) || !claimKey || question.claimKey !== claimKey)) {
+            throw new ConvexError('An active claim is required to apply this answer');
         }
-        if (complete && !(await mayExecute(ctx, userId, taskId, assigned.label.id, assignmentId))) throw new ConvexError('This task is review-only for Grok Bot');
+        const role = await botRole(ctx, userId, taskId, assigned.label.id, assignmentId);
+        if (complete && !role.execute) throw new ConvexError('This task is review-only for Grok Bot');
         if (complete && expectedTaskVersion !== task.updatedAt) throw new ConvexError('Task changed; read it again before reporting completion');
+        const review = complete && !task.done && (!!needsReview || role.reviewRequired);
         if (complete && !task.done) {
             if (subtreeOf(assigned.items, taskId).slice(1).some(child => child.type !== 'task' || !assigned.tasks.has(child.id) || !child.done)) {
                 throw new ConvexError('Finish the subtasks before completing this task');
             }
-            const [waiting, answered] = await Promise.all([
-                taskDecisions(ctx, userId, taskId, 'waiting', { assignmentId }), taskDecisions(ctx, userId, taskId, 'answered', { assignmentId }),
-            ]);
-            if (waiting.length || answered.some(row => row._id !== questionId)) throw new ConvexError('Resolve pending decisions before completing this task');
-            await ctx.runMutation(internal.mcpTasks.complete, { userId, taskId, clientName: 'Grok Bot' });
+            const [waiting, answered, returned, reviews] = await Promise.all((['waiting', 'answered', 'returned', 'review'] as const).map(status =>
+                taskDecisions(ctx, userId, taskId, status, { assignmentId })));
+            if (reviews.length) throw new ConvexError('A completion for this task is already awaiting the user’s review; work on other tasks');
+            if (waiting.length || [...answered, ...returned].some(row => row._id !== questionId)) throw new ConvexError('Resolve pending decisions before completing this task');
+            if (!review) await ctx.runMutation(internal.mcpTasks.complete, { userId, taskId, clientName: 'Grok Bot' });
         }
-        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, key, text: summary, status, links, appliedQuestionId });
-        if (questionId) await ctx.db.patch(questionId, { status: 'applied', claimKey: undefined, claimUntil: undefined });
+        const status = review ? 'review' : complete ? 'complete' : 'progress';
+        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, key, text: summary, status, links, appliedQuestionId, assumptions });
+        if (question) await ctx.db.patch(question._id, { status: question.status === 'returned' ? 'revised' : 'applied', claimKey: undefined, claimUntil: undefined });
         return { id, status };
+    },
+});
+
+async function pendingReview(ctx: QueryCtx, id: Id<'taskWork'>, expectedUserId: string) {
+    const userId = await currentUser(ctx, expectedUserId);
+    const row = await ctx.db.get(id);
+    if (!userId || row?.userId !== userId) throw new ConvexError('確認依頼が見つかりません。');
+    const assigned = row.status === 'review' ? await taskAssignment(ctx, userId, row.taskId) : null;
+    if (row.status === 'review' && (!assigned || assigned.assignmentId !== row.assignmentId)) throw new ConvexError('このタスクは現在の担当範囲にありません。');
+    return { userId, row };
+}
+
+export const approveReview = mutation({
+    args: { id: v.id('taskWork'), expectedUserId: v.string() },
+    handler: async (ctx, { id, expectedUserId }) => {
+        const { userId, row } = await pendingReview(ctx, id, expectedUserId);
+        if (row.status === 'approved') return;
+        if (row.status !== 'review') throw new ConvexError('この確認依頼はすでに対応済みです。');
+        const assigned = await requireScope(ctx, userId, row.assignmentId);
+        const task = taskInScope(assigned, row.taskId);
+        if (task.locked) throw new ConvexError('タスクがロックされています。ロックを外してから承認してください。');
+        if (subtreeOf(assigned.items, task.id).slice(1).some(child => child.type !== 'task' || !assigned.tasks.has(child.id) || !child.done)) {
+            throw new ConvexError('未完了のサブタスクがあるため完了できません。サブタスクを片付けるか、差し戻してください。');
+        }
+        await ctx.runMutation(internal.mcpTasks.complete, { userId, taskId: task.id, clientName: 'Grok Bot' });
+        await ctx.db.patch(id, { status: 'approved', answeredAt: Date.now() });
+    },
+});
+
+export const returnReview = mutation({
+    args: { id: v.id('taskWork'), expectedUserId: v.string(), comment: v.string() },
+    handler: async (ctx, { id, expectedUserId, comment }) => {
+        const { row } = await pendingReview(ctx, id, expectedUserId);
+        const text = comment.trim();
+        if (!text || text.length > 8000) throw new ConvexError('差し戻しの理由を1〜8000文字で入力してください。');
+        if (row.status !== 'review') {
+            if (row.status === 'returned' && row.answer === text) return;
+            throw new ConvexError('この確認依頼はすでに対応済みです。');
+        }
+        const now = Date.now();
+        await ctx.db.patch(id, { status: 'returned', answer: text, answeredAt: now });
+        await queueWake(ctx, id, now);
     },
 });
 
@@ -553,7 +683,7 @@ export const retry = mutation({
     handler: async (ctx, { id, expectedUserId }) => {
         const userId = await currentUser(ctx, expectedUserId);
         const row = await ctx.db.get(id);
-        if (!userId || row?.userId !== userId || row.status !== 'answered') throw new ConvexError('再通知できる依頼が見つかりません。');
+        if (!userId || row?.userId !== userId || !awaitsBot(row)) throw new ConvexError('再通知できる依頼が見つかりません。');
         const assigned = await taskAssignment(ctx, userId, row.taskId);
         if (!assigned || assigned.assignmentId !== row.assignmentId) throw new ConvexError('このタスクは現在の担当範囲にありません。');
         const now = Date.now();
@@ -568,13 +698,13 @@ export const wakeTarget = internalQuery({
     args: wakeArgs,
     handler: async (ctx, { id, wakeAt }) => {
         const row = await ctx.db.get(id);
-        if (!row || row.status !== 'answered' || row.wakeAt !== wakeAt || !(await accountActive(ctx, row.userId))) return null;
+        if (!row || !awaitsBot(row) || row.wakeAt !== wakeAt || !(await accountActive(ctx, row.userId))) return null;
         const assigned = await taskAssignment(ctx, row.userId, row.taskId);
         if (!assigned || assigned.assignmentId !== row.assignmentId) return null;
         const config = await connectionFor(ctx, row.userId, row.assignmentId);
         if (!config || ('_id' in config && !config.connectedAt)) return null;
         const webhook = webhookFor(config);
-        return webhook ? { ...webhook, taskId: row.taskId } : null;
+        return webhook ? { ...webhook, taskId: row.taskId, trigger: row.status === 'returned' ? 'review_returned' : 'reply' } : null;
     },
 });
 
@@ -582,7 +712,7 @@ export const wakeResult = internalMutation({
     args: { ...wakeArgs, accepted: v.boolean() },
     handler: async (ctx, { id, wakeAt, accepted }) => {
         const row = await ctx.db.get(id);
-        if (row?.wakeAt !== wakeAt || row.status !== 'answered') return;
+        if (row?.wakeAt !== wakeAt || !awaitsBot(row)) return;
         await requireActiveAccount(ctx, row.userId);
         await ctx.db.patch(id, { wakeStatus: accepted ? 'accepted' : 'failed' });
     },
@@ -592,7 +722,7 @@ export const wake = internalAction({
     args: wakeArgs,
     handler: async (ctx, args) => {
         const target = await ctx.runQuery(internal.grokBot.wakeTarget, args);
-        const accepted = !!target && await notifyBot(target, { trigger: 'reply', task_id: target.taskId, question_id: args.id });
+        const accepted = !!target && await notifyBot(target, { trigger: target.trigger, task_id: target.taskId, question_id: args.id });
         await ctx.runMutation(internal.grokBot.wakeResult, { ...args, accepted });
     },
 });
@@ -653,7 +783,7 @@ export const schedule = query({
         const target = userId ? await scheduleAssignment(ctx, userId, labelId) : null;
         if (!userId || !target) return null;
         const [saved, timeZone] = await Promise.all([scheduleFor(ctx, userId, target.assignmentId), timezoneFor(ctx, userId)]);
-        return { timeZone, enabled: saved?.enabled ?? false, time: saved?.time ?? '03:00',
+        return { timeZone, enabled: saved?.enabled ?? false, time: saved?.time ?? '06:00',
             lastRunAt: saved?.lastRunAt, lastStatus: saved?.lastStatus };
     },
 });

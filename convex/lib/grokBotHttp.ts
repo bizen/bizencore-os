@@ -61,7 +61,8 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
             }
             case 'request_decision': {
                 const args = grokBotTools.request_decision.parse(input);
-                return Response.json(await ctx.runMutation(internal.grokBot.requestDecision, { ...scope, taskId: args.task_id, question: args.question, key: args.idempotency_key }));
+                return Response.json(await ctx.runMutation(internal.grokBot.requestDecision, { ...scope, taskId: args.task_id, question: args.question, key: args.idempotency_key,
+                    kind: args.kind, options: args.options, recommendation: args.recommendation, irreversible: args.irreversible }));
             }
             case 'claim_decision': {
                 const args = grokBotTools.claim_decision.parse(input);
@@ -71,6 +72,7 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
                 const args = grokBotTools.record_work_result.parse(input);
                 return Response.json(await ctx.runMutation(internal.grokBot.recordWorkResult, {
                     ...scope, taskId: args.task_id, summary: args.summary, links: args.links ?? [], complete: args.complete ?? false,
+                    needsReview: args.needs_review, assumptions: args.assumptions,
                     appliedQuestionId: args.applied_question_id, claimKey: args.claim_key, expectedTaskVersion: args.expected_task_version, key: args.idempotency_key,
                 }));
             }

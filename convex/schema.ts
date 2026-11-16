@@ -71,8 +71,12 @@ export default defineSchema({
     taskWork: defineTable({
         userId: v.string(), taskId: v.string(), key: v.string(), text: v.string(),
         assignmentId: v.optional(v.id('grokBotAssignments')),
-        status: v.union(v.literal('waiting'), v.literal('answered'), v.literal('applied'), v.literal('progress'), v.literal('complete')),
+        // review → approved | returned → revised: a Bot completion that waits for the human's check.
+        status: v.union(v.literal('waiting'), v.literal('answered'), v.literal('applied'), v.literal('progress'), v.literal('complete'),
+            v.literal('review'), v.literal('approved'), v.literal('returned'), v.literal('revised')),
         links: v.optional(v.array(v.string())), appliedQuestionId: v.optional(v.string()), answer: v.optional(v.string()), answeredAt: v.optional(v.number()),
+        kind: v.optional(v.union(v.literal('approval'), v.literal('choice'), v.literal('info'))), options: v.optional(v.array(v.string())),
+        recommendation: v.optional(v.string()), irreversible: v.optional(v.boolean()), assumptions: v.optional(v.string()),
         claimKey: v.optional(v.string()), claimUntil: v.optional(v.number()),
         wakeAt: v.optional(v.number()), wakeStatus: v.optional(v.union(v.literal('queued'), v.literal('accepted'), v.literal('failed'))),
     }).index('by_user', ['userId']).index('by_user_status', ['userId', 'status'])
@@ -97,7 +101,8 @@ export default defineSchema({
         lastDay: v.optional(v.string()), lastRunAt: v.optional(v.number()),
         lastStatus: v.optional(v.union(v.literal('queued'), v.literal('accepted'), v.literal('failed'))),
     }).index('by_user', ['userId']).index('by_user_assignment', ['userId', 'assignmentId']).index('by_next', ['nextCheckAt']),
-    grokBotDelegations: defineTable({ userId: v.string(), taskId: v.string(), labelId: v.string(), assignmentId: v.optional(v.id('grokBotAssignments')) })
+    grokBotDelegations: defineTable({ userId: v.string(), taskId: v.string(), labelId: v.string(), assignmentId: v.optional(v.id('grokBotAssignments')),
+        reviewCompletion: v.optional(v.boolean()) })
         .index('by_user', ['userId']).index('by_user_task', ['userId', 'taskId']),
 
     userPreferences: defineTable({

@@ -14,10 +14,13 @@ export function useQuery(ref, args) {
   useSyncExternalStore(fn => { window.listeners.add(fn); return () => window.listeners.delete(fn); }, () => window.revision);
   if (args === 'skip') return undefined;
   const row = window.decision;
+  const rows = window.workRows ?? [row];
   switch (getFunctionName(ref)) {
-    case 'grokBot:inbox': return { waiting: row.status === 'waiting' ? [row] : [], answered: row.status === 'answered' ? [row] : [] };
+    case 'grokBot:inbox': return { pending: rows.filter(row => row.status === 'waiting' || row.status === 'review'),
+      answered: rows.filter(row => row.status === 'answered' || row.status === 'returned').map(({ stalled: _stalled, openTasks: _open, ...row }) => row) };
     case 'grokBot:schedule': return window.schedule;
-    case 'grokBot:taskHistory': return { rows: [row, window.result].filter(Boolean).map(row => ({ ...row, canReply: true })), canReply: true, mayExecute: !!window.mayExecute };
+    case 'grokBot:taskHistory': return { rows: (window.workRows ?? [row, window.result]).filter(Boolean).map(row => ({ ...row, canReply: true })),
+      canReply: true, mayExecute: !!window.mayExecute, reviewRequired: !!window.reviewRequired };
     case 'grokBot:assignments': return window.assignments;
     case 'grokBot:oauthLabel': return args.assignment === 'press-bot' ? { id: 'press-bot', name: '広報' } : null;
   }
@@ -25,8 +28,15 @@ export function useQuery(ref, args) {
 export const useMutation = ref => async args => {
   window.calls.push({ name: getFunctionName(ref), args });
   if (getFunctionName(ref) === 'grokBot:saveSchedule') window.schedule = { ...window.schedule, ...args };
-  if (getFunctionName(ref) === 'grokBot:reply') window.decision = { ...window.decision, status: 'answered', wakeStatus: 'accepted', answer: args.answer };
-  if (getFunctionName(ref) === 'grokBot:setDelegation') window.mayExecute = args.execute;
+  const patch = value => { window.workRows = window.workRows.map(row => row.id === args.id ? { ...row, ...value } : row); };
+  if (getFunctionName(ref) === 'grokBot:reply') {
+    if (window.workRows) patch({ status: 'answered', wakeStatus: 'accepted', answer: args.answer });
+    else window.decision = { ...window.decision, status: 'answered', wakeStatus: 'accepted', answer: args.answer };
+  }
+  if (getFunctionName(ref) === 'grokBot:approveReview') patch({ status: 'approved' });
+  if (getFunctionName(ref) === 'grokBot:returnReview') patch({ status: 'returned', answer: args.comment, wakeStatus: 'failed', wakeAt: Date.now() });
+  if (getFunctionName(ref) === 'grokBot:retry') patch({ wakeStatus: 'accepted' });
+  if (getFunctionName(ref) === 'grokBot:setDelegation') { window.mayExecute = args.execute; window.reviewRequired = !!args.reviewCompletion; }
   if (getFunctionName(ref) === 'grokBot:addAssignment') window.assignments = [{ id: 'press-bot', labelId: args.labelId,
     connectorName: 'Terminal · 広報 · press', connectorConnected: false, webhookConfigured: false, connected: false, managed: true }];
   if (getFunctionName(ref) === 'grokBot:rotateAssignmentToken') window.assignments = window.assignments.map(row => row.labelId === args.labelId
@@ -76,7 +86,81 @@ const { outputFiles } = await build({
 });
 
 const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHROME_CHANNEL });
+const css = await readFile('src/index.css', 'utf8');
+const shots = process.env.GROK_BOT_SCREENSHOTS;
+const pr = 'https://github.com/example/press-site/pull/128-very-long-branch-name-for-wrapping';
+const workRows = () => [
+  { id: 'choice', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'waiting', kind: 'choice', options: ['今週', '来週', '保留'],
+    recommendation: '来週', irreversible: true, text: '公開日を決めてください。公開後は取り消せません。', stalled: true, openTasks: 3, createdAt: Date.now() - 7_200_000 },
+  { id: 'approval', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'waiting', kind: 'approval', recommendation: '承認',
+    text: '見出しを「11月予定」に変えてよいですか。', stalled: true, openTasks: 3, createdAt: Date.now() - 3_600_000 },
+  { id: 'review', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'review', text: '告知文の修正をPRにしました。',
+    assumptions: '公開日が未定のため「11月予定」と書きました。', links: [pr], stalled: true, openTasks: 3, createdAt: Date.now() - 600_000 },
+];
+
+async function open(width, path) {
+  const page = await browser.newPage({ viewport: { width, height: 844 } });
+  await page.route('https://terminal.test/**', route => route.fulfill({ contentType: 'text/html', body:
+    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>' }));
+  await page.goto(`https://terminal.test${path}`);
+  await page.addStyleTag({ content: css });
+  return page;
+}
+
+async function decisionsAndReviews(width) {
+  const page = await open(width, '/inbox');
+  await page.evaluate(rows => { window.workRows = rows; }, workRows());
+  await page.addScriptTag({ content: outputFiles[0].text });
+  const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
+  await page.getByRole('link', { name: '受信箱 (3)' }).waitFor();
+  const focus = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  await focus.getByText('公開日を決めてください。', { exact: false }).waitFor();
+  await focus.getByText('不可逆', { exact: true }).waitFor();
+  await focus.getByRole('button', { name: '来週 推奨' }).waitFor();
+  assert.equal(await page.getByText('不可逆', { exact: true }).count(), 1);
+  await noOverflow();
+  if (shots) await page.screenshot({ path: `${shots}/inbox-${width}.png`, fullPage: true });
+  await focus.getByRole('button', { name: '推奨どおり' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:reply');
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'choice', expectedUserId: 'alice', answer: '来週' });
+  const approval = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  await approval.getByText('見出しを「11月予定」に変えてよいですか。').waitFor();
+  await approval.getByRole('button', { name: '却下' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.args.id === 'approval');
+  assert.equal(await page.evaluate(() => window.calls.at(-1).args.answer), '却下');
+  const review = page.getByRole('region', { name: 'いま最も詰まらせている1件' });
+  await review.getByText('公開日が未定のため「11月予定」と書きました。').waitFor();
+  assert.equal(await review.getByRole('button', { name: '差し戻す' }).isDisabled(), true);
+  await review.getByLabel('差し戻しの理由').fill('公開日は12月1日です。');
+  await review.getByRole('button', { name: '差し戻す' }).click();
+  await page.getByRole('status').filter({ hasText: '差し戻し・再開通知に失敗' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), { name: 'grokBot:returnReview', args: { id: 'review', expectedUserId: 'alice', comment: '公開日は12月1日です。' } });
+  await page.getByRole('button', { name: '担当Botに再通知' }).click();
+  await page.getByRole('status').filter({ hasText: '差し戻し・反映待ち' }).waitFor();
+  await page.getByText('確認待ちはありません。').waitFor();
+  await page.getByRole('link', { name: '受信箱', exact: true }).waitFor();
+  await noOverflow();
+  if (shots) await page.screenshot({ path: `${shots}/inbox-answered-${width}.png`, fullPage: true });
+
+  await page.evaluate(rows => { window.workRows = rows; window.refresh(); }, workRows());
+  await page.getByRole('link', { name: '告知文' }).first().click();
+  const role = page.getByLabel('Grok Botの関わり方');
+  await role.selectOption('checked');
+  await page.waitForFunction(() => window.reviewRequired === true);
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { expectedUserId: 'alice', taskId: 'launch', execute: true, reviewCompletion: true });
+  assert.equal(await role.inputValue(), 'checked');
+  await page.getByRole('button', { name: '承認 推奨', exact: true }).waitFor();
+  await page.getByRole('button', { name: '今週', exact: true }).waitFor();
+  await noOverflow();
+  if (shots) await page.screenshot({ path: `${shots}/task-${width}.png`, fullPage: true });
+  await page.getByRole('button', { name: '承認して完了' }).click();
+  await page.getByRole('status').filter({ hasText: '承認済み' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), { name: 'grokBot:approveReview', args: { id: 'review', expectedUserId: 'alice' } });
+  await page.close();
+}
+
 try {
+  for (const width of [1280, 390]) await decisionsAndReviews(width);
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.route('https://terminal.test/**', route => route.fulfill({ contentType: 'text/html', body:
     '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>' }));
@@ -90,7 +174,7 @@ try {
       close() {},
     });
   });
-  await page.addStyleTag({ content: await readFile('src/index.css', 'utf8') });
+  await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: outputFiles[0].text });
   await page.getByRole('link', { name: '受信箱 (1)' }).waitFor();
   await page.getByRole('checkbox', { name: '毎日巡回する' }).check();
@@ -231,7 +315,7 @@ try {
   const callback = new URL(page.url());
   assert.equal(callback.searchParams.get('state'), 'fixture-state');
   assert.match(callback.searchParams.get('code'), /^[a-f0-9]{64}$/);
-  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox.');
+  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox. 1280/390: structured decisions and reviews.');
 } finally {
   await browser.close();
 }

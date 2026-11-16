@@ -3609,8 +3609,18 @@ a.context-title:hover {
 
 .task-work-list { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
 .task-work-card { min-width: 0; padding: 0.75rem; border: 1px solid rgba(var(--surface-rgb), 0.16); border-radius: 8px; overflow-wrap: anywhere; }
-.task-work-card h2 { margin: 0 0 0.25rem; font-size: 1rem; }
+.task-work-card h2, .task-work-card h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.task-work-heading { margin: 1.25rem 0 0.5rem; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; }
+.task-work-card.task-work-focus { margin-bottom: 1.25rem; border-color: var(--accent-color); border-inline-start-width: 3px; }
+.task-work-card .task-work-heading { margin: 0 0 0.35rem; }
+.task-work-badge { display: inline-block; margin-inline-start: 0.4rem; padding: 0 0.35rem; border: 1px solid currentColor; border-radius: 4px; color: var(--text-primary); font-size: 0.7rem; font-weight: 600; line-height: 1.5; }
+.task-work-card .task-work-note { border-inline-start: 2px solid rgba(var(--surface-rgb), 0.24); padding-inline-start: 0.6rem; }
+.task-work-choices { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+.task-work-choices .ghost-btn.is-recommended { border-color: var(--accent-color); color: var(--text-primary); }
+.task-work-choices .task-work-badge { color: inherit; font-weight: 500; }
 .task-work-status { color: var(--text-secondary); font-size: 0.75rem; }
+.task-work-card p.task-work-status { margin: 0 0 0.25rem; }
+.inspector-input.task-work-role { width: auto; max-width: 100%; justify-self: start; }
 .task-work-card .task-work-text { margin: 0.4rem 0; color: var(--text-primary); white-space: pre-wrap; }
 .task-work-card .task-work-answer { border-inline-start: 2px solid var(--accent-color); padding-inline-start: 0.6rem; }
 .task-work-reply { display: grid; gap: 0.3rem; margin-top: 0.6rem; }

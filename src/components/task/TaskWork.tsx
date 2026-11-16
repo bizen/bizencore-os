@@ -7,7 +7,10 @@ import { api } from '../../../convex/_generated/api';
 import { isCloudConfigured } from '../../lib/cloudConfig';
 
 type Work = NonNullable<FunctionReturnType<typeof api.grokBot.taskHistory>>['rows'][number];
+type Pending = NonNullable<FunctionReturnType<typeof api.grokBot.inbox>>['pending'][number];
 type Schedule = NonNullable<FunctionReturnType<typeof api.grokBot.schedule>>;
+const reviewStatuses: Work['status'][] = ['review', 'approved', 'returned', 'revised'];
+const isReview = (row: Pick<Work, 'status'>) => reviewStatuses.includes(row.status);
 
 function useAccount() {
   const { userId } = useAuth();
@@ -20,7 +23,7 @@ function AuthenticatedInboxLink({ onClick }: { onClick?: () => void }) {
   const inbox = useQuery(api.grokBot.inbox, userId ? { expectedUserId: userId } : 'skip');
   return inbox ? (
     <NavLink to="/inbox" onClick={onClick} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-      受信箱{inbox.waiting.length ? ` (${inbox.waiting.length})` : ''}
+      受信箱{inbox.pending.length ? ` (${inbox.pending.length})` : ''}
     </NavLink>
   ) : null;
 }
@@ -37,24 +40,38 @@ function AuthenticatedInbox() {
   const userId = useAccount();
   const inbox = useQuery(api.grokBot.inbox, userId ? { expectedUserId: userId } : 'skip');
   const schedule = useQuery(api.grokBot.schedule, userId ? { expectedUserId: userId } : 'skip');
-  const rows = inbox ? [...inbox.waiting, ...inbox.answered] : [];
+  const [first, ...rest] = inbox?.pending ?? [];
   return <section className="task-action-page task-work-inbox">
     <h1>受信箱</h1>
     {!userId ? <p>受信箱を見るにはサインインしてください。</p> :
       inbox === undefined ? <p role="status">読み込み中…</p> :
       inbox === null ? <p>Grok Botの担当ラベルが設定されていません。</p> :
       <>
-        <p role="status">{inbox.waiting.length}件の判断依頼</p>
-        {rows.length ? <ul className="task-work-list">
-          {rows.map(row => <li className="task-work-card" key={row.id}>
-            <p className="task-work-status">{row.label}</p>
-            <h2><Link to={`/?task=${encodeURIComponent(row.taskId)}`}>{row.title}</Link></h2>
-            <Decision key={userId} row={row} userId={userId} canReply />
-          </li>)}
+        <p role="status">{inbox.pending.length ? `${inbox.pending.length}件の確認待ち` : '確認待ちはありません。'}</p>
+        {first ? <section className="task-work-card task-work-focus" aria-label="いま最も詰まらせている1件">
+          <h2 className="task-work-heading">いま最も詰まらせている1件</h2>
+          <InboxItem key={first.id} row={first} userId={userId} />
+        </section> : null}
+        {rest.length ? <ul className="task-work-list">
+          {rest.map(row => <li className="task-work-card" key={row.id}><InboxItem row={row} userId={userId} /></li>)}
         </ul> : null}
+        {inbox.answered.length ? <>
+          <h2 className="task-work-heading">Botの反映待ち</h2>
+          <ul className="task-work-list">
+            {inbox.answered.map(row => <li className="task-work-card" key={row.id}><InboxItem row={row} userId={userId} /></li>)}
+          </ul>
+        </> : null}
         {schedule ? <PatrolSettings key={`${userId}:${schedule.time}:${schedule.enabled}`} schedule={schedule} userId={userId} /> : null}
       </>}
   </section>;
+}
+
+function InboxItem({ row, userId }: { row: Omit<Pending, 'stalled' | 'openTasks'> & { stalled?: boolean }; userId: string }) {
+  return <>
+    <p className="task-work-status">{row.label} · {isReview(row) ? '完了の確認' : '判断依頼'}{row.stalled ? ' · Botの手が止まっています' : ''}</p>
+    <h3><Link to={`/?task=${encodeURIComponent(row.taskId)}`}>{row.title}</Link></h3>
+    <WorkItem key={userId} row={row} userId={userId} canReply />
+  </>;
 }
 
 export function LabelPatrolSettings({ labelId, userId }: { labelId: string; userId: string }) {
@@ -107,15 +124,15 @@ function AuthenticatedTaskWork({ taskId }: { taskId: string }) {
   const userId = useAccount();
   const data = useQuery(api.grokBot.taskHistory, userId ? { taskId, expectedUserId: userId } : 'skip');
   if (!userId || !data) return null;
-  const { rows, canReply, mayExecute } = data;
-  const decisions = rows.filter(row => row.status === 'waiting' || row.status === 'answered' || row.status === 'applied');
+  const { rows, canReply, mayExecute, reviewRequired } = data;
+  const decisions = rows.filter(row => row.status === 'waiting' || row.status === 'answered' || row.status === 'applied' || isReview(row));
   const results = rows.filter(row => row.status === 'progress' || row.status === 'complete');
   return <>
-    {canReply ? <TaskDelegation key={userId} taskId={taskId} userId={userId} mayExecute={mayExecute} /> : null}
+    {canReply ? <TaskDelegation key={userId} taskId={taskId} userId={userId} role={mayExecute ? reviewRequired ? 'checked' : 'execute' : 'review'} /> : null}
     {decisions.length ? <section className="inspector-section">
       <h3 className="inspector-label">業務連絡</h3>
       <ul className="task-work-list">{decisions.map(row => <li className="task-work-card" key={row.id}>
-        <Decision key={userId} row={row} userId={userId} canReply={canReply && row.canReply} />
+        <WorkItem key={userId} row={row} userId={userId} canReply={canReply && row.canReply} />
       </li>)}</ul>
     </section> : null}
     {results.length ? <section className="inspector-section">
@@ -123,25 +140,25 @@ function AuthenticatedTaskWork({ taskId }: { taskId: string }) {
       <ul className="task-work-list">{results.map(row => <li className="task-work-card" key={row.id}>
         <span className="task-work-status">{row.status === 'complete' ? '完了報告' : '途中経過'} · {formatTime(row.createdAt)}</span>
         <p className="task-work-text">{row.text}</p>
-        {row.links?.length ? <ul className="task-work-links">{row.links.map(link =>
-          <li key={link}><a href={link} target="_blank" rel="noopener noreferrer">{link}</a></li>
-        )}</ul> : null}
+        <WorkLinks links={row.links} />
       </li>)}</ul>
     </section> : null}
   </>;
 }
 
-function TaskDelegation({ taskId, userId, mayExecute }: { taskId: string; userId: string; mayExecute: boolean }) {
+type Role = 'review' | 'execute' | 'checked';
+
+function TaskDelegation({ taskId, userId, role }: { taskId: string; userId: string; role: Role }) {
   const setDelegation = useMutation(api.grokBot.setDelegation);
   const inputId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  async function change(execute: boolean) {
+  async function change(next: Role) {
     setBusy(true);
     setError('');
     try {
-      await setDelegation({ expectedUserId: userId, taskId, execute });
+      await setDelegation({ expectedUserId: userId, taskId, execute: next !== 'review', ...(next === 'checked' ? { reviewCompletion: true } : {}) });
     } catch (error) {
       const data = (error as { data?: unknown })?.data;
       setError(typeof data === 'string' ? data : 'Grok Botの関わり方を変更できませんでした。');
@@ -152,10 +169,11 @@ function TaskDelegation({ taskId, userId, mayExecute }: { taskId: string; userId
 
   return <div className="inspector-prop">
     <label className="inspector-label" htmlFor={inputId}>Grok Botの関わり方</label>
-    <select id={inputId} className="inspector-input" value={mayExecute ? 'execute' : 'review'} disabled={busy}
-      onChange={event => { void change(event.target.value === 'execute'); }}>
+    <select id={inputId} className="inspector-input task-work-role" value={role} disabled={busy}
+      onChange={event => { void change(event.target.value as Role); }}>
       <option value="review">確認・監査</option>
       <option value="execute">実行も任せる</option>
+      <option value="checked">実行を任せ、完了は必ず確認</option>
     </select>
     {error ? <p role="alert" className="settings-error">{error}</p> : null}
   </div>;
@@ -163,31 +181,51 @@ function TaskDelegation({ taskId, userId, mayExecute }: { taskId: string; userId
 
 const formatTime = (time: number, timeZone?: string) => new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short', timeZone }).format(time);
 
-function Decision({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; userId: string; canReply: boolean }) {
+function WorkLinks({ links }: { links?: string[] }) {
+  return links?.length ? <ul className="task-work-links">{links.map(link =>
+    <li key={link}><a href={link} target="_blank" rel="noopener noreferrer">{link}</a></li>
+  )}</ul> : null;
+}
+
+function statusText(row: Omit<Work, 'canReply'>, canReply: boolean) {
+  const wake = row.wakeStatus === 'failed' ? '再開通知に失敗' : row.wakeStatus === 'accepted' ? '反映待ち' : '通知中';
+  switch (row.status) {
+    case 'applied': return '反映済み';
+    case 'approved': return '承認済み';
+    case 'revised': return '差し戻し・反映済み';
+    case 'waiting': return canReply ? '要回答' : '受付終了';
+    case 'review': return canReply ? '完了の確認待ち' : '受付終了';
+    case 'answered': return canReply ? `回答済み・${wake}` : '受付終了';
+    case 'returned': return canReply ? `差し戻し・${wake}` : '受付終了';
+    default: return '';
+  }
+}
+
+function WorkItem({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; userId: string; canReply: boolean }) {
   const inputId = useId();
   const reply = useMutation(api.grokBot.reply);
   const retry = useMutation(api.grokBot.retry);
+  const approve = useMutation(api.grokBot.approveReview);
+  const sendBack = useMutation(api.grokBot.returnReview);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [retryReady, setRetryReady] = useState(false);
+  const review = isReview(row);
+  const awaitsBot = row.status === 'answered' || row.status === 'returned';
   useEffect(() => {
-    if (row.status !== 'answered' || !row.wakeAt) return;
+    if (!awaitsBot || !row.wakeAt) return;
     const timer = setTimeout(() => setRetryReady(true), Math.max(0, row.wakeAt + 60_000 - Date.now()));
     return () => { clearTimeout(timer); setRetryReady(false); };
-  }, [row.status, row.wakeAt]);
+  }, [awaitsBot, row.wakeAt]);
 
-  async function send(event?: FormEvent) {
-    event?.preventDefault();
-    if (busy || (event && !draft.trim())) return;
+  async function run(action: () => Promise<unknown>, clear = false) {
+    if (busy) return;
     setBusy(true);
     setError('');
     try {
-      const args = { id: row.id, expectedUserId: userId };
-      if (event) {
-        await reply({ ...args, answer: draft });
-        setDraft('');
-      } else await retry(args);
+      await action();
+      if (clear) setDraft('');
     } catch (error) {
       const data = (error as { data?: unknown })?.data;
       setError(typeof data === 'string' ? data : '送信できませんでした。もう一度お試しください。');
@@ -196,21 +234,42 @@ function Decision({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; user
     }
   }
 
-  const status = row.status === 'applied' ? '反映済み' : !canReply ? '受付終了' : row.status === 'waiting' ? '要回答' :
-    row.wakeStatus === 'failed' ? '回答済み・再開通知に失敗' :
-      row.wakeStatus === 'accepted' ? '回答済み・反映待ち' : '回答済み・通知中';
+  const args = { id: row.id, expectedUserId: userId };
+  const answer = (text: string) => run(() => reply({ ...args, answer: text }), true);
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.trim()) return;
+    void (review ? run(() => sendBack({ ...args, comment: draft }), true) : answer(draft));
+  }
+  const recommended = row.recommendation;
+  const choices = row.kind === 'approval' ? ['承認', '却下'] : row.kind === 'choice' ? row.options ?? [] : [];
+  const open = canReply && (row.status === 'waiting' || row.status === 'review');
   return <>
-    <span className="task-work-status" role="status">{status} · Grok Bot · {formatTime(row.createdAt)}</span>
+    <span className="task-work-status" role="status">{statusText(row, canReply)} · Grok Bot · {formatTime(row.createdAt)}</span>
+    {row.irreversible ? <span className="task-work-badge">不可逆</span> : null}
     <p className="task-work-text">{row.text}</p>
-    {row.answer ? <p className="task-work-text task-work-answer"><strong>あなたの回答</strong>{'\n'}{row.answer}</p> : null}
-    {canReply && row.status === 'waiting' ? <form className="task-work-reply" onSubmit={event => { void send(event); }}>
-      <label htmlFor={inputId}>回答</label>
+    {recommended && !choices.includes(recommended) ? <p className="task-work-text task-work-note"><strong>推奨</strong>{'\n'}{recommended}</p> : null}
+    {row.assumptions ? <p className="task-work-text task-work-note"><strong>Botが補った前提・判断</strong>{'\n'}{row.assumptions}</p> : null}
+    <WorkLinks links={row.links} />
+    {row.answer ? <p className="task-work-text task-work-answer"><strong>{review ? '差し戻しの理由' : 'あなたの回答'}</strong>{'\n'}{row.answer}</p> : null}
+    {open && !review && (choices.length || recommended) ? <div className="task-work-choices" role="group" aria-label="すぐに回答">
+      {recommended ? <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void answer(recommended); }}>推奨どおり</button> : null}
+      {choices.map(choice => <button type="button" key={choice} className={`ghost-btn${choice === recommended ? ' is-recommended' : ''}`}
+        disabled={busy} onClick={() => { void answer(choice); }}>
+        {choice}{choice === recommended ? <span className="task-work-badge">推奨</span> : null}
+      </button>)}
+    </div> : null}
+    {open && review ? <div className="task-work-choices">
+      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => approve(args)); }}>承認して完了</button>
+    </div> : null}
+    {open ? <form className="task-work-reply" onSubmit={submit}>
+      <label htmlFor={inputId}>{review ? '差し戻しの理由' : '回答'}</label>
       <textarea id={inputId} rows={2} className="inspector-note" value={draft} maxLength={8000}
         onChange={event => setDraft(event.target.value)} required />
-      <button type="submit" className="ghost-btn" disabled={busy || !draft.trim()}>返信する</button>
+      <button type="submit" className="ghost-btn" disabled={busy || !draft.trim()}>{review ? '差し戻す' : '返信する'}</button>
     </form> : null}
-    {canReply && row.status === 'answered' && (row.wakeStatus === 'failed' || retryReady) ?
-      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void send(); }}>担当Botに再通知</button> : null}
+    {canReply && awaitsBot && (row.wakeStatus === 'failed' || retryReady) ?
+      <button type="button" className="ghost-btn" disabled={busy} onClick={() => { void run(() => retry(args)); }}>担当Botに再通知</button> : null}
     {error ? <p role="alert" className="settings-error">{error}</p> : null}
   </>;
 }

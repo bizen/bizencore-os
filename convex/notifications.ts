@@ -28,7 +28,7 @@ async function noticesFor(ctx: QueryCtx, device: Device, timeZone: string, now: 
   const morning = plan.notices.find(notice => notice.kind === 'morning');
   if (morning) {
     const inbox = await officerInbox(ctx, device.userId, false);
-    if (inbox?.waiting.length) Object.assign(morning, { inbox: true, title: 'Grok Botからの判断依頼', body: `${inbox.waiting.length}件の回答を待っています。` });
+    if (inbox?.pending.length) Object.assign(morning, { inbox: true, title: 'Grok Botからの判断依頼', body: `${inbox.pending.length}件の回答を待っています。` });
   }
   return plan;
 }

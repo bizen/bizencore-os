@@ -132,7 +132,7 @@ test('label connections isolate credentials, questions, delegation and scheduled
   const ask = (bearer, task_id) => f.http('request_decision', { task_id, question: 'Which option?', idempotency_key: 'ask' }, bearer);
   const question = await (await ask(keyB, 'other')).json();
   assert.equal((await ask(keyA, 'mine')).status, 200);
-  assert.equal((await f.call('inbox', web)).waiting.length, 2);
+  assert.equal((await f.call('inbox', web)).pending.length, 2);
 
   const calls = [];
   t.mock.method(globalThis, 'fetch', (url, init) => {
@@ -336,6 +336,9 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
   assert.equal(init.payload.result.serverInfo.name, 'bizencore-grok-bot');
   const { payload } = await rpc('tools/list');
   assert.deepEqual(payload.result.tools.map(tool => tool.name).sort(), ['add_assigned_task', 'assigned_tasks', 'claim_decision', 'record_work_result', 'request_decision']);
+  const schema = name => payload.result.tools.find(tool => tool.name === name).inputSchema.properties;
+  assert.ok(['needs_review', 'assumptions'].every(key => key in schema('record_work_result')));
+  assert.ok(['kind', 'options', 'recommendation', 'irreversible'].every(key => key in schema('request_decision')));
   const data = await rpc('tools/call', { name: 'assigned_tasks', arguments: {} });
   const visible = JSON.parse(data.payload.result.content[0].text);
   assert.deepEqual(visible.tasks.map(row => row.id), ['mine', 'nested']);
@@ -353,7 +356,7 @@ test('reply persists once, resumes by webhook, and applies a claimed answer with
   const f = fixture(t);
   const question = await f.call('requestDecision', { ...task, question: 'Proceed with A?', key: 'ask' });
   assert.equal((await f.call('requestDecision', { ...task, question: 'Proceed with A?', key: 'ask' })).id, question.id);
-  assert.equal((await f.call('inbox', web)).waiting.length, 1);
+  assert.equal((await f.call('inbox', web)).pending.length, 1);
   f.identify('bob');
   assert.equal(await f.call('inbox', web), null);
   await assert.rejects(f.call('reply', { ...web, id: question.id, answer: 'A' }));
@@ -448,4 +451,167 @@ test('morning notifications link to the inbox when there is an open decision', a
   const [notice] = await f.invoke('notifications:pending', { deviceId });
   assert.equal(notice.inbox, true);
   assert.equal(notice.body, '1件の回答を待っています。');
+});
+
+const execute = (f, taskId, reviewCompletion) => f.call('setDelegation', { ...web, taskId, execute: true, ...(reviewCompletion ? { reviewCompletion } : {}) });
+const versionOf = async (f, taskId, assignmentId) => (await f.call('assignedTasks', { userId: 'alice', assignmentId, taskId })).task_version;
+const itemOf = (f, id) => JSON.parse(f.rows.syncItems.find(row => row.itemId === id).payload);
+
+test('direct completion is unchanged while needs_review and always-review completions wait for approval', async t => {
+  const f = fixture(t);
+  for (const id of ['direct', 'judged', 'checked']) f.seed(id, 'label');
+  for (const id of ['direct', 'judged']) await execute(f, id);
+  await execute(f, 'checked', true);
+  const done = { ...task, summary: '確認済み。', links: [], complete: true };
+  await f.call('recordWorkResult', { ...done, taskId: 'direct', key: 'direct', expectedTaskVersion: await versionOf(f, 'direct') });
+  assert.equal(itemOf(f, 'direct').done, true);
+  assert.equal(itemOf(f, 'direct').completedBy, 'ai');
+
+  const judged = { ...done, taskId: 'judged', links: ['https://example.test/pull/7'], expectedTaskVersion: await versionOf(f, 'judged') };
+  await assert.rejects(f.call('recordWorkResult', { ...judged, needsReview: true, key: 'judged' }), /assumptions/);
+  const response = await f.http('record_work_result', { task_id: 'judged', summary: judged.summary, links: judged.links, complete: true,
+    needs_review: true, assumptions: '締切が未記載のため今週末と仮定した。', expected_task_version: judged.expectedTaskVersion, idempotency_key: 'judged' });
+  const submitted = await response.json();
+  assert.equal(submitted.status, 'review');
+  assert.equal(itemOf(f, 'judged').done, false);
+  const args = { ...judged, needsReview: true, assumptions: '締切が未記載のため今週末と仮定した。', key: 'judged' };
+  assert.equal((await f.call('recordWorkResult', args)).id, submitted.id, 'a retry with the same key is idempotent');
+  await assert.rejects(f.call('recordWorkResult', { ...args, key: 'judged-again' }), /awaiting the user’s review/);
+  const listed = (await f.call('assignedTasks', { userId: 'alice' })).tasks.find(row => row.id === 'judged');
+  assert.deepEqual([listed.awaiting_review, listed.review_required], [1, false]);
+  const [pending] = (await f.call('inbox', web)).pending;
+  assert.deepEqual([pending.id, pending.status, pending.assumptions, pending.links], [submitted.id, 'review', args.assumptions, judged.links]);
+
+  const checked = await f.call('recordWorkResult', { ...done, taskId: 'checked', key: 'checked', expectedTaskVersion: await versionOf(f, 'checked') });
+  assert.equal(checked.status, 'review');
+  assert.equal((await f.call('assignedTasks', { userId: 'alice', taskId: 'checked' })).review_required, true);
+  assert.deepEqual((await f.call('taskHistory', { ...web, taskId: 'checked' })).reviewRequired, true);
+  assert.equal(itemOf(f, 'checked').done, false);
+
+  f.identify('bob');
+  await assert.rejects(f.call('approveReview', { expectedUserId: 'bob', id: submitted.id }));
+  f.identify('alice');
+  f.seed('judged-child', 'judged');
+  await assert.rejects(f.call('approveReview', { ...web, id: submitted.id }), /サブタスク/);
+  assert.equal(itemOf(f, 'judged').done, false);
+  await f.invoke('mcpTasks:complete', { userId: 'alice', taskId: 'judged-child' });
+  await f.call('approveReview', { ...web, id: submitted.id });
+  await f.call('approveReview', { ...web, id: submitted.id });
+  assert.equal(itemOf(f, 'judged').done, true);
+  assert.equal(itemOf(f, 'judged').completedBy, 'ai');
+  assert.equal(f.rows.taskWork.find(row => row._id === submitted.id).status, 'approved');
+  await assert.rejects(f.call('returnReview', { ...web, id: submitted.id, comment: 'やり直し' }), /対応済み/);
+  assert.deepEqual((await f.call('inbox', web)).pending.map(row => row.taskId), ['checked']);
+  assert.equal(f.jobs.length, 0, 'approval does not wake the Bot');
+});
+
+test('a returned review wakes the Bot, is claimed by one run and applied by the resubmission', async t => {
+  const f = fixture(t);
+  f.seed('draft', 'label');
+  await execute(f, 'draft', true);
+  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'draft', summary: '下書きを作成。', links: [], complete: true,
+    key, expectedTaskVersion: await versionOf(f, 'draft'), ...extra });
+  const first = await submit('first');
+  await assert.rejects(f.call('returnReview', { ...web, id: first.id, comment: '  ' }), /差し戻し/);
+  f.identify('bob');
+  await assert.rejects(f.call('returnReview', { expectedUserId: 'bob', id: first.id, comment: '見出しを直して' }));
+  f.identify('alice');
+  await f.call('returnReview', { ...web, id: first.id, comment: '見出しを直して' });
+  await f.call('returnReview', { ...web, id: first.id, comment: '見出しを直して' });
+  await assert.rejects(f.call('approveReview', { ...web, id: first.id }), /対応済み/);
+  assert.equal(f.jobs.length, 1);
+  const deliver = t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    assert.deepEqual(JSON.parse(init.body), { trigger: 'review_returned', task_id: 'draft', question_id: first.id });
+    return new Response(null, { status: 500 });
+  });
+  await f.invoke(f.jobs[0].name, f.jobs[0].args);
+  const inbox = await f.call('inbox', web);
+  assert.deepEqual([inbox.pending.length, inbox.answered[0].status, inbox.answered[0].wakeStatus], [0, 'returned', 'failed']);
+  deliver.mock.mockImplementation(async () => new Response(null, { status: 200 }));
+  await f.call('retry', { ...web, id: first.id });
+  await f.invoke(f.jobs[1].name, f.jobs[1].args);
+  assert.equal((await f.call('inbox', web)).answered[0].wakeStatus, 'accepted');
+
+  const listed = (await f.call('assignedTasks', { userId: 'alice' })).tasks.find(row => row.id === 'draft');
+  assert.deepEqual([listed.awaiting_review, listed.returned], [0, 1]);
+  const feedback = (await f.call('assignedTasks', { userId: 'alice', taskId: 'draft' })).work.find(row => row.id === first.id);
+  assert.deepEqual([feedback.status, feedback.answer, feedback.text], ['returned', '見出しを直して', '下書きを作成。']);
+  await assert.rejects(submit('unapplied'), /Resolve pending decisions/);
+  const claim = { ...task, taskId: 'draft', questionId: first.id };
+  assert.deepEqual(await f.call('claimDecision', { ...claim, claimKey: 'run-one' }), { claimed: true, answer: '見出しを直して' });
+  assert.deepEqual(await f.call('claimDecision', { ...claim, claimKey: 'run-two' }), { claimed: false });
+  await assert.rejects(submit('stolen', { appliedQuestionId: first.id, claimKey: 'run-two' }), /active claim/);
+  const second = await submit('second', { appliedQuestionId: first.id, claimKey: 'run-one' });
+  assert.equal(second.status, 'review');
+  assert.equal(f.rows.taskWork.find(row => row._id === first.id).status, 'revised');
+  assert.deepEqual(await f.call('claimDecision', { ...claim, claimKey: 'run-one' }), { claimed: false });
+  assert.deepEqual((await f.call('inbox', web)).pending.map(row => row.id), [second.id]);
+});
+
+test('structured decisions validate their shape and appear in every view', async t => {
+  const f = fixture(t);
+  const ask = (key, extra) => f.call('requestDecision', { ...task, question: `Q ${key}`, key, ...extra });
+  await assert.rejects(ask('a', { kind: 'choice' }), /1 to 4 options/);
+  await assert.rejects(ask('b', { kind: 'choice', options: ['A', 'B', 'C', 'D', 'E'] }), /1 to 4 options/);
+  await assert.rejects(ask('c', { kind: 'approval', options: ['A'] }), /only for kind choice/);
+  await assert.rejects(ask('d', { kind: 'choice', options: ['A', 'A'] }), /distinct/);
+  await assert.rejects(ask('e', { kind: 'choice', options: ['A', 'B'], recommendation: 'C' }), /one of the options/);
+  assert.equal((await f.http('request_decision', { task_id: 'mine', question: 'Q', kind: 'poll', idempotency_key: 'f' })).status, 400);
+  const choice = { kind: 'choice', options: [' 今週 ', '来週'], recommendation: '来週', irreversible: true };
+  const asked = await ask('choice', choice);
+  assert.equal((await ask('choice', choice)).id, asked.id);
+  await assert.rejects(ask('choice', { ...choice, options: ['今週', '再来週'], recommendation: '今週' }), /Idempotency/);
+  const approval = await (await f.http('request_decision', { task_id: 'mine', question: '公開しますか。', kind: 'approval',
+    recommendation: '承認', idempotency_key: 'approval' })).json();
+  const legacy = await ask('legacy', {});
+  const expected = { kind: 'choice', options: ['今週', '来週'], recommendation: '来週', irreversible: true };
+  const pick = row => ({ kind: row.kind, options: row.options, recommendation: row.recommendation, irreversible: row.irreversible });
+  const work = (await f.call('assignedTasks', { userId: 'alice', taskId: 'mine' })).work;
+  assert.deepEqual(pick(work.find(row => row.id === asked.id)), expected);
+  assert.deepEqual(pick(work.find(row => row.id === approval.id)), { kind: 'approval', options: undefined, recommendation: '承認', irreversible: undefined });
+  assert.equal(work.find(row => row.id === legacy.id).kind, 'info');
+  assert.deepEqual(pick((await f.call('inbox', web)).pending.find(row => row.id === asked.id)), expected);
+  assert.deepEqual(pick((await f.call('taskHistory', { ...web, taskId: 'mine' })).rows.find(row => row.id === asked.id)), expected);
+  await f.call('reply', { ...web, id: asked.id, answer: '来週' });
+  assert.deepEqual(await f.call('claimDecision', { ...task, questionId: asked.id, claimKey: 'run' }), { claimed: true, answer: '来週' });
+});
+
+test('the inbox puts a stalled label first, then larger open subtrees, then older requests', async t => {
+  const f = fixture(t);
+  delete process.env.GROK_BOT_PILOT;
+  const connect = (labelId, key) => f.call('addAssignment', { ...web, labelId, token: key,
+    webhookUrl: `https://api2.cursor.sh/automations/webhook/${labelId}`, webhookKey: 'key' });
+  const first = await connect('label', 'b'.repeat(64));
+  const second = await connect('other-label', 'c'.repeat(64));
+  for (const id of ['x1', 'x2']) f.seed(id, 'label');
+  f.seed('big', 'other-label');
+  for (const id of ['big-1', 'big-2', 'big-3']) f.seed(id, 'big');
+  for (const id of ['x1', 'other', 'big']) await execute(f, id);
+  let minute = 0;
+  const ask = (assignmentId, taskId) => {
+    f.setTime(`2026-11-13T12:${String(++minute).padStart(2, '0')}:00+11:00`);
+    return f.call('requestDecision', { userId: 'alice', assignmentId, taskId, question: `${taskId}?`, key: taskId });
+  };
+  const order = async () => (await f.call('inbox', web)).pending.map(row => [row.taskId, row.stalled, row.openTasks]);
+  await ask(second, 'big');
+  await ask(first, 'mine');
+  const x1 = await ask(first, 'x1');
+  await ask(first, 'x2');
+  assert.deepEqual(await order(), [['mine', true, 2], ['x1', true, 1], ['x2', true, 1], ['big', false, 4]]);
+  f.setTime('2026-11-13T12:30:00+11:00');
+  const review = await f.call('recordWorkResult', { userId: 'alice', assignmentId: second, taskId: 'other', summary: '済み', links: [], complete: true,
+    needsReview: true, assumptions: '仮定', key: 'other', expectedTaskVersion: await versionOf(f, 'other', second) });
+  assert.equal(review.status, 'review');
+  assert.deepEqual(await order(), [['big', true, 4], ['mine', true, 2], ['x1', true, 1], ['x2', true, 1], ['other', true, 1]]);
+  await f.call('reply', { ...web, id: x1.id, answer: 'はい' });
+  assert.deepEqual(await order(), [['big', true, 4], ['other', true, 1], ['mine', false, 2], ['x2', false, 1]]);
+  const inbox = await f.call('inbox', web);
+  assert.deepEqual(inbox.answered.map(row => row.taskId), ['x1']);
+});
+
+test('a patrol schedule defaults to 06:00 until a time is saved', async t => {
+  const f = fixture(t);
+  assert.equal((await f.call('schedule', web)).time, '06:00');
+  await f.call('saveSchedule', { ...web, enabled: true, time: '03:15' });
+  assert.equal((await f.call('schedule', web)).time, '03:15');
 });
