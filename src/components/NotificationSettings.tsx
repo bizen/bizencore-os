@@ -33,18 +33,18 @@ export function NotificationSettings() {
     finally { setBusy(false); }
   };
   return <div className="notification-settings">
-    <p className="settings-muted">この端末で受け取る通知を選びます。時刻はアカウントのタイムゾーンに従います。</p>
+    <p className="settings-muted">時刻はアカウントのタイムゾーン（設定 › 一般）に従います。</p>
     {!desktop ? <p className="settings-muted">iPhone・iPadはホーム画面に追加して開き、通知を許可してください。</p> : <p className="settings-muted">デスクトップ通知はアプリ起動中に届きます。macOSの通知設定でも許可してください。</p>}
-    {!desktop && !webPushSupported() ? <p role="status">この画面ではプッシュ通知を利用できません。</p> : null}
-    {!desktop && saved && !saved.webPushReady ? <p role="status">プッシュ通知は配信設定の準備中です。</p> : null}
+    {!desktop && !webPushSupported() ? <p className="settings-muted" role="status">この画面ではプッシュ通知を利用できません。</p> : null}
+    {!desktop && saved && !saved.webPushReady ? <p className="settings-muted" role="status">プッシュ通知は配信設定の準備中です。</p> : null}
     <fieldset aria-label="この端末の通知" disabled={busy || !deviceId || !saved}>
       <label><input type="checkbox" checked={value.deadline} onChange={e => change({ deadline: e.target.checked })} />時刻を指定した期限の30分前</label>
       <label><input type="checkbox" checked={value.morning} onChange={e => change({ morning: e.target.checked })} />朝のTodayまとめ（先頭タスク名も表示）</label>
       <label>通知する時刻<input type="time" aria-label="朝の通知時刻" value={value.morningTime} disabled={!value.morning} onChange={e => change({ morningTime: e.target.value })} /></label>
       <label><input type="checkbox" checked={value.completion} onChange={e => change({ completion: e.target.checked })} />エージェントがタスクを完了したとき</label>
-      <button type="button" onClick={() => void submit()} disabled={busy || (!desktop && noticesEnabled(value) && (!webPushSupported() || !saved?.webPushReady))}>{busy ? '保存中…' : 'この端末に保存'}</button>
+      <button type="button" className="ghost-btn is-primary" onClick={() => void submit()} disabled={busy || (!desktop && noticesEnabled(value) && (!webPushSupported() || !saved?.webPushReady))}>{busy ? '保存中…' : 'この端末に保存'}</button>
     </fieldset>
     {!deviceId ? <p role="alert">端末の保存領域を利用できません。</p> : null}
-    {message ? <p role="status">{message}</p> : null}
+    {message ? <p className="settings-muted" role="status">{message}</p> : null}
   </div>;
 }

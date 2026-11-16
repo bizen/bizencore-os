@@ -306,7 +306,7 @@ function AssignmentSettings({ labelId, labelName, userId, assignment, token, onT
       <div className="label-bot-actions">
         {!assignment.connectorConnected && <button type="button" className="ghost-btn" onClick={() => setShowManual(!showManual)}>手動で設定</button>}
         {assignment.connected && <button type="button" className="ghost-btn" disabled={busy} onClick={resetConnection}>接続をやり直す</button>}
-        <button type="button" className="ghost-btn" disabled={busy} onClick={() => void perform(async () => {
+        <button type="button" className="ghost-btn is-danger" disabled={busy} onClick={() => void perform(async () => {
           await remove(args);
           onToken('');
           setShowManual(false);
