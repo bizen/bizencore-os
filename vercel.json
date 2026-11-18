@@ -64,7 +64,7 @@
           "value": "chrct.com"
         }
       ],
-      "destination": "https://app.bizencore.com/:path*",
+      "destination": "https://terminal.bizencore.com/:path*",
       "permanent": true
     },
     {
@@ -75,7 +75,18 @@
           "value": "www.chrct.com"
         }
       ],
-      "destination": "https://app.bizencore.com/:path*",
+      "destination": "https://terminal.bizencore.com/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path((?!(?:mcp|api|grok-bot|\\.well-known)(?:/|$)|(?:notifications-sw\\.js|version\\.json)$).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.bizencore.com"
+        }
+      ],
+      "destination": "https://terminal.bizencore.com/:path",
       "permanent": true
     }
   ],

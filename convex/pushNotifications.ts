@@ -14,7 +14,7 @@ export const deliver = internalAction({ args: { id: v.id('notificationDeliveries
     const publicKey = process.env.WEB_PUSH_PUBLIC_KEY, privateKey = process.env.WEB_PUSH_PRIVATE_KEY;
     if (!publicKey || !privateKey) throw Error('Web Push is not configured');
     await webpush.sendNotification(notice.subscription, JSON.stringify({ title: notice.title, body: notice.body, tag: notice.key, path: notificationPath(notice.taskId, notice.inbox) }), {
-      vapidDetails: { subject: 'https://app.bizencore.com', publicKey, privateKey },
+      vapidDetails: { subject: 'https://terminal.bizencore.com', publicKey, privateKey },
       TTL: Math.max(0, Math.floor((notice.expiresAt - Date.now()) / 1000)), timeout: 10_000,
     });
   } catch (error) {

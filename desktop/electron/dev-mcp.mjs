@@ -10,7 +10,7 @@ const BODY_LIMIT = 2 * 1024 * 1024;
 
 // Only a per-pane capability reaches the CLI. The Clerk JWT stays in the main process.
 export async function createDesktopMcp({ access, readApp, startTask, convexUrl = DEV_CONVEX, fetchData = fetch,
-  confirmationOrigin = convexUrl === profiles.production.convexUrl ? 'https://app.bizencore.com' : null }) {
+  confirmationOrigin = convexUrl === profiles.production.convexUrl ? 'https://terminal.bizencore.com' : null }) {
   const site = desktopMcpSite(convexUrl);
   const capabilities = new Map();
   const instance = createBizencoreMcp({

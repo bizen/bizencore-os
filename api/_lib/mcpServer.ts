@@ -8,7 +8,7 @@ import { MAX_ATTACHMENT_TEXT, MAX_ATTACHMENT_TITLE } from '../../src/lib/attachm
 
 const SERVER_INFO = {
   name: 'bizencore', version: '0.1.0',
-  icons: [{ src: 'https://app.bizencore.com/icons/icon-512.png?v=cirno-1', mimeType: 'image/png', sizes: ['512x512'] }],
+  icons: [{ src: 'https://terminal.bizencore.com/icons/icon-512.png?v=cirno-1', mimeType: 'image/png', sizes: ['512x512'] }],
 };
 
 type McpOptions = {
@@ -33,7 +33,7 @@ function supportsForm(ctx: ServerContext): boolean {
 // Authentication and backend credentials belong to the host, not the shared tools.
 export function createBizencoreMcp(options: McpOptions) {
   const fetchConvex = options.fetchData;
-  const confirmationOrigin = options.confirmationOrigin === undefined ? 'https://app.bizencore.com' : options.confirmationOrigin;
+  const confirmationOrigin = options.confirmationOrigin === undefined ? 'https://terminal.bizencore.com' : options.confirmationOrigin;
   if (confirmationOrigin) {
     const url = new URL(confirmationOrigin);
     const local = url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);

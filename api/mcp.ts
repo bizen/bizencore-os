@@ -79,7 +79,7 @@ const instance = createBizencoreMcp({
   fetchData: fetchConvex,
   readApp: () => readFile(join(process.cwd(), 'dist-mcp/index.html'), 'utf8'),
   confirmationOrigin: process.env.MCP_CONFIRMATION_ORIGIN ??
-    (process.env.VERCEL_ENV === 'production' ? 'https://app.bizencore.com'
+    (process.env.VERCEL_ENV === 'production' ? 'https://terminal.bizencore.com'
       : process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null),
 });
 export const { withResolvedLabel, deleteWithConfirmation, workOnTask, workOnTaskPrompt } = instance;

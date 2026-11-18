@@ -5,7 +5,7 @@ import { AccessState, checkedGrant, convexEndpoint, paneId, terminalSize, tokenC
 test('Electron IPC accepts only the local renderer origin', () => {
   assert.ok(trustedRenderer('bizencore-electron-preview://renderer/'));
   assert.ok(trustedRenderer('http://127.0.0.1:5211/', true));
-  for (const url of ['http://127.0.0.1:5211/', 'file:///tmp/index.html', 'https://app.bizencore.com/', 'bizencore-electron-preview://renderer.evil/', 'bizencore-electron-preview://evil@renderer/']) assert.equal(trustedRenderer(url), false);
+  for (const url of ['http://127.0.0.1:5211/', 'file:///tmp/index.html', 'https://terminal.bizencore.com/', 'bizencore-electron-preview://renderer.evil/', 'bizencore-electron-preview://evil@renderer/']) assert.equal(trustedRenderer(url), false);
 });
 test('Electron starts locked and enforces both wall-clock and monotonic expiry', () => {
   let now = 100000; let mono = 0;

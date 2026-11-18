@@ -91,7 +91,7 @@ test('locked containers are never displayed as complete or filed, even with inco
 test('invite parsing does not navigate and rejects executable or malformed links', () => {
   const code = 'a'.repeat(64);
   assert.equal(partnerInviteCode(code), code);
-  assert.equal(partnerInviteCode(`https://app.bizencore.com/#partner-invite=${code}`), code);
+  assert.equal(partnerInviteCode(`https://terminal.bizencore.com/#partner-invite=${code}`), code);
   for (const value of ['javascript:alert(1)', 'data:text/html,evil', 'file:///tmp/#partner-invite=' + code, 'a'.repeat(63), 'https://example.test/?partner-invite=' + code]) assert.equal(partnerInviteCode(value), null);
 });
 

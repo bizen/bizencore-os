@@ -111,7 +111,7 @@ function BotDialog({ labelId, labelName, userId, loading, assignment, token, onT
 const skinFileTypes = 'image/png,image/jpeg,image/webp';
 const grokBotTemplateUrl = 'https://x.ai/bot/hPGmSCsPi8Y_tUpPjDjwl';
 const routineName = 'Terminalからの依頼';
-const terminalOrigin = () => location.protocol === 'https:' ? location.origin : 'https://app.bizencore.com';
+const terminalOrigin = () => location.protocol === 'https:' ? location.origin : 'https://terminal.bizencore.com';
 
 function routineInstructions(name: string, vp?: boolean) {
   const work = vp

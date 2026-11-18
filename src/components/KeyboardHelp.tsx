@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { ArrowDown, Check, ChevronRight, Copy, ExternalLink } from 'lucide-react';
 import { SHORTCUTS } from '../lib/shortcuts';
 
-const MCP_URL = 'https://app.bizencore.com/mcp';
+const MCP_URL = 'https://terminal.bizencore.com/mcp';
 
 export function KeyboardHelp({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState(false);

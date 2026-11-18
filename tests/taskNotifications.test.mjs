@@ -50,7 +50,7 @@ test('push destinations are restricted to browser vendors, reject SSRF/credentia
   validatePushSubscription(sub);
   for (const endpoint of ['http://web.push.apple.com/x','https://web.push.apple.com.evil.test/x','https://127.0.0.1/x','https://user:pass@web.push.apple.com/x','https://web.push.apple.com:8443/x']) assert.throws(() => validatePushSubscription({ ...sub, endpoint }));
   const payload = JSON.stringify({ title: 'private task' });
-  const request = webpush.generateRequestDetails(sub, payload, { vapidDetails: { subject: 'https://app.bizencore.com', ...vapid }, TTL: 60 });
+  const request = webpush.generateRequestDetails(sub, payload, { vapidDetails: { subject: 'https://terminal.bizencore.com', ...vapid }, TTL: 60 });
   assert.equal(request.headers['Content-Encoding'], 'aes128gcm');
   assert.ok(request.headers.Authorization.includes('vapid'));
   assert.ok(!request.body.includes(Buffer.from('private task')));

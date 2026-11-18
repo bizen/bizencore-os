@@ -21,7 +21,7 @@ test('MCP initialization advertises the public Cirno app icon without accessing 
     const body = JSON.parse(text.startsWith('event:') ? text.split('\n').find(line => line.startsWith('data: ')).slice(6) : text);
     const info = body.result.serverInfo;
     assert.equal(info.name, 'bizencore');
-    assert.deepEqual(info.icons, [{ src: 'https://app.bizencore.com/icons/icon-512.png?v=cirno-1', mimeType: 'image/png', sizes: ['512x512'] }]);
+    assert.deepEqual(info.icons, [{ src: 'https://terminal.bizencore.com/icons/icon-512.png?v=cirno-1', mimeType: 'image/png', sizes: ['512x512'] }]);
     const png = await readFile(`public${new URL(info.icons[0].src).pathname}`);
     assert.equal(png.readUInt32BE(16), 512);
     assert.equal(png.readUInt32BE(20), 512);

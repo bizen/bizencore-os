@@ -41,7 +41,7 @@ test('legacy initialization followed by deletion returns an actionable Web link 
   assert.equal(response.status, 200); assert.ok(!response.result.isError);
   const action = JSON.parse(response.result.content[0].text);
   assert.equal(action.status, 'pending'); assert.equal(action.request_id, 'request-1');
-  assert.equal(action.confirmation_url, 'https://app.bizencore.com/task-actions/request-1');
+  assert.equal(action.confirmation_url, 'https://terminal.bizencore.com/task-actions/request-1');
   assert.match(action.next_action, /Opening the link is not approval/);
   assert.deepEqual(f.calls.map(call => call.path), ['prepare-task-deletion']);
   const result = await f.call({ request_id: action.request_id });

@@ -58,12 +58,12 @@ try {
 }finally{await browser.close();}
 
 const handlers={}, shown=[], opened=[];
-const worker={location:{origin:'https://app.bizencore.com'},addEventListener:(name,fn)=>{handlers[name]=fn},registration:{showNotification:async(title,options)=>shown.push({title,...options})},clients:{matchAll:async()=>[],openWindow:async url=>opened.push(url)}};
+const worker={location:{origin:'https://terminal.bizencore.com'},addEventListener:(name,fn)=>{handlers[name]=fn},registration:{showNotification:async(title,options)=>shown.push({title,...options})},clients:{matchAll:async()=>[],openWindow:async url=>opened.push(url)}};
 vm.runInNewContext(await readFile('public/notifications-sw.js','utf8'),{self:worker,URL});
 const fire=async(name,data)=>{let work;handlers[name]({...data,waitUntil:p=>{work=p}});await work;};
 await fire('push',{data:{json:()=>({title:'Today',body:'最初は確認する',tag:'morning:day',path:'/?view=today'})}});
 assert.equal(shown[0].body,'最初は確認する');
 await fire('push',{data:{json:()=>({title:'evil',body:'evil',tag:'x',path:'https://evil.test/'})}});assert.equal(shown.length,1);
-await fire('notificationclick',{notification:{data:{url:'https://app.bizencore.com/?task=abc'},close(){}}});
-assert.deepEqual(opened,['https://app.bizencore.com/?task=abc']);
+await fire('notificationclick',{notification:{data:{url:'https://terminal.bizencore.com/?task=abc'},close(){}}});
+assert.deepEqual(opened,['https://terminal.bizencore.com/?task=abc']);
 console.log('Service worker: visible notification and same-origin task/Today navigation verified; cross-origin links rejected.');

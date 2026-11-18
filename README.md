@@ -191,7 +191,7 @@ MCP のエリシテーションで既存ラベルを選んでもらい、確認�
 承認前の自動ポーリングや、会話文・ツール引数で確認を代用することはしない。
 確認記録は24時間後に回収し、アカウント削除時も消去する。
 
-確認リンクの送り先は、本番Vercelでは `https://app.bizencore.com`、プレビューではその
+確認リンクの送り先は、本番Vercelでは `https://terminal.bizencore.com`、プレビューではその
 デプロイのURL。別の構成では `MCP_CONFIRMATION_ORIGIN` に同じConvex・Clerkを使うWebの
 オリジンを指定する（HTTPS、ローカル開発時のみHTTP可）。ローカルAPI未設定時と隔離した
 デスクトップ開発環境はリンクを発行しない。デスクトップの `createDesktopMcp` に
@@ -207,7 +207,10 @@ CLERK_JWT_ISSUER_DOMAINS   Convex 側のみ。受け付ける Clerk のドメイ
 ```
 
 本番の Clerk は `bizencore.com`（Frontend API は `https://clerk.bizencore.com`）。
-アプリは `https://app.bizencore.com`、`chrct.com` はそこへ転送する（`vercel.json`）。
+アプリは `https://terminal.bizencore.com`、`chrct.com` はそこへ転送する（`vercel.json`）。
+旧 `app.bizencore.com` も同じプロジェクトに残し、画面は転送するが、設定済みのMCPクライアント・
+Grok Bot・通知のため `/mcp`・`/api/`・`/grok-bot/`・`/.well-known/`・`/notifications-sw.js`・
+`/version.json` は転送せずそのまま返す。
 
 Clerk を別のインスタンスへ移すとユーザー ID が変わるので、Convex のデータを
 付け替える: `npx convex run migrations:moveUser '{"from":"user_…","to":"user_…"}'`

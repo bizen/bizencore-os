@@ -78,7 +78,7 @@ test('native launch overrides only its own process and refuses leaked production
   assert.ok(result.args.some(arg => arg.includes('mcp_servers.other={command="/usr/bin/false",enabled=false}')));
   assert.equal(result.env[MCP_TOKEN_ENV], cap.token); assert.ok(!result.args.join(' ').includes(cap.token));
   assert.throws(() => verifyCodexMcp([...effective, { name: 'production', enabled: true }], cap.url), /隔離/);
-  assert.throws(() => verifyCodexMcp([{ ...effective[0], transport: { ...effective[0].transport, url: 'https://app.bizencore.com/mcp' } }], cap.url), /隔離/);
+  assert.throws(() => verifyCodexMcp([{ ...effective[0], transport: { ...effective[0].transport, url: 'https://terminal.bizencore.com/mcp' } }], cap.url), /隔離/);
   const claude = await isolatedMcpLaunch('claude', '/fixture/claude', '/fixture', {}, cap, async () => ({ stdout: '--strict-mcp-config --mcp-config' }));
   assert.equal(claude.args[0], '--strict-mcp-config'); assert.ok(!claude.args.join(' ').includes(cap.token));
   assert.ok(claude.args.join(' ').includes('${BIZENCORE_DESKTOP_MCP_TOKEN}'));
