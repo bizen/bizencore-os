@@ -132,10 +132,14 @@ async function taskDecisions(ctx: QueryCtx, userId: string, taskId: string, stat
     return forBot ? rows.filter(row => row.assignmentId === forBot.assignmentId) : rows;
 }
 
+/** Rows with a headline are cards; older rows keep plain string options, normalized here to labels. */
 function view(row: Work) {
-    return { id: row._id, status: row.status, text: row.text, links: row.links, answer: row.answer,
+    const options = row.options?.map(option => typeof option === 'string' ? { label: option } : option);
+    return { id: row._id, status: row.status, headline: row.headline, text: row.text, links: row.links, answer: row.answer,
         createdAt: row._creationTime, answeredAt: row.answeredAt, wakeAt: row.wakeAt, wakeStatus: row.wakeStatus,
-        kind: row.kind, options: row.options, recommendation: row.recommendation, irreversible: row.irreversible, assumptions: row.assumptions,
+        kind: row.kind, options, recommendation: row.recommendation, recommendationReason: row.recommendationReason, confidence: row.confidence,
+        irreversible: row.irreversible || options?.some(option => 'irreversible' in option && option.irreversible) || undefined,
+        checks: row.checks, evidence: row.evidence, assumptions: row.assumptions,
         prUrl: row.prUrl, prHeadSha: row.prHeadSha, mergedAt: row.mergedAt };
 }
 
@@ -507,8 +511,8 @@ export const inbox = query({
         if (!userId) return null;
         const [officer, vpRow] = await Promise.all([officerInbox(ctx, userId), vpFor(ctx, userId)]);
         if (!officer && !vpRow) return null;
-        const [proposals, metrics] = await Promise.all([proposalInbox(ctx, userId), workMetrics(ctx, userId)]);
-        return { ...(officer ?? { pending: [], answered: [] }), proposals, metrics };
+        const [proposals, metrics, nextPatrolAt] = await Promise.all([proposalInbox(ctx, userId), workMetrics(ctx, userId), nextLabelPatrol(ctx, userId)]);
+        return { ...(officer ?? { pending: [], answered: [] }), proposals, metrics, nextPatrolAt };
     },
 });
 
@@ -597,40 +601,88 @@ function priorWork(ctx: QueryCtx, userId: string, taskId: string, key: string, a
 }
 
 const decisionKind = v.union(v.literal('approval'), v.literal('choice'), v.literal('info'));
+const confidence = v.union(v.literal('high'), v.literal('medium'), v.literal('low'));
+// Lenient validators so a missing field reaches decisionCard, which names every problem at once.
+const decisionArgs = {
+    kind: v.optional(decisionKind), headline: v.optional(v.string()), context: v.optional(v.string()),
+    options: v.optional(v.array(v.object({ label: v.string(), consequence: v.optional(v.string()), irreversible: v.optional(v.boolean()) }))),
+    recommendation: v.optional(v.object({ option: v.optional(v.string()), reason: v.optional(v.string()), confidence: v.optional(confidence) })),
+    checks: v.optional(v.array(v.string())), evidence: v.optional(v.array(v.object({ url: v.string(), title: v.optional(v.string()) }))),
+};
+type DecisionInput = { [K in keyof typeof decisionArgs]?: (typeof decisionArgs)[K]['type'] };
 
-function decisionShape({ kind = 'info', options, recommendation, irreversible }:
-    { kind?: 'approval' | 'choice' | 'info'; options?: string[]; recommendation?: string; irreversible?: boolean }) {
-    const choices = options?.map(option => option.trim());
-    if (kind === 'choice' ? !choices?.length || choices.length > 4 : choices !== undefined) {
-        throw new ConvexError(kind === 'choice' ? 'A choice needs 1 to 4 options' : 'Options are only for kind choice');
-    }
-    if (choices && (choices.some(option => !option || option.length > 100) || new Set(choices).size !== choices.length)) {
-        throw new ConvexError('Options must be distinct and 1 to 100 characters');
-    }
-    const recommended = recommendation?.trim();
-    if (recommendation !== undefined && (!recommended || recommended.length > 500)) throw new ConvexError('The recommendation must be 1 to 500 characters');
-    if (choices && recommended !== undefined && !choices.includes(recommended)) throw new ConvexError('The recommendation must be one of the options');
-    return { kind, options: choices, recommendation: recommended, irreversible: irreversible || undefined };
+/** A trimmed required text; a missing or too long value adds a problem that says what to write. */
+function cardText(problems: string[], name: string, value: string | undefined, max: number, what: string) {
+    const text = value?.trim() ?? '';
+    if (!text) problems.push(`${name} is missing: ${what}`);
+    else if (text.length > max) problems.push(`${name} is ${text.length} characters, at most ${max}: ${what}`);
+    return text;
 }
 
+function cardChecks(problems: string[], checks: string[] | undefined) {
+    const trimmed = (checks ?? []).map((check, i) => cardText(problems, `checks[${i}]`, check, 120, 'one thing the user must actually look at'));
+    if (trimmed.length < 1 || trimmed.length > 3) problems.push('checks must list 1 to 3 things the user must actually look at before deciding (not generic advice)');
+    return trimmed;
+}
+
+/** Quality at the source: an incomplete card is rejected with every problem named, so the Bot rewrites it in one pass. */
+function decisionCard({ kind = 'info', ...input }: DecisionInput) {
+    const problems: string[] = [];
+    const headline = cardText(problems, 'headline', input.headline, 80, 'one line saying what is being decided');
+    const context = cardText(problems, 'context', input.context, 400, 'why this needs deciding now, with the background the user needs');
+    const options = (input.options ?? []).map((option, i) => ({
+        label: cardText(problems, `options[${i}].label`, option.label, 60, 'a short answer the user can pick'),
+        consequence: cardText(problems, `options[${i}].consequence`, option.consequence, 200, 'what concretely happens if the user picks it'),
+        ...(option.irreversible ? { irreversible: true } : {}),
+    }));
+    if (kind === 'info' ? options.length > 0 : kind === 'approval' ? options.length !== 2 : options.length < 2 || options.length > 4) {
+        problems.push(kind === 'info' ? 'options must be omitted for kind info (the user writes the answer); use kind choice to offer answers'
+            : kind === 'approval' ? 'options must be exactly 2 for kind approval: approve and reject, each with its consequence'
+            : 'options must be 2 to 4 for kind choice');
+    }
+    if (new Set(options.map(option => option.label)).size !== options.length) problems.push('options labels must be distinct');
+    const { recommendation } = input;
+    const recommended = recommendation?.option?.trim();
+    let reason: string | undefined;
+    if (kind === 'info') {
+        if (recommendation) problems.push('recommendation must be omitted for kind info');
+    } else if (!recommendation) {
+        problems.push('recommendation is missing: { option: one of the option labels, reason, confidence: high, medium or low }');
+    } else {
+        if (!options.some(option => option.label === recommended)) problems.push('recommendation.option must equal one of the option labels');
+        reason = cardText(problems, 'recommendation.reason', recommendation.reason, 200, 'why you recommend that option');
+        if (!recommendation.confidence) problems.push('recommendation.confidence is missing: high, medium or low');
+    }
+    const checks = cardChecks(problems, input.checks);
+    const evidence = input.evidence?.map(({ url, title }) => ({ url: url.trim(), ...(title?.trim() ? { title: title.trim() } : {}) }));
+    if (evidence && (evidence.length > 8 || evidence.some(link => !/^https:\/\/\S+$/.test(link.url) || link.url.length > 4096 || (link.title?.length ?? 0) > 80))) {
+        problems.push('evidence takes at most 8 HTTPS links, each with an optional title of at most 80 characters');
+    }
+    if (problems.length) throw new ConvexError(`Rewrite the decision card and resubmit: ${problems.join('; ')}.`);
+    return { kind, headline, text: context, options: options.length ? options : undefined,
+        recommendation: recommended, recommendationReason: reason, confidence: recommendation?.confidence,
+        irreversible: options.some(option => option.irreversible) || undefined, checks, evidence: evidence?.length ? evidence : undefined };
+}
+
+const cardSignature = (row: Pick<Work, 'kind' | 'headline' | 'text' | 'options' | 'recommendation' | 'recommendationReason' | 'confidence' | 'checks' | 'evidence'>) =>
+    JSON.stringify([row.kind ?? 'info', row.headline, row.text, row.options, row.recommendation, row.recommendationReason, row.confidence, row.checks, row.evidence]);
+
 export const requestDecision = internalMutation({
-    args: { ...userTask, question: v.string(), key: v.string(), kind: v.optional(decisionKind), options: v.optional(v.array(v.string())),
-        recommendation: v.optional(v.string()), irreversible: v.optional(v.boolean()) },
-    handler: async (ctx, { userId, assignmentId, taskId, question, key, ...decision }) => {
+    args: { ...userTask, key: v.string(), ...decisionArgs },
+    handler: async (ctx, { userId, assignmentId, taskId, key, ...decision }) => {
         const task = taskInScope(await requireScope(ctx, userId, assignmentId), taskId);
-        const shape = decisionShape(decision);
+        const card = decisionCard(decision);
         const previous = await priorWork(ctx, userId, taskId, key, assignmentId);
         if (previous) {
-            const same = (row: { kind?: string; options?: string[]; recommendation?: string; irreversible?: boolean }) => JSON.stringify([row.kind ?? 'info', row.options, row.recommendation, !!row.irreversible]);
-            if (previous.text !== question || previous.links !== undefined || same(previous) !== same(shape)) throw new ConvexError('Idempotency key already used');
+            if (previous.links !== undefined || cardSignature(previous) !== cardSignature(card)) throw new ConvexError('Idempotency key already used');
             return view(previous);
         }
         if (!open(task)) throw new ConvexError('Task is already closed');
         await requireNotDeferred(ctx, userId, taskId);
         const waiting = await taskDecisions(ctx, userId, taskId, 'waiting', { assignmentId });
-        if (waiting.some(row => row.text === question)) throw new ConvexError('This question is already waiting for a reply');
+        if (waiting.some(row => (row.headline ?? row.text) === card.headline)) throw new ConvexError('This question is already waiting for a reply');
         if (waiting.length >= 10) throw new ConvexError('This task already has 10 open questions');
-        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, text: question, key, status: 'waiting', ...shape });
+        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, key, status: 'waiting', ...card });
         return { id, status: 'waiting' };
     },
 });
@@ -653,12 +705,18 @@ export const claimDecision = internalMutation({
 export const recordWorkResult = internalMutation({
     args: { ...userTask, summary: v.string(), links: v.array(v.string()), complete: v.boolean(),
         needsReview: v.optional(v.boolean()), assumptions: v.optional(v.string()), prHeadSha: v.optional(v.string()),
+        headline: v.optional(v.string()), checks: v.optional(v.array(v.string())),
         appliedQuestionId: v.optional(v.string()), claimKey: v.optional(v.string()), expectedTaskVersion: v.optional(v.number()), key: v.string() },
     handler: async (ctx, { userId, assignmentId, taskId, summary, links, complete, needsReview, prHeadSha, appliedQuestionId, claimKey, expectedTaskVersion, key, ...args }) => {
         const assigned = await requireScope(ctx, userId, assignmentId);
         const task = taskInScope(assigned, taskId);
         const assumptions = args.assumptions?.trim() || undefined;
         if (assumptions && assumptions.length > 8000) throw new ConvexError('Assumptions must be at most 8000 characters');
+        // Optional on progress and direct completions; required below once the result becomes a review.
+        const cardProblems: string[] = [];
+        const headline = args.headline === undefined ? undefined : cardText(cardProblems, 'headline', args.headline, 80, 'one line saying what was done');
+        const checks = args.checks === undefined ? undefined : cardChecks(cardProblems, args.checks);
+        if (cardProblems.length) throw new ConvexError(`Rewrite the result and resubmit: ${cardProblems.join('; ')}.`);
         if (prHeadSha !== undefined && !commitShaPattern.test(prHeadSha)) throw new ConvexError('pr_head_sha must be the full 40-character lowercase commit SHA');
         if (prHeadSha !== undefined && !complete) throw new ConvexError('pr_head_sha is only for a completion (complete true)');
         // A pull request is always reviewed, so its assumptions are optional.
@@ -666,7 +724,8 @@ export const recordWorkResult = internalMutation({
         const previous = await priorWork(ctx, userId, taskId, key, assignmentId);
         if (previous) {
             if ((previous.status === 'progress') === complete || previous.text !== summary || previous.appliedQuestionId !== appliedQuestionId ||
-                previous.assumptions !== assumptions || previous.prHeadSha !== prHeadSha || JSON.stringify(previous.links) !== JSON.stringify(links)) {
+                previous.assumptions !== assumptions || previous.prHeadSha !== prHeadSha || JSON.stringify(previous.links) !== JSON.stringify(links) ||
+                previous.headline !== headline || JSON.stringify(previous.checks) !== JSON.stringify(checks)) {
                 throw new ConvexError('Idempotency key already used');
             }
             return view(previous);
@@ -692,6 +751,10 @@ export const recordWorkResult = internalMutation({
         if (complete) await requireNotDeferred(ctx, userId, taskId);
         if (complete && expectedTaskVersion !== task.updatedAt) throw new ConvexError('Task changed; read it again before reporting completion');
         const review = complete && !task.done && !merge && (!!needsReview || role.reviewRequired || submitsPr);
+        if (review && (!headline || !checks)) {
+            throw new ConvexError('This completion waits for the user’s review, so it needs headline (one line, at most 80 characters, saying what was done) ' +
+                'and checks (1 to 3 things the user must actually look at before approving). Resubmit with both');
+        }
         if (complete && !task.done) {
             if (subtreeOf(assigned.items, taskId).slice(1).some(child => child.type !== 'task' || !assigned.tasks.has(child.id) || !child.done)) {
                 throw new ConvexError('Finish the subtasks before completing this task');
@@ -707,7 +770,7 @@ export const recordWorkResult = internalMutation({
         }
         const status = review ? 'review' : complete ? 'complete' : 'progress';
         const prUrl = submitsPr ? pullRequests[0] : merge ? approvedPr.prUrl : undefined;
-        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, key, text: summary, status, links, appliedQuestionId, assumptions, prUrl, prHeadSha });
+        const id = await ctx.db.insert('taskWork', { userId, assignmentId, taskId, key, text: summary, status, links, appliedQuestionId, assumptions, prUrl, prHeadSha, headline, checks });
         const released = { claimKey: undefined, claimUntil: undefined };
         // Progress on an approved pull request (say, a failed merge) leaves it approved and claimed.
         if (approvedPr && merge) await ctx.db.patch(approvedPr._id, { status: 'merged', mergedAt: Date.now(), ...released });
@@ -869,6 +932,18 @@ function nextPatrol(time: string, timeZone: string, now: number, lastRunAt?: num
         const at = deadlineInstant(day, time, timeZone);
         if (at !== null && at >= Math.floor(now / 60_000) * 60_000) return at;
     }
+}
+
+/** The next scheduled patrol of a label Bot or the pilot (the VP never applies answers), or null when none is on. */
+async function nextLabelPatrol(ctx: QueryCtx, userId: string) {
+    const [saved, labels, timeZone] = await Promise.all([ctx.db.query('grokBotSchedules').withIndex('by_user', q => q.eq('userId', userId)).collect(),
+        labelAssignments(ctx, userId), timezoneFor(ctx, userId)]);
+    const pilot = pilotFor(userId);
+    const times = saved.filter(row => row.enabled).map(row => row.assignmentId
+        ? labels.some(label => label._id === row.assignmentId) ? row.nextCheckAt : undefined
+        : pilot && timeZone ? nextPatrol(row.time, timeZone, Date.now(), row.lastRunAt) : undefined)
+        .filter(at => at !== undefined);
+    return times.length ? Math.min(...times) : null;
 }
 
 export async function refreshPatrolTimeZone(ctx: MutationCtx, userId: string, timeZone: string) {

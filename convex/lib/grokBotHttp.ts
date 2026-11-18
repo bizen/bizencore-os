@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { httpAction } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { grokBotTools } from '../../api/_lib/grokBotTools';
@@ -77,8 +78,9 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
             }
             case 'request_decision': {
                 const args = grokBotTools.request_decision.parse(input);
-                return Response.json(await ctx.runMutation(internal.grokBot.requestDecision, { ...scope, taskId: args.task_id, question: args.question, key: args.idempotency_key,
-                    kind: args.kind, options: args.options, recommendation: args.recommendation, irreversible: args.irreversible }));
+                return Response.json(await ctx.runMutation(internal.grokBot.requestDecision, { ...scope, taskId: args.task_id, key: args.idempotency_key,
+                    kind: args.kind, headline: args.headline, context: args.context, options: args.options, recommendation: args.recommendation,
+                    checks: args.checks, evidence: args.evidence }));
             }
             case 'claim_decision': {
                 const args = grokBotTools.claim_decision.parse(input);
@@ -88,7 +90,7 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
                 const args = grokBotTools.record_work_result.parse(input);
                 return Response.json(await ctx.runMutation(internal.grokBot.recordWorkResult, {
                     ...scope, taskId: args.task_id, summary: args.summary, links: args.links ?? [], complete: args.complete ?? false,
-                    needsReview: args.needs_review, assumptions: args.assumptions, prHeadSha: args.pr_head_sha,
+                    needsReview: args.needs_review, assumptions: args.assumptions, prHeadSha: args.pr_head_sha, headline: args.headline, checks: args.checks,
                     appliedQuestionId: args.applied_question_id, claimKey: args.claim_key, expectedTaskVersion: args.expected_task_version, key: args.idempotency_key,
                 }));
             }
@@ -97,6 +99,8 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
         }
     } catch (error) {
         const data = (error as { data?: unknown })?.data;
-        return Response.json({ error: typeof data === 'string' ? data : 'Invalid arguments or Terminal operation failed' }, { status: 400 });
+        // Name each rejected argument so the Bot can fix its request instead of guessing.
+        const issues = error instanceof z.ZodError ? error.issues.map(issue => `${issue.path.join('.') || 'args'}: ${issue.message}`).join('; ') : '';
+        return Response.json({ error: typeof data === 'string' ? data : issues ? `Invalid arguments: ${issues}` : 'Invalid arguments or Terminal operation failed' }, { status: 400 });
     }
 });

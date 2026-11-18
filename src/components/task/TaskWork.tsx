@@ -380,7 +380,7 @@ function WorkItem({ row, userId, canReply }: { row: Omit<Work, 'canReply'>; user
     void (review ? run(() => sendBack({ ...args, comment: draft }), true) : answer(draft));
   }
   const recommended = row.recommendation;
-  const choices = row.kind === 'approval' ? ['承認', '却下'] : row.kind === 'choice' ? row.options ?? [] : [];
+  const choices = row.kind === 'approval' ? ['承認', '却下'] : row.kind === 'choice' ? row.options?.map(option => option.label) ?? [] : [];
   const open = canReply && (row.status === 'waiting' || row.status === 'review');
   return <>
     <span className="task-work-status" role="status">{statusText(row, canReply)} · Grok Bot · {formatTime(row.createdAt)}</span>

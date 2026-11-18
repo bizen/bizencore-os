@@ -95,6 +95,10 @@ function fixture(t) {
 
 const web = { expectedUserId: 'alice' };
 const task = { userId: 'alice', taskId: 'mine' };
+/** The smallest complete card: a free-text question. */
+const infoCard = headline => ({ kind: 'info', headline, context: '判断の背景です。', checks: ['対象の範囲'] });
+/** What a completion needs once it waits for review. */
+const reviewed = { headline: '下書きを仕上げた', checks: ['見出しの表記'] };
 
 test('label connections isolate credentials, questions, delegation and scheduled patrols', async t => {
   const f = fixture(t);
@@ -130,7 +134,7 @@ test('label connections isolate credentials, questions, delegation and scheduled
   assert.equal((await add('Dev item', keyB)).status, 200);
 
   await f.call('setDelegation', { ...web, taskId: 'other', execute: true });
-  const ask = (bearer, task_id) => f.http('request_decision', { task_id, question: 'Which option?', idempotency_key: 'ask' }, bearer);
+  const ask = (bearer, task_id) => f.http('request_decision', { task_id, ...infoCard('Which option?'), idempotency_key: 'ask' }, bearer);
   const question = await (await ask(keyB, 'other')).json();
   assert.equal((await ask(keyA, 'mine')).status, 200);
   assert.equal((await f.call('inbox', web)).pending.length, 2);
@@ -339,7 +343,9 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
   assert.deepEqual(payload.result.tools.map(tool => tool.name).sort(), ['add_assigned_task', 'assigned_tasks', 'claim_decision', 'propose', 'record_work_result', 'request_decision']);
   const schema = name => payload.result.tools.find(tool => tool.name === name).inputSchema.properties;
   assert.ok(['needs_review', 'assumptions', 'pr_head_sha'].every(key => key in schema('record_work_result')));
-  assert.ok(['kind', 'options', 'recommendation', 'irreversible'].every(key => key in schema('request_decision')));
+  assert.ok(['headline', 'checks'].every(key => key in schema('record_work_result')));
+  assert.ok(['kind', 'headline', 'context', 'options', 'recommendation', 'checks', 'evidence'].every(key => key in schema('request_decision')));
+  assert.deepEqual(payload.result.tools.find(tool => tool.name === 'request_decision').inputSchema.required.sort(), ['checks', 'context', 'headline', 'idempotency_key', 'kind', 'task_id']);
   assert.match(init.payload.result.instructions, /review_returned/);
   assert.match(init.payload.result.instructions, /review_approved.*--match-head-commit/);
   const data = await rpc('tools/call', { name: 'assigned_tasks', arguments: {} });
@@ -348,7 +354,7 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
   assert.ok(visible.tasks.every(row => row.bot_role === 'review'));
   for (const id of ['other', 'foreign-nested', 'another-user', 'label']) {
     assert.equal((await f.http('assigned_tasks', { task_id: id })).status, 400);
-    assert.equal((await f.http('request_decision', { task_id: id, question: 'Can I?', idempotency_key: 'ask' })).status, 400);
+    assert.equal((await f.http('request_decision', { task_id: id, ...infoCard('Can I?'), idempotency_key: 'ask' })).status, 400);
   }
   assert.equal((await f.http('record_work_result', { task_id: 'mine', summary: 'Unsafe', links: ['javascript:alert(1)'], idempotency_key: 'bad' })).status, 400);
   const created = await (await f.http('add_assigned_task', { title: 'New issue', idempotency_key: 'found' })).json();
@@ -357,8 +363,8 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
 
 test('reply persists once, resumes by webhook, and applies a claimed answer with text-only work', async t => {
   const f = fixture(t);
-  const question = await f.call('requestDecision', { ...task, question: 'Proceed with A?', key: 'ask' });
-  assert.equal((await f.call('requestDecision', { ...task, question: 'Proceed with A?', key: 'ask' })).id, question.id);
+  const question = await f.call('requestDecision', { ...task, ...infoCard('Proceed with A?'), key: 'ask' });
+  assert.equal((await f.call('requestDecision', { ...task, ...infoCard('Proceed with A?'), key: 'ask' })).id, question.id);
   assert.equal((await f.call('inbox', web)).pending.length, 1);
   f.identify('bob');
   assert.equal(await f.call('inbox', web), null);
@@ -449,7 +455,7 @@ test('morning notifications link to the inbox when there is an open decision', a
   f.setTime('2026-11-14T09:02:00+11:00');
   const deviceId = '662a5ff1-a990-4c90-a9bd-2a773844da3c';
   await f.invoke('notifications:save', { deviceId, platform: 'desktop', preferences: { morning: true, deadline: false, completion: false, morningTime: '09:00' } });
-  await f.call('requestDecision', { ...task, question: 'Proceed?', key: 'ask' });
+  await f.call('requestDecision', { ...task, ...infoCard('Proceed?'), key: 'ask' });
   await f.invoke('notifications:collect');
   const [notice] = await f.invoke('notifications:pending', { deviceId });
   assert.equal(notice.inbox, true);
@@ -473,12 +479,12 @@ test('direct completion is unchanged while needs_review and always-review comple
 
   const judged = { ...done, taskId: 'judged', links: ['https://example.test/pull/7'], expectedTaskVersion: await versionOf(f, 'judged') };
   await assert.rejects(f.call('recordWorkResult', { ...judged, needsReview: true, key: 'judged' }), /assumptions/);
-  const response = await f.http('record_work_result', { task_id: 'judged', summary: judged.summary, links: judged.links, complete: true,
+  const response = await f.http('record_work_result', { task_id: 'judged', summary: judged.summary, links: judged.links, complete: true, ...reviewed,
     needs_review: true, assumptions: '締切が未記載のため今週末と仮定した。', expected_task_version: judged.expectedTaskVersion, idempotency_key: 'judged' });
   const submitted = await response.json();
   assert.equal(submitted.status, 'review');
   assert.equal(itemOf(f, 'judged').done, false);
-  const args = { ...judged, needsReview: true, assumptions: '締切が未記載のため今週末と仮定した。', key: 'judged' };
+  const args = { ...judged, ...reviewed, needsReview: true, assumptions: '締切が未記載のため今週末と仮定した。', key: 'judged' };
   assert.equal((await f.call('recordWorkResult', args)).id, submitted.id, 'a retry with the same key is idempotent');
   await assert.rejects(f.call('recordWorkResult', { ...args, key: 'judged-again' }), /awaiting the user’s review/);
   const listed = (await f.call('assignedTasks', { userId: 'alice' })).tasks.find(row => row.id === 'judged');
@@ -486,7 +492,8 @@ test('direct completion is unchanged while needs_review and always-review comple
   const [pending] = (await f.call('inbox', web)).pending;
   assert.deepEqual([pending.id, pending.status, pending.assumptions, pending.links], [submitted.id, 'review', args.assumptions, judged.links]);
 
-  const checked = await f.call('recordWorkResult', { ...done, taskId: 'checked', key: 'checked', expectedTaskVersion: await versionOf(f, 'checked') });
+  await assert.rejects(f.call('recordWorkResult', { ...done, taskId: 'checked', key: 'bare', expectedTaskVersion: await versionOf(f, 'checked') }), /needs headline .* and checks/);
+  const checked = await f.call('recordWorkResult', { ...done, ...reviewed, taskId: 'checked', key: 'checked', expectedTaskVersion: await versionOf(f, 'checked') });
   assert.equal(checked.status, 'review');
   assert.equal((await f.call('assignedTasks', { userId: 'alice', taskId: 'checked' })).review_required, true);
   assert.deepEqual((await f.call('taskHistory', { ...web, taskId: 'checked' })).reviewRequired, true);
@@ -513,7 +520,7 @@ test('a returned review wakes the Bot, is claimed by one run and applied by the 
   const f = fixture(t);
   f.seed('draft', 'label');
   await execute(f, 'draft', true);
-  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'draft', summary: '下書きを作成。', links: [], complete: true,
+  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'draft', summary: '下書きを作成。', links: [], complete: true, ...reviewed,
     key, expectedTaskVersion: await versionOf(f, 'draft'), ...extra });
   const first = await submit('first');
   await assert.rejects(f.call('returnReview', { ...web, id: first.id, comment: '  ' }), /差し戻し/);
@@ -552,32 +559,74 @@ test('a returned review wakes the Bot, is claimed by one run and applied by the 
   assert.deepEqual((await f.call('inbox', web)).pending.map(row => row.id), [second.id]);
 });
 
-test('structured decisions validate their shape and appear in every view', async t => {
+test('a decision card names every problem at once, keeps options consistent and appears in every view', async t => {
   const f = fixture(t);
-  const ask = (key, extra) => f.call('requestDecision', { ...task, question: `Q ${key}`, key, ...extra });
-  await assert.rejects(ask('a', { kind: 'choice' }), /1 to 4 options/);
-  await assert.rejects(ask('b', { kind: 'choice', options: ['A', 'B', 'C', 'D', 'E'] }), /1 to 4 options/);
-  await assert.rejects(ask('c', { kind: 'approval', options: ['A'] }), /only for kind choice/);
-  await assert.rejects(ask('d', { kind: 'choice', options: ['A', 'A'] }), /distinct/);
-  await assert.rejects(ask('e', { kind: 'choice', options: ['A', 'B'], recommendation: 'C' }), /one of the options/);
-  assert.equal((await f.http('request_decision', { task_id: 'mine', question: 'Q', kind: 'poll', idempotency_key: 'f' })).status, 400);
-  const choice = { kind: 'choice', options: [' 今週 ', '来週'], recommendation: '来週', irreversible: true };
+  const ask = (key, card) => f.call('requestDecision', { ...task, key, ...card });
+  const rejects = (card, ...patterns) => assert.rejects(ask('bad', card), error => patterns.every(pattern => pattern.test(error.data)));
+  const week = { label: ' 今週 ', consequence: '今週金曜に告知ページを公開します。', irreversible: true };
+  const later = { label: '来週', consequence: '来週月曜まで下書きのままにします。' };
+  const choice = { kind: 'choice', headline: '告知ページの公開日', context: '公開日が未定のまま告知文が仕上がりました。',
+    options: [week, later], recommendation: { option: '来週', reason: '社内確認の時間が取れます。', confidence: 'medium' },
+    checks: ['公開日の表記'], evidence: [{ url: 'https://example.test/draft', title: '下書き' }] };
+
+  await rejects({}, /headline is missing/, /context is missing/, /checks must list 1 to 3/);
+  await rejects({ ...choice, options: undefined, recommendation: undefined }, /options must be 2 to 4 for kind choice/, /recommendation is missing/);
+  await rejects({ ...choice, options: [week, later, ...['a', 'b', 'c'].map(label => ({ label, consequence: 'x' }))] }, /2 to 4/);
+  await rejects({ ...choice, kind: 'approval', options: [week, later, { label: '保留', consequence: 'x' }] }, /exactly 2 for kind approval/);
+  await rejects({ ...choice, kind: 'info' }, /omitted for kind info/, /recommendation must be omitted/);
+  await rejects({ ...choice, options: [week, { label: '来週' }] }, /options\[1\]\.consequence is missing/);
+  await rejects({ ...choice, options: [week, { ...later, label: '今週' }] }, /distinct/);
+  await rejects({ ...choice, recommendation: { option: '再来週', reason: 'r', confidence: 'low' } }, /must equal one of the option labels/);
+  await rejects({ ...choice, recommendation: { option: '来週' } }, /recommendation\.reason is missing/, /confidence is missing/);
+  await rejects({ ...choice, headline: 'あ'.repeat(81), checks: ['a', 'b', 'c', 'd'] }, /headline is 81 characters, at most 80/, /checks must list 1 to 3/);
+  await rejects({ ...choice, evidence: [{ url: 'http://example.test/draft' }] }, /HTTPS/);
+  assert.match((await json(f.http('request_decision', { task_id: 'mine', kind: 'info', context: '背景', checks: ['a'], idempotency_key: 'z' }))).body.error,
+    /headline/, 'the route names the missing field');
+  assert.equal((await f.http('request_decision', { task_id: 'mine', ...infoCard('Q'), kind: 'poll', idempotency_key: 'f' })).status, 400);
+  assert.equal(f.rows.taskWork.length, 0, 'nothing incomplete reaches the user');
+
   const asked = await ask('choice', choice);
   assert.equal((await ask('choice', choice)).id, asked.id);
-  await assert.rejects(ask('choice', { ...choice, options: ['今週', '再来週'], recommendation: '今週' }), /Idempotency/);
-  const approval = await (await f.http('request_decision', { task_id: 'mine', question: '公開しますか。', kind: 'approval',
-    recommendation: '承認', idempotency_key: 'approval' })).json();
-  const legacy = await ask('legacy', {});
-  const expected = { kind: 'choice', options: ['今週', '来週'], recommendation: '来週', irreversible: true };
-  const pick = row => ({ kind: row.kind, options: row.options, recommendation: row.recommendation, irreversible: row.irreversible });
+  await assert.rejects(ask('choice', { ...choice, checks: ['別の確認'] }), /Idempotency/);
+  await assert.rejects(ask('again', choice), /already waiting/);
+  const approval = await (await f.http('request_decision', { task_id: 'mine', kind: 'approval', headline: '告知文の公開', context: '文面が確定しました。',
+    options: [{ label: '承認', consequence: '告知文を公開します。' }, { label: '却下', consequence: '下書きに戻します。' }],
+    recommendation: { option: '承認', reason: '指摘はすべて反映済みです。', confidence: 'high' }, checks: ['見出し'], idempotency_key: 'approval' })).json();
+  const info = await ask('info', infoCard('連絡先を教えてください'));
+  const old = await f.ctx.db.insert('taskWork', { userId: 'alice', taskId: 'mine', key: 'old', text: '公開しますか。', status: 'waiting',
+    kind: 'choice', options: ['今週', '来週'], recommendation: '来週', irreversible: true });
+
+  const pick = row => ({ headline: row.headline, text: row.text, options: row.options, recommendation: row.recommendation, reason: row.recommendationReason,
+    confidence: row.confidence, irreversible: row.irreversible, checks: row.checks, evidence: row.evidence });
+  const expected = { headline: '告知ページの公開日', text: choice.context, options: [{ ...week, label: '今週' }, later], recommendation: '来週',
+    reason: '社内確認の時間が取れます。', confidence: 'medium', irreversible: true, checks: ['公開日の表記'], evidence: choice.evidence };
   const work = (await f.call('assignedTasks', { userId: 'alice', taskId: 'mine' })).work;
   assert.deepEqual(pick(work.find(row => row.id === asked.id)), expected);
-  assert.deepEqual(pick(work.find(row => row.id === approval.id)), { kind: 'approval', options: undefined, recommendation: '承認', irreversible: undefined });
-  assert.equal(work.find(row => row.id === legacy.id).kind, 'info');
+  assert.equal(work.find(row => row.id === approval.id).irreversible, undefined, 'no irreversible option, no irreversible card');
+  assert.deepEqual(pick(work.find(row => row.id === info.id)), { ...pick({}), headline: '連絡先を教えてください', text: '判断の背景です。', checks: ['対象の範囲'] });
+  assert.deepEqual(pick(work.find(row => row.id === old)), { ...pick({}), text: '公開しますか。', options: [{ label: '今週' }, { label: '来週' }],
+    recommendation: '来週', irreversible: true }, 'an older row keeps its question and its question-level flag');
   assert.deepEqual(pick((await f.call('inbox', web)).pending.find(row => row.id === asked.id)), expected);
   assert.deepEqual(pick((await f.call('taskHistory', { ...web, taskId: 'mine' })).rows.find(row => row.id === asked.id)), expected);
   await f.call('reply', { ...web, id: asked.id, answer: '来週' });
   assert.deepEqual(await f.call('claimDecision', { ...task, questionId: asked.id, claimKey: 'run' }), { claimed: true, answer: '来週' });
+});
+
+test('a completion that becomes a review needs a headline and checks; other results do not', async t => {
+  const f = fixture(t);
+  f.seed('draft', 'label');
+  await execute(f, 'draft', true);
+  const result = async (key, extra) => f.call('recordWorkResult', { ...task, taskId: 'draft', summary: '下書きを作成。', links: [], key,
+    expectedTaskVersion: await versionOf(f, 'draft'), ...extra });
+  assert.equal((await result('progress', { complete: false })).status, 'progress');
+  await assert.rejects(result('bare', { complete: true }), /needs headline .* and checks/);
+  await assert.rejects(result('headline-only', { complete: true, headline: '下書きを仕上げた' }), /needs headline .* and checks/);
+  await assert.rejects(result('long', { complete: true, ...reviewed, checks: ['a', 'b', 'c', 'd'] }), /checks must list 1 to 3/);
+  const submitted = await result('review', { complete: true, ...reviewed });
+  assert.equal(submitted.status, 'review');
+  await assert.rejects(result('review', { complete: true, ...reviewed, checks: ['別の確認'] }), /Idempotency/);
+  const [pending] = (await f.call('inbox', web)).pending;
+  assert.deepEqual([pending.headline, pending.text, pending.checks], ['下書きを仕上げた', '下書きを作成。', ['見出しの表記']]);
 });
 
 test('the inbox puts a stalled label first, then larger open subtrees, then older requests', async t => {
@@ -594,7 +643,7 @@ test('the inbox puts a stalled label first, then larger open subtrees, then olde
   let minute = 0;
   const ask = (assignmentId, taskId) => {
     f.setTime(`2026-11-13T12:${String(++minute).padStart(2, '0')}:00+11:00`);
-    return f.call('requestDecision', { userId: 'alice', assignmentId, taskId, question: `${taskId}?`, key: taskId });
+    return f.call('requestDecision', { userId: 'alice', assignmentId, taskId, ...infoCard(`${taskId}?`), key: taskId });
   };
   const order = async () => (await f.call('inbox', web)).pending.map(row => [row.taskId, row.stalled, row.openTasks]);
   await ask(second, 'big');
@@ -604,13 +653,23 @@ test('the inbox puts a stalled label first, then larger open subtrees, then olde
   assert.deepEqual(await order(), [['mine', true, 2], ['x1', true, 1], ['x2', true, 1], ['big', false, 4]]);
   f.setTime('2026-11-13T12:30:00+11:00');
   const review = await f.call('recordWorkResult', { userId: 'alice', assignmentId: second, taskId: 'other', summary: '済み', links: [], complete: true,
-    needsReview: true, assumptions: '仮定', key: 'other', expectedTaskVersion: await versionOf(f, 'other', second) });
+    ...reviewed, needsReview: true, assumptions: '仮定', key: 'other', expectedTaskVersion: await versionOf(f, 'other', second) });
   assert.equal(review.status, 'review');
   assert.deepEqual(await order(), [['big', true, 4], ['mine', true, 2], ['x1', true, 1], ['x2', true, 1], ['other', true, 1]]);
   await f.call('reply', { ...web, id: x1.id, answer: 'はい' });
   assert.deepEqual(await order(), [['big', true, 4], ['other', true, 1], ['mine', false, 2], ['x2', false, 1]]);
   const inbox = await f.call('inbox', web);
   assert.deepEqual(inbox.answered.map(row => row.taskId), ['x1']);
+});
+
+test('the inbox shows the next label patrol, never the VP one', async t => {
+  const f = fixture(t);
+  assert.equal((await f.call('inbox', web)).nextPatrolAt, null);
+  await f.call('saveSchedule', { ...web, enabled: true, time: '15:00' });
+  assert.equal((await f.call('inbox', web)).nextPatrolAt, Date.parse('2026-11-13T15:00:00+11:00'));
+  await f.call('addAssignment', { ...web, vp: true, token: 'e'.repeat(64) });
+  await f.call('saveSchedule', { ...web, vp: true, enabled: true, time: '13:00' });
+  assert.equal((await f.call('inbox', web)).nextPatrolAt, Date.parse('2026-11-13T15:00:00+11:00'));
 });
 
 test('a patrol schedule defaults to 06:00 until a time is saved', async t => {
@@ -672,7 +731,7 @@ test('a label Bot proposes only deletion or deferral of open tasks in its own la
   assert.deepEqual((await f.call('assignedTasks', { userId: 'alice' })).tasks.map(row => row.id), ['mine']);
   assert.equal((await f.call('assignedTasks', { userId: 'alice', taskId: 'nested' })).deferred_until, '2026-11-20');
   assert.equal((await f.call('taskHistory', { ...web, taskId: 'nested' })).deferredUntil, '2026-11-20');
-  assert.match((await json(f.http('request_decision', { task_id: 'nested', question: '進めますか。', idempotency_key: 'ask' }))).body.error, /deferred this task until 2026-11-20/);
+  assert.match((await json(f.http('request_decision', { task_id: 'nested', ...infoCard('進めますか。'), idempotency_key: 'ask' }))).body.error, /deferred this task until 2026-11-20/);
   assert.match((await propose(proposal('defer', { task_id: 'nested', until: '2026-12-01', idempotency_key: 'longer' }))).body.error, /already deferred/);
   await f.call('setDelegation', { ...web, taskId: 'nested', execute: true });
   await assert.rejects(f.call('recordWorkResult', { ...task, taskId: 'nested', summary: '済み', links: [], complete: true, key: 'done',
@@ -745,7 +804,7 @@ test('the VP reads every label and unsorted task, can only propose, and each kin
 
   // Execution is refused on the server, both at the route and inside each function.
   for (const [operation, args] of [['assigned_tasks', {}], ['add_assigned_task', { title: 'X', idempotency_key: 'x' }],
-    ['request_decision', { task_id: 'mine', question: 'Q', idempotency_key: 'q' }],
+    ['request_decision', { task_id: 'mine', ...infoCard('Q'), idempotency_key: 'q' }],
     ['claim_decision', { task_id: 'mine', question_id: 'taskWork-1', claim_key: crypto.randomUUID() }],
     ['record_work_result', { task_id: 'mine', summary: 'S', complete: true, idempotency_key: 'r' }]]) {
     assert.equal((await f.http(operation, args, key)).status, 403, operation);
@@ -753,7 +812,7 @@ test('the VP reads every label and unsorted task, can only propose, and each kin
   const asVp = { userId: 'alice', assignmentId: vpId };
   await assert.rejects(f.call('assignedTasks', asVp), /unavailable/);
   await assert.rejects(f.call('addAssignedTask', { ...asVp, title: 'X', key: 'x' }), /unavailable/);
-  await assert.rejects(f.call('requestDecision', { ...asVp, taskId: 'mine', question: 'Q', key: 'q' }), /unavailable/);
+  await assert.rejects(f.call('requestDecision', { ...asVp, taskId: 'mine', ...infoCard('Q'), key: 'q' }), /unavailable/);
   await assert.rejects(f.call('claimDecision', { ...asVp, taskId: 'mine', questionId: 'taskWork-1', claimKey: 'c' }), /unavailable/);
   await assert.rejects(f.call('recordWorkResult', { ...asVp, taskId: 'mine', summary: 'S', links: [], complete: false, key: 'r' }), /unavailable/);
   assert.equal((await f.http('all_tasks', {})).status, 403, 'a label Bot cannot read across labels');
@@ -864,7 +923,7 @@ test('a pull request always waits for review, and approval asks the Bot to merge
   f.seed('code', 'label'); f.seed('other-code', 'label');
   await execute(f, 'code', true);
   await execute(f, 'other-code');
-  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'code', summary: 'PRを作成。', complete: true, key,
+  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'code', summary: 'PRを作成。', complete: true, key, ...reviewed,
     links: ['https://example.test/preview', prUrl], prHeadSha: shaA, expectedTaskVersion: await versionOf(f, 'code'), ...extra });
   await assert.rejects(submit('upper', { prHeadSha: shaA.toUpperCase() }), /40-character/);
   await assert.rejects(submit('short', { prHeadSha: shaA.slice(0, 7) }), /40-character/);
@@ -947,7 +1006,7 @@ test('a moved pull request head is resubmitted for review and supersedes the app
   const f = fixture(t);
   f.seed('site', 'label');
   await execute(f, 'site');
-  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'site', summary: 'PRを更新。', complete: true, key,
+  const submit = async (key, extra = {}) => f.call('recordWorkResult', { ...task, taskId: 'site', summary: 'PRを更新。', complete: true, key, ...reviewed,
     links: [prUrl], prHeadSha: shaA, expectedTaskVersion: await versionOf(f, 'site'), ...extra });
   const first = await submit('first', { needsReview: true });
   await f.call('approveReview', { ...web, id: first.id });

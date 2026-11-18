@@ -71,7 +71,7 @@ export default defineSchema({
     taskWork: defineTable({
         userId: v.string(), taskId: v.string(), key: v.string(), text: v.string(),
         assignmentId: v.optional(v.id('grokBotAssignments')),
-        // review → approved | returned → revised: a Bot completion that waits for the human's check.
+        // review → approved | returned → revised: a Bot completion that waits for the human's check; text is its summary, headline what was done.
         // A pull request review (prUrl + prHeadSha) is approved into merging; the Bot merges that commit → merged,
         // or resubmits a new head for review → superseded.
         status: v.union(v.literal('waiting'), v.literal('answered'), v.literal('applied'), v.literal('progress'), v.literal('complete'),
@@ -79,8 +79,14 @@ export default defineSchema({
             v.literal('merging'), v.literal('merged'), v.literal('superseded')),
         links: v.optional(v.array(v.string())), appliedQuestionId: v.optional(v.string()), answer: v.optional(v.string()), answeredAt: v.optional(v.number()),
         prUrl: v.optional(v.string()), prHeadSha: v.optional(v.string()), mergedAt: v.optional(v.number()),
-        kind: v.optional(v.union(v.literal('approval'), v.literal('choice'), v.literal('info'))), options: v.optional(v.array(v.string())),
+        // A decision card (rows with a headline): text is its context, options carry their consequence and irreversibility,
+        // irreversible is derived from them. Older rows keep text as the whole question, plain string options and a question-level flag.
+        kind: v.optional(v.union(v.literal('approval'), v.literal('choice'), v.literal('info'))),
+        options: v.optional(v.array(v.union(v.string(), v.object({ label: v.string(), consequence: v.string(), irreversible: v.optional(v.boolean()) })))),
         recommendation: v.optional(v.string()), irreversible: v.optional(v.boolean()), assumptions: v.optional(v.string()),
+        headline: v.optional(v.string()), recommendationReason: v.optional(v.string()),
+        confidence: v.optional(v.union(v.literal('high'), v.literal('medium'), v.literal('low'))),
+        checks: v.optional(v.array(v.string())), evidence: v.optional(v.array(v.object({ url: v.string(), title: v.optional(v.string()) }))),
         claimKey: v.optional(v.string()), claimUntil: v.optional(v.number()),
         wakeAt: v.optional(v.number()), wakeStatus: v.optional(v.union(v.literal('queued'), v.literal('accepted'), v.literal('failed'))),
     }).index('by_user', ['userId']).index('by_user_status', ['userId', 'status'])
