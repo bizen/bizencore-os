@@ -3705,49 +3705,28 @@ a.context-title:hover {
 .notification-settings input[type="time"] { color: inherit; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 5px; padding: 0.3rem; }
 
 .task-work-list { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
-/* 対応待ちのカードは設定の面と同じ card-bg。提案は破線、Botの反映待ちは枠線だけでさらに静かに */
+/* Botの作業報告。対応を求めない記録なので枠だけの静かな面 */
 .task-work-card { min-width: 0; padding: 0.75rem 0.85rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); overflow-wrap: anywhere; }
-.task-work-card h2, .task-work-card h3 { margin: 0 0 0.25rem; font-size: 1rem; font-weight: 600; line-height: 1.5; }
-.task-work-card h3 a { color: var(--text-primary); text-decoration-color: var(--border-color); }
-.task-work-card h3 a:hover { color: var(--link-color); text-decoration-color: currentColor; }
 .task-work-heading { margin: 1.5rem 0 0.5rem; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; }
-.task-work-inbox > .task-work-summary { margin: -0.5rem 0 1rem; font-size: 0.9rem; }
-.task-work-group { margin-top: 1.5rem; }
-.task-work-group > .task-work-heading { margin-top: 0; }
-.task-work-card.task-work-focus { margin-bottom: 0; border-color: rgba(var(--accent-rgb), 0.55); border-inline-start: 3px solid var(--accent-color); }
-.task-work-card .task-work-heading { margin: 0 0 0.35rem; color: var(--accent-text-strong); }
-.task-work-awaiting .task-work-card { background: transparent; border-color: var(--hairline); }
 .task-work-badge { display: inline-block; margin-inline-start: 0.4rem; padding: 0 0.35rem; border: 1px solid currentColor; border-radius: 4px; color: var(--text-primary); font-size: 0.7rem; font-weight: 600; line-height: 1.5; }
-.task-work-card .task-work-note { border-inline-start: 2px solid var(--border-color); padding-inline-start: 0.6rem; }
-.task-work-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.6rem; }
-.task-work-choices .task-work-badge { color: inherit; font-weight: 500; }
+.task-work-badge.is-irreversible { color: var(--danger-soft); }
 .task-work-status { color: var(--text-secondary); font-size: 0.75rem; }
-.task-work-card p.task-work-status { margin: 0 0 0.25rem; }
-:is(.task-work-card, .task-work-proposals, .task-work-patrol, .task-work-inbox) .task-work-hint { flex-basis: 100%; margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.75rem; line-height: 1.6; }
+:is(.work-card, .task-work-patrol, .task-work-inbox) .task-work-hint { flex-basis: 100%; margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.75rem; line-height: 1.6; }
 .inspector-input.task-work-role { width: auto; max-width: 100%; justify-self: start; }
 /* 長いラベルが2行に折れないよう、選択欄はラベルの下に置く */
 .inspector-prop.task-work-delegation { grid-template-columns: minmax(0, 1fr); gap: 0.35rem; }
 .task-work-delegation .inspector-input.task-work-role { min-height: 2.25rem; font-family: inherit; }
-.task-work-card .task-work-text { margin: 0.4rem 0; color: var(--text-primary); white-space: pre-wrap; }
-.task-work-card .task-work-answer { border-inline-start: 2px solid var(--accent-color); padding-inline-start: 0.6rem; }
+:is(.task-work-card, .work-card) .task-work-text { margin: 0.4rem 0; color: var(--text-primary); white-space: pre-wrap; }
+.work-card .task-work-note { border-inline-start: 2px solid var(--border-color); padding-inline-start: 0.6rem; }
+.work-card .task-work-answer { border-inline-start: 2px solid var(--accent-color); padding-inline-start: 0.6rem; }
 /* 注記の見出しは本文より小さく、ラベルとして読ませる */
-.task-work-card :is(.task-work-note, .task-work-answer) > strong { color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
-.task-work-reply .inspector-note { min-height: 3.25rem; }
-.task-work-reply { display: grid; gap: 0.3rem; margin-top: 0.6rem; }
+.work-card :is(.task-work-note, .task-work-answer) > strong { color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
+.task-work-reply .inspector-note { min-height: 4.5rem; }
+.task-work-reply { display: grid; gap: 0.3rem; margin-top: 0.75rem; }
 .task-work-reply label { color: var(--text-secondary); font-size: 0.75rem; }
-.task-work-reply .ghost-btn { justify-self: start; }
 .task-work-links { margin: 0.4rem 0 0; padding-inline-start: 1.2rem; font-size: 0.85rem; }
-.task-work-proposals { margin-top: 1.5rem; }
-.task-work-proposals .task-work-heading { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.15rem; }
-.task-work-proposals .task-work-hint { margin-bottom: 0.5rem; }
 .task-work-count { color: var(--text-secondary); font-weight: 400; font-variant-numeric: tabular-nums; }
-.task-work-proposals .task-work-list { gap: 0.5rem; }
-.task-work-proposals .task-work-card { padding: 0.55rem 0.75rem; border-style: dashed; background: transparent; font-size: 0.875rem; }
-.task-work-proposals .task-work-card h3 { font-size: 0.9rem; }
-.task-work-proposals .task-work-card .task-work-text { margin: 0.25rem 0; color: var(--text-secondary); }
-.task-work-proposals .task-work-choices { margin-top: 0.4rem; }
-.task-work-proposals .task-work-choices .ghost-btn { padding: 0.2rem 0.65rem; font-size: 0.8rem; }
-.task-work-card .task-work-effect { margin: 0.15rem 0; color: var(--text-primary); font-size: 0.8rem; }
+.work-card .task-work-effect { margin: 0 0 0.5rem; color: var(--text-primary); font-size: 0.85rem; }
 .task-work-deferral { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }
 .task-work-deferral p { margin: 0; min-width: 0; font-size: 0.85rem; overflow-wrap: anywhere; }
 .task-work-deferral .task-work-badge { margin-inline-start: 0; }
@@ -3760,7 +3739,7 @@ a.context-title:hover {
 .task-work-patrol input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent-color); }
 .task-work-patrol .inspector-input { min-height: 2.25rem; }
 .task-work-patrol .task-work-hint { margin-top: 0.5rem; }
-.task-work-card .task-work-pr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; margin: 0.4rem 0; font-size: 0.85rem; }
+.work-card .task-work-pr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; margin: 0 0 1rem; font-size: 0.85rem; }
 .task-work-pr a { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
 .task-work-pr code { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary); }
 .task-work-metrics { margin-top: 2rem; padding-top: 0.25rem; border-top: 1px solid var(--hairline); }
@@ -3769,10 +3748,121 @@ a.context-title:hover {
 .task-work-metrics dt { color: var(--text-secondary); font-size: 0.75rem; }
 .task-work-metrics dd { margin: 0.1rem 0 0; color: var(--text-primary); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 .task-work-metrics .task-work-count { font-size: 0.75rem; }
+.task-work-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- 受信箱: 左にキュー、右に選んだ1件。どのカードも同じ並びで読む ---------- */
+.task-work-inbox { width: min(100%, 68rem); align-self: flex-start; line-height: 1.7; overflow-wrap: anywhere; }
+.inbox-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; margin-bottom: 1.5rem; }
+.inbox-header h1 { margin: 0; font-size: 1.25rem; }
+.inbox-header .task-work-summary { margin: 0; color: var(--text-secondary); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.inbox-console { display: grid; grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); gap: 2.5rem; align-items: start; }
+.inbox-queue { position: sticky; top: 5.5rem; min-width: 0; max-height: calc(100dvh - 7rem); overflow-y: auto; padding-bottom: 0.5rem; }
+.inbox-queue-heading { display: flex; align-items: baseline; gap: 0.5rem; margin: 0 0 0.35rem; color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
+.inbox-queue-heading .task-work-hint { flex-basis: auto; margin: 0; font-weight: 400; }
+.inbox-queue-proposals { margin-top: 1.75rem; }
+.inbox-queue-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.inbox-row { display: grid; width: 100%; min-width: 0; padding: 0.45rem 0.65rem; border: 0; border-inline-start: 2px solid transparent; border-radius: 0 6px 6px 0; background: transparent; color: var(--text-primary); font: inherit; text-align: start; cursor: pointer; }
+.inbox-row:hover { background: rgba(var(--surface-rgb), 0.045); }
+.inbox-row[aria-current='true'] { border-inline-start-color: var(--accent-color); background: rgba(var(--accent-rgb), 0.11); }
+.inbox-row:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: -2px; }
+.inbox-row-meta, .inbox-row-title { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.inbox-row-meta { color: var(--text-secondary); font-size: 0.7rem; line-height: 1.6; }
+.inbox-row-title { font-size: 0.875rem; line-height: 1.55; }
+.inbox-row-mark { margin-inline-start: 0.45rem; color: var(--danger-soft); font-weight: 600; }
+.inbox-queue-proposals .inbox-row-title, .inbox-row.is-quiet .inbox-row-title { color: var(--text-secondary); }
+.inbox-status { margin-top: 1.75rem; padding-top: 0.6rem; border-top: 1px solid var(--hairline); color: var(--text-secondary); font-size: 0.75rem; }
+.inbox-status:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.inbox-status p { margin: 0 0 0.35rem; font-variant-numeric: tabular-nums; }
+.inbox-status-toggle { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px; cursor: pointer; }
+.inbox-status-toggle:hover { color: var(--text-primary); }
+.inbox-status-toggle:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; border-radius: 2px; }
+.inbox-queue .task-work-metrics { margin-top: 1rem; padding-top: 0.5rem; }
+.inbox-queue .task-work-metrics .task-work-heading { margin: 0 0 0.25rem; font-size: 0.75rem; }
+.inbox-queue .task-work-metrics dl { display: grid; gap: 0.2rem; }
+.inbox-queue .task-work-metrics dl > div { display: flex; justify-content: space-between; gap: 0.75rem; }
+.inbox-queue .task-work-metrics dd { margin: 0; font-size: 0.75rem; }
+.inbox-keys-hint { margin: 1.25rem 0 0; color: var(--text-secondary); font-size: 0.7rem; }
+.inbox-console kbd { display: inline-block; min-width: 1.15rem; margin-inline-end: 0.2rem; padding: 0 0.25rem; border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.65rem; font-weight: 400; line-height: 1.1rem; text-align: center; }
+.inbox-pane { min-width: 0; max-width: 44rem; }
+.inbox-back { display: none; align-items: center; gap: 0.2rem; min-height: 2.5rem; margin-inline-start: -0.35rem; padding: 0 0.35rem; border: 0; border-radius: 6px; background: none; color: var(--text-secondary); font: inherit; font-size: 0.85rem; cursor: pointer; }
+.inbox-back:hover { color: var(--text-primary); }
+.inbox-back:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; }
+.inbox-notice { margin: 0 0 0.75rem; }
+.inbox-empty { padding-top: 2.5rem; }
+.inbox-empty h2 { margin: 0 0 0.35rem; font-size: 1.05rem; font-weight: 600; }
+.inbox-empty h2:focus { outline: none; }
+.inbox-empty p { margin: 0; }
+.inbox-legend { position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 20; width: min(21rem, calc(100vw - 2rem)); padding: 1rem 1.1rem; border: 1px solid var(--border-color); border-radius: 10px; background: var(--popover-bg); box-shadow: 0 10px 30px var(--inspector-shadow); font-size: 0.8rem; }
+.inbox-legend h2 { margin: 0 0 0.5rem; font-size: 0.85rem; }
+.inbox-legend dl { display: grid; gap: 0.3rem; margin: 0 0 0.75rem; }
+.inbox-legend dl > div { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 0.5rem; }
+.inbox-legend dd { margin: 0; color: var(--text-secondary); }
+
+/* 判断と確認のカード: メタ → 見出し → 背景 → 選択肢 → 推奨の理由 → 確かめる点 → 根拠 → 操作 */
+.work-card { min-width: 0; padding: 1.25rem 1.4rem 0.9rem; border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); overflow-wrap: anywhere; }
+.work-card:focus { outline: none; }
+.work-card:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.6); outline-offset: 3px; }
+.work-card-meta { margin: 0 0 0.55rem; color: var(--text-secondary); font-size: 0.75rem; }
+.work-card-meta a { color: inherit; text-decoration-color: var(--border-color); text-underline-offset: 3px; }
+.work-card-meta a:hover { color: var(--link-color); text-decoration-color: currentColor; }
+.work-card-meta strong { color: var(--text-primary); font-weight: 500; }
+.work-card-headline { margin: 0 0 0.45rem; font-size: 1.2rem; font-weight: 600; line-height: 1.45; }
+.work-card-headline a { color: var(--text-primary); text-decoration-color: var(--border-color); }
+.work-card-context { margin: 0 0 1.1rem; color: var(--text-primary); font-size: 0.925rem; white-space: pre-wrap; }
+.work-card-legacy { font-size: 0.95rem; }
+.work-card-options { display: grid; gap: 0.5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.work-card-option { display: grid; gap: 0.15rem; width: 100%; min-height: 2.75rem; padding: 0.65rem 0.85rem; border: 1px solid var(--border-color); border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; text-align: start; cursor: pointer; transition: border-color 0.15s, background-color 0.15s; }
+.work-card-option:hover:not(:disabled) { border-color: var(--text-secondary); }
+.work-card-option.is-recommended { border-color: rgba(var(--accent-rgb), 0.5); }
+.work-card-option.is-selected { border-color: var(--accent-color); background: rgba(var(--accent-rgb), 0.09); }
+.work-card-option.is-armed { border-color: var(--danger-soft); background: transparent; }
+.work-card-option:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; }
+.work-card-option:disabled { opacity: 0.5; cursor: not-allowed; }
+.work-card-option-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.45rem; }
+.work-card-option-head kbd { margin-inline-end: 0.1rem; }
+.work-card-option-label { font-size: 0.95rem; font-weight: 600; }
+.work-card-option .task-work-badge { margin: 0; color: var(--accent-text-strong); font-weight: 500; }
+.work-card-option .task-work-badge.is-irreversible { color: var(--danger-soft); }
+.work-card-consequence { color: var(--text-secondary); font-size: 0.825rem; line-height: 1.6; }
+.work-card-armed { color: var(--danger-soft); font-size: 0.8rem; font-weight: 600; }
+.work-card-section { margin: 0 0 1.1rem; }
+.work-card-section h4 { margin: 0 0 0.2rem; color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
+.work-card-confidence { margin-inline-start: 0.6rem; font-weight: 400; white-space: nowrap; }
+.work-card-prose { margin: 0; font-size: 0.875rem; white-space: pre-wrap; }
+.work-card-checks { margin: 0; padding-inline-start: 1.15rem; font-size: 0.875rem; list-style: disc; }
+.work-card-checks li + li { margin-top: 0.15rem; }
+.work-card-checks li::marker { color: var(--text-secondary); }
+.work-card-evidence { margin: 0 0 1rem; font-size: 0.8rem; }
+.work-card-evidence summary { width: fit-content; color: var(--text-secondary); cursor: pointer; }
+.work-card-evidence summary:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; border-radius: 2px; }
+.work-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.work-card-actions .ghost-btn { display: inline-flex; align-items: center; }
+.work-card-footer { margin: 1rem 0 0; padding-top: 0.55rem; border-top: 1px solid var(--hairline); color: var(--text-secondary); font-size: 0.7rem; }
+.work-card.is-proposal { border-style: dashed; background: transparent; }
+/* タスクの詳細では同じカードを小さめに */
+.inspector-section .work-card { padding: 0.8rem 0.9rem 0.6rem; }
+.inspector-section .work-card-headline { font-size: 1rem; }
+.inspector-section .work-card-context { font-size: 0.875rem; }
+
+@media (max-width: 760px) {
+  /* 電話ではキューとカードが交互に画面を使う */
+  .inbox-console { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .inbox-queue { position: static; max-height: none; overflow: visible; }
+  .inbox-console.is-detail .inbox-queue { display: none; }
+  .inbox-console:not(.is-detail):not(.is-empty) .inbox-pane { display: none; }
+  .inbox-console.is-empty:not(.is-detail) .inbox-pane { order: -1; }
+  .inbox-console.is-detail .inbox-back { display: inline-flex; margin-bottom: 0.5rem; }
+  .inbox-empty { padding-top: 0.5rem; }
+  .inbox-row { padding-block: 0.6rem; }
+  .work-card { padding: 1rem 1rem 0.75rem; }
+  .work-card-headline { font-size: 1.1rem; }
+}
+@media (max-width: 760px), (hover: none) {
+  .inbox-keys-hint, .inbox-console kbd { display: none; }
+}
 @media (max-width: 640px) {
   /* 指で押す操作は 40px 以上にそろえる */
-  :is(.task-work-choices, .task-work-reply, .task-work-patrol, .task-work-deferral) .ghost-btn { min-height: 2.5rem; }
-  .task-work-proposals .task-work-choices .ghost-btn { padding-inline: 0.85rem; }
+  :is(.work-card-actions, .task-work-reply, .task-work-patrol, .task-work-deferral, .inbox-pane) .ghost-btn { min-height: 2.5rem; }
 }
 
 .meta-grok {

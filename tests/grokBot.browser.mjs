@@ -18,7 +18,7 @@ export function useQuery(ref, args) {
   switch (getFunctionName(ref)) {
     case 'grokBot:inbox': return { pending: rows.filter(row => row.status === 'waiting' || row.status === 'review'),
       answered: rows.filter(row => ['answered', 'returned', 'merging'].includes(row.status)).map(({ stalled: _stalled, openTasks: _open, ...row }) => row),
-      proposals: window.proposals ?? [], metrics: window.metrics ?? { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0 } };
+      proposals: window.proposals ?? [], nextPatrolAt: window.nextPatrolAt ?? null, metrics: window.metrics ?? { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0 } };
     case 'grokBot:schedule': return window.schedule;
     case 'grokBot:taskHistory': return { rows: (window.workRows ?? [row, window.result]).filter(Boolean).map(row => ({ ...row, canReply: true })),
       canReply: true, mayExecute: !!window.mayExecute, reviewRequired: !!window.reviewRequired, deferredUntil: window.deferredUntil ?? null };
@@ -103,14 +103,25 @@ const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHROME_C
 const css = await readFile('src/index.css', 'utf8');
 const shots = process.env.GROK_BOT_SCREENSHOTS;
 const pr = 'https://github.com/example/press-site/pull/128-very-long-branch-name-for-wrapping';
+const place = { taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', stalled: true, openTasks: 3 };
 const workRows = () => [
-  { id: 'choice', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'waiting', kind: 'choice', options: ['今週', '来週', '保留'],
-    recommendation: '来週', irreversible: true, text: '公開日を決めてください。公開後は取り消せません。', stalled: true, openTasks: 3, createdAt: Date.now() - 7_200_000 },
-  { id: 'approval', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'waiting', kind: 'approval', recommendation: '承認',
-    text: '見出しを「11月予定」に変えてよいですか。', stalled: true, openTasks: 3, createdAt: Date.now() - 3_600_000 },
-  { id: 'review', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'review', text: '告知文の修正をPRにしました。',
-    assumptions: '公開日が未定のため「11月予定」と書きました。', links: [pr], stalled: true, openTasks: 3, createdAt: Date.now() - 600_000 },
+  { ...place, id: 'choice', status: 'waiting', kind: 'choice', headline: '告知ページをいつ公開するか', createdAt: Date.now() - 7_200_000,
+    text: '告知文と画像がそろいました。公開日だけが決まっていません。公開すると取引先にも通知が届きます。',
+    options: [{ label: '今週金曜', consequence: '金曜の朝に告知ページを本番に公開し、取引先へ通知を送ります。', irreversible: true },
+      { label: '来週月曜', consequence: '月曜まで下書きのまま置き、社内確認を1回挟みます。' },
+      { label: '保留', consequence: '公開日が決まるまで何もしません。' }],
+    recommendation: '来週月曜', recommendationReason: '社内確認の時間が取れ、取引先への通知も週明けの方が読まれます。', confidence: 'medium', irreversible: true,
+    checks: ['公開日の表記が「11月予定」になっているか', '通知の宛先が取引先リストだけか'],
+    evidence: [{ url: 'https://example.test/preview/launch', title: '告知ページのプレビュー' }, { url: 'https://example.test/recipients' }] },
+  { ...place, id: 'approval', status: 'waiting', kind: 'approval', headline: '見出しを「11月予定」に変える', createdAt: Date.now() - 3_600_000,
+    text: '公開日が未定のため、見出しの日付をぼかしたいです。',
+    options: [{ label: '承認', consequence: '見出しを「11月予定」に書き換えます。' }, { label: '却下', consequence: '見出しは今のまま残します。' }],
+    recommendation: '承認', recommendationReason: '日付の誤りを避けられます。', confidence: 'high', checks: ['見出しの文言'] },
+  { ...place, id: 'review', status: 'review', headline: '告知文の修正を仕上げた', text: '指摘の3点を直し、文面を確定しました。',
+    assumptions: '公開日が未定のため「11月予定」と書きました。', checks: ['見出しの表記', '問い合わせ先のメールアドレス'], links: [pr], createdAt: Date.now() - 600_000 },
 ];
+const legacyRow = () => ({ ...place, id: 'legacy', status: 'waiting', kind: 'choice', options: [{ label: '今週' }, { label: '来週' }], recommendation: '来週',
+  irreversible: true, text: '公開日を決めてください。公開後は取り消せません。', createdAt: Date.now() - 9_000_000 });
 
 const proposals = () => [
   { id: 'remove', kind: 'delete', vp: false, proposer: '広報', taskId: 'old-plan', taskTitle: '旧キャンペーン案の整理', taskOpen: true, count: 4,
@@ -132,162 +143,284 @@ async function open(width, path) {
   return page;
 }
 
-async function decisionsAndReviews(width) {
-  const page = await open(width, '/inbox');
-  await page.evaluate(rows => { window.workRows = rows; }, workRows());
+async function inbox(width, path, setup) {
+  const page = await open(width, path);
+  await page.evaluate(setup);
   await page.addScriptTag({ content: outputFiles[0].text });
   const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
-  await page.getByRole('link', { name: '受信箱（対応待ち3件）' }).waitFor();
-  const focus = page.getByRole('region', { name: '次に対応する1件' });
-  await focus.getByText('公開日を決めてください。', { exact: false }).waitFor();
-  await focus.getByText('不可逆', { exact: true }).waitFor();
-  await focus.getByRole('button', { name: '来週 推奨' }).waitFor();
-  assert.equal(await page.getByText('不可逆', { exact: true }).count(), 1);
-  await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/inbox-${width}.png`, fullPage: true });
-  await focus.getByRole('button', { name: '推奨どおり' }).click();
-  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:reply');
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'choice', expectedUserId: 'alice', answer: '来週' });
-  const approval = page.getByRole('region', { name: '次に対応する1件' });
-  await approval.getByText('見出しを「11月予定」に変えてよいですか。').waitFor();
-  await approval.getByRole('button', { name: '却下' }).click();
-  await page.waitForFunction(() => window.calls.at(-1)?.args.id === 'approval');
-  assert.equal(await page.evaluate(() => window.calls.at(-1).args.answer), '却下');
-  const review = page.getByRole('region', { name: '次に対応する1件' });
-  await review.getByText('公開日が未定のため「11月予定」と書きました。').waitFor();
-  assert.equal(await review.getByRole('button', { name: '差し戻す' }).isDisabled(), true);
-  await review.getByLabel('差し戻しの理由').fill('公開日は12月1日です。');
-  await review.getByRole('button', { name: '差し戻す' }).click();
-  await page.getByRole('status').filter({ hasText: '差し戻し・再開通知に失敗' }).waitFor();
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), { name: 'grokBot:returnReview', args: { id: 'review', expectedUserId: 'alice', comment: '公開日は12月1日です。' } });
-  await page.getByRole('button', { name: '担当Botに再通知' }).click();
-  await page.getByRole('status').filter({ hasText: '差し戻し・反映待ち' }).waitFor();
-  await page.getByText('いま対応が必要なものはありません。').waitFor();
-  await page.getByRole('link', { name: '受信箱', exact: true }).waitFor();
-  assert.equal(await page.locator('.nav-count').count(), 0, 'the inbox link is quiet when nothing needs the human');
-  await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/inbox-answered-${width}.png`, fullPage: true });
+  const shoot = async name => {
+    if (!shots) return;
+    for (const theme of ['black', 'white', 'original']) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: `${shots}/${name}-${width}-${theme}.png`, fullPage: true });
+    }
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'black'; });
+  };
+  return { page, noOverflow, shoot, card: page.locator('.inbox-pane .work-card'), queue: page.getByRole('region', { name: '対応の一覧' }),
+    lastCall: () => page.evaluate(() => window.calls.at(-1)) };
+}
 
-  await page.evaluate(rows => { window.workRows = rows; window.refresh(); }, workRows());
-  await page.getByRole('link', { name: '告知文' }).first().click();
-  const role = page.getByLabel('Grok Botの関わり方');
-  await role.selectOption('checked');
-  await page.waitForFunction(() => window.reviewRequired === true);
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { expectedUserId: 'alice', taskId: 'launch', execute: true, reviewCompletion: true });
-  assert.equal(await role.inputValue(), 'checked');
-  await page.getByRole('button', { name: '承認 推奨', exact: true }).waitFor();
-  await page.getByRole('button', { name: '今週', exact: true }).waitFor();
+async function consoleKeyboard() {
+  const { page, noOverflow, shoot, card, queue, lastCall } = await inbox(1280, '/inbox', () => {});
+  await page.evaluate(([rows]) => { window.workRows = rows; window.nextPatrolAt = Date.now() + 3_600_000; window.refresh(); }, [workRows()]);
+  await page.getByRole('link', { name: '受信箱（対応待ち3件）' }).waitFor();
+  const rows = queue.getByRole('button');
+  assert.deepEqual(await queue.locator('#inbox-waiting ~ ul .inbox-row-title').allTextContents(), ['告知ページをいつ公開するか', '見出しを「11月予定」に変える', '告知文の修正を仕上げた']);
+  assert.equal(await rows.first().getAttribute('aria-current'), 'true');
+  assert.match(await rows.first().textContent(), /広報 · 判断依頼 · 3件停止不可逆/);
+  await card.getByRole('heading', { name: '告知ページをいつ公開するか' }).waitFor();
+  await card.getByText('この判断で3件が止まっています').waitFor();
+  await card.getByRole('button', { name: /^今週金曜 不可逆 金曜の朝に/ }).waitFor();
+  await card.getByRole('button', { name: /^来週月曜 推奨 月曜まで下書き/ }).waitFor();
+  assert.equal(await card.getByRole('button', { name: '推奨どおり' }).count(), 0, 'the recommendation is marked, not a shortcut');
+  await card.getByText('確度 中').waitFor();
+  assert.deepEqual(await card.locator('.work-card-checks li').allTextContents(), workRows()[0].checks);
+  assert.equal(await card.locator('details.work-card-evidence').evaluate(node => node.open), false, 'evidence starts collapsed');
+  assert.equal(await card.getByLabel('回答').count(), 0, 'free text waits behind 別の答えを書く');
+  await page.getByText('Botの反映待ち 0').waitFor();
+  await page.getByText(/次の巡回 \d\d:\d\d/).waitFor();
   await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/task-${width}.png`, fullPage: true });
-  await page.getByRole('button', { name: '承認して完了' }).click();
-  await page.getByRole('status').filter({ hasText: '承認済み' }).waitFor();
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), { name: 'grokBot:approveReview', args: { id: 'review', expectedUserId: 'alice' } });
+  await shoot('console');
+
+  // Irreversible: select with 1, Enter arms, a stray second Enter within 400 ms does nothing, a deliberate one confirms.
+  await page.keyboard.press('1');
+  const first = card.getByRole('button', { name: /^今週金曜/ });
+  assert.ok(await first.evaluate(node => node === document.activeElement));
+  await page.keyboard.press('Enter');
+  await card.getByText('取り消せません。もう一度押して確定').waitFor();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => window.calls.length), 0, 'a double press never confirms an irreversible choice');
+  await shoot('console-armed');
+  await page.waitForTimeout(450);
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:reply');
+  assert.deepEqual((await lastCall()).args, { id: 'choice', expectedUserId: 'alice', answer: '今週金曜' });
+
+  // Auto-advance: the next card opens, keeps the keyboard and is announced.
+  await card.getByRole('heading', { name: '見出しを「11月予定」に変える' }).waitFor();
+  assert.match(page.url(), /\?item=approval$/);
+  assert.ok(await page.evaluate(() => document.activeElement.closest('.work-card') !== null), 'focus stays in the console');
+  await page.locator('.task-work-live').filter({ hasText: '次の対応: 見出しを「11月予定」に変える' }).waitFor();
+  await page.getByText('Botの反映待ち 1').waitFor();
+
+  // S moves the current item to the end of this visit's queue; J and K move.
+  await page.keyboard.press('s');
+  await card.getByRole('heading', { name: '告知文の修正を仕上げた' }).waitFor();
+  assert.deepEqual(await queue.locator('#inbox-waiting ~ ul .inbox-row-title').allTextContents(), ['告知文の修正を仕上げた', '見出しを「11月予定」に変える']);
+  await page.waitForFunction(() => document.activeElement.closest('.work-card')?.dataset.item === 'review');
+  await page.keyboard.press('j');
+  await card.getByRole('heading', { name: '見出しを「11月予定」に変える' }).waitFor();
+  await page.keyboard.press('k');
+  await card.getByRole('heading', { name: '告知文の修正を仕上げた' }).waitFor();
+  await card.getByText('Botが補った前提・判断').waitFor();
+  await card.getByText('この確認で3件が止まっています').waitFor();
+
+  // ? shows the legend; A approves a review in one step when nothing is published.
+  await page.keyboard.press('?');
+  await page.getByRole('region', { name: 'キー操作' }).waitFor();
+  await shoot('console-legend');
+  await page.keyboard.press('?');
+  await page.keyboard.press('a');
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:approveReview');
+  assert.deepEqual((await lastCall()).args, { id: 'review', expectedUserId: 'alice' });
+
+  // A reversible choice confirms with one click, then the queue is empty.
+  await card.getByRole('heading', { name: '見出しを「11月予定」に変える' }).waitFor();
+  await card.getByRole('button', { name: /^却下/ }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.args.id === 'approval');
+  assert.equal((await lastCall()).args.answer, '却下');
+  const empty = page.locator('.inbox-empty');
+  await empty.getByRole('heading', { name: '対応待ちはありません' }).waitFor();
+  await empty.getByText('この間に3件が動き出しました。').waitFor();
+  await empty.getByRole('region', { name: '直近7日' }).waitFor();
+  assert.equal(await page.locator('.nav-count').count(), 0, 'the inbox link is quiet when nothing needs the human');
+  await page.getByRole('button', { name: 'Botの反映待ち 2' }).click();
+  await queue.getByRole('button', { name: /回答済み・反映待ち 見出し/ }).click();
+  await card.getByText('あなたの回答').waitFor();
+  assert.match(page.url(), /\?item=approval$/);
+  await noOverflow();
+  await shoot('console-empty');
+  await page.close();
+}
+
+async function consolePhone(width) {
+  const { page, noOverflow, shoot, card, queue, lastCall } = await inbox(width, '/inbox', () => {});
+  await page.evaluate(([rows]) => { window.workRows = rows; window.refresh(); }, [workRows()]);
+  await queue.getByRole('button', { name: /告知ページをいつ公開するか/ }).waitFor();
+  assert.equal(await card.isVisible(), false, 'a phone starts on the queue');
+  await noOverflow();
+  await shoot('phone-queue');
+  await queue.getByRole('button', { name: /見出しを「11月予定」に変える/ }).click();
+  await card.getByRole('heading', { name: '見出しを「11月予定」に変える' }).waitFor();
+  assert.equal(await queue.isVisible(), false);
+  assert.match(page.url(), /\?item=approval$/);
+  await noOverflow();
+  await shoot('phone-card');
+  await page.getByRole('button', { name: '一覧に戻る' }).click();
+  await queue.getByRole('button', { name: /告知ページをいつ公開するか/ }).waitFor();
+  assert.doesNotMatch(page.url(), /item=/);
+  await queue.getByRole('button', { name: /告知ページをいつ公開するか/ }).click();
+  await card.getByRole('button', { name: /^今週金曜/ }).click();
+  await card.getByText('取り消せません。もう一度押して確定').waitFor();
+  await noOverflow();
+  await shoot('phone-armed');
+  await card.getByRole('button', { name: /^来週月曜/ }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:reply');
+  assert.equal((await lastCall()).args.answer, '来週月曜');
+  await card.getByRole('heading', { name: '見出しを「11月予定」に変える' }).waitFor();
+  await card.getByRole('button', { name: '別の答えを書く' }).click();
+  await card.getByLabel('回答').fill('見出しは「秋の告知」にしてください。');
+  await card.getByRole('button', { name: '返信する' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.args.id === 'approval');
+  await card.getByRole('heading', { name: '告知文の修正を仕上げた' }).waitFor();
+  await noOverflow();
+  await shoot('phone-review');
   await page.close();
 }
 
 const sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
-const prReview = () => [{ id: 'pr', taskId: 'launch', title: '告知文', label: '広報', labelId: 'press', status: 'review', text: '告知ページの修正をPRにしました。',
-  links: ['https://example.test/preview/launch', 'https://github.com/example/press-site/pull/128'], prUrl: 'https://github.com/example/press-site/pull/128', prHeadSha: sha,
-  stalled: true, openTasks: 1, createdAt: Date.now() - 1_200_000 }];
+const prReview = () => [{ ...place, id: 'pr', status: 'review', headline: '告知ページの修正をPRにした', text: '文言を直し、画像を差し替えました。',
+  checks: ['プレビューで見出しを確認'], links: ['https://example.test/preview/launch', 'https://github.com/example/press-site/pull/128'],
+  prUrl: 'https://github.com/example/press-site/pull/128', prHeadSha: sha, openTasks: 1, createdAt: Date.now() - 1_200_000 },
+  { ...place, id: 'pr-2', status: 'review', headline: '料金表のPR', text: '料金表を更新しました。', checks: ['金額'], links: ['https://github.com/example/press-site/pull/129'],
+    prUrl: 'https://github.com/example/press-site/pull/129', prHeadSha: sha.replace('a1', 'b2'), openTasks: 1, createdAt: Date.now() - 600_000 }];
 const metrics = { medianAnswerMs: 45 * 60_000, answered: 8, returnRate: 1 / 3, returned: 2, reviewed: 6, forwardWeek: 3, forwardToday: 1 };
 
 async function pullRequestAndMetrics(width) {
-  const page = await open(width, '/inbox');
-  await page.evaluate(([rows, figures]) => { window.workRows = rows; window.metrics = figures; }, [prReview(), metrics]);
-  await page.addScriptTag({ content: outputFiles[0].text });
-  const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
-  const focus = page.getByRole('region', { name: '次に対応する1件' });
-  await focus.getByText('広報 · プルリクエストの確認').waitFor();
-  const link = focus.getByRole('link', { name: 'example/press-site#128' });
+  const { page, noOverflow, shoot, card, lastCall } = await inbox(width, '/inbox?item=pr', () => {});
+  await page.evaluate(([rows, figures]) => { window.workRows = rows; window.metrics = figures; window.refresh(); }, [prReview(), metrics]);
+  await card.getByText('広報 / 告知文 · プルリクエストの確認', { exact: false }).waitFor();
+  const link = card.getByRole('link', { name: 'example/press-site#128' });
   assert.equal(await link.getAttribute('href'), 'https://github.com/example/press-site/pull/128');
-  await focus.getByText('a1b2c3d', { exact: true }).waitFor();
-  const merge = focus.getByRole('button', { name: '承認してマージを任せる' });
+  await card.getByText('a1b2c3d', { exact: true }).waitFor();
+  const merge = card.getByRole('button', { name: /承認してマージを任せる/ });
   const note = await merge.evaluate(node => document.getElementById(node.getAttribute('aria-describedby'))?.textContent);
   assert.match(note, /マージすると本番に公開されます/, 'approving a pull request says that merging publishes to production');
-  assert.equal(await focus.getByRole('link', { name: 'https://github.com/example/press-site/pull/128' }).count(), 0, 'the PR link is shown once');
-  await focus.getByRole('link', { name: 'https://example.test/preview/launch' }).waitFor();
-  const strip = page.getByRole('region', { name: '直近7日' });
-  assert.deepEqual(await strip.locator('dl > div').evaluateAll(rows => rows.map(row => [row.querySelector('dt').textContent, row.querySelector('dd').textContent])),
-    [['回答までの時間（中央値）', '45分'], ['差し戻し率', '33% 2/6件'], ['前に進んだ件数', '3件 今日 1件']]);
+  await card.getByText('根拠 1件').click();
+  await card.getByRole('link', { name: 'https://example.test/preview/launch' }).waitFor();
+  assert.equal(await card.getByRole('link', { name: 'https://github.com/example/press-site/pull/128' }).count(), 0, 'the PR link is shown once');
+  if (width > 760) {
+    const strip = page.getByRole('region', { name: '直近7日' });
+    assert.deepEqual(await strip.locator('dl > div').evaluateAll(rows => rows.map(row => [row.querySelector('dt').textContent, row.querySelector('dd').textContent])),
+      [['回答までの時間（中央値）', '45分'], ['差し戻し率', '33% 2/6件'], ['前に進んだ件数', '3件 今日 1件']]);
+  }
   await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/inbox-pr-${width}.png`, fullPage: true });
-  await focus.getByRole('button', { name: '承認してマージを任せる' }).click();
+  await shoot('pr');
+
+  // Merging publishes, so approval takes a second deliberate press.
+  await merge.click();
+  await card.getByRole('button', { name: /取り消せません。もう一度押して確定/ }).click();
+  assert.equal(await page.evaluate(() => window.calls.length), 0, 'a double click never approves a merge');
+  await page.waitForTimeout(450);
+  await card.getByRole('button', { name: /取り消せません。もう一度押して確定/ }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:approveReview');
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'pr', expectedUserId: 'alice' });
-  await page.getByText('いま対応が必要なものはありません。').waitFor();
-  const waiting = page.getByRole('listitem').filter({ hasText: '承認済み・Botのマージ待ち' });
-  await waiting.getByRole('link', { name: 'example/press-site#128' }).waitFor();
-  assert.ok(await page.evaluate(() => [...document.querySelectorAll('h2')].some(node => node.textContent === 'Botの反映待ち')));
-  assert.equal(await waiting.getByRole('button').count(), 0, 'nothing to approve twice');
+  assert.deepEqual((await lastCall()).args, { id: 'pr', expectedUserId: 'alice' });
+
+  // R opens the return reason; the reason is required.
+  await card.getByRole('heading', { name: '料金表のPR' }).waitFor();
+  if (width > 760) {
+    await page.keyboard.press('r');
+    await page.waitForFunction(() => document.activeElement?.matches('.work-card textarea'));
+  } else await card.getByRole('button', { name: '差し戻す' }).click();
+  assert.equal(await card.getByRole('button', { name: '差し戻す' }).isDisabled(), true);
+  await card.getByLabel('差し戻しの理由').fill('金額が税抜きのままです。');
+  await card.getByRole('button', { name: '差し戻す' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:returnReview');
+  assert.deepEqual((await lastCall()).args, { id: 'pr-2', expectedUserId: 'alice', comment: '金額が税抜きのままです。' });
+  await page.locator('.inbox-empty').getByText('この間に1件が動き出しました。').waitFor();
+
+  await page.getByRole('button', { name: 'Botの反映待ち 2' }).click();
+  await page.getByRole('button', { name: /承認済み・Botのマージ待ち/ }).click();
+  await card.getByRole('link', { name: 'example/press-site#128' }).waitFor();
+  assert.equal(await card.getByRole('button').count(), 0, 'nothing to approve twice');
   await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/inbox-merging-${width}.png`, fullPage: true });
+  await shoot('pr-merging');
 
   await page.evaluate(() => { window.metrics = undefined; window.refresh(); });
-  await strip.getByText('45分').waitFor({ state: 'detached' });
-  assert.equal(await strip.getByText('—', { exact: true }).count(), 3);
-  await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/inbox-metrics-empty-${width}.png`, fullPage: true });
-
-  await page.getByRole('link', { name: '告知文' }).first().click();
+  await page.locator('.task-work-metrics').first().getByText('45分').waitFor({ state: 'detached' });
+  await card.getByRole('link', { name: '告知文' }).click();
   await page.getByLabel('Grok Botの関わり方').waitFor();
   await page.getByText('Botとのやりとり', { exact: true }).waitFor();
   await page.getByRole('status').filter({ hasText: '承認済み・Botのマージ待ち' }).waitFor();
-  await page.getByRole('link', { name: 'example/press-site#128' }).waitFor();
   await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/task-merging-${width}.png`, fullPage: true });
+  await page.close();
+}
+
+async function legacyAndTaskPanel(width) {
+  const { page, noOverflow, shoot, card, lastCall } = await inbox(width, '/inbox?item=legacy', () => {});
+  await page.evaluate(([rows]) => { window.workRows = rows; window.refresh(); }, [[legacyRow(), ...workRows()]]);
+  await card.getByText('公開日を決めてください。公開後は取り消せません。').waitFor();
+  assert.equal(await card.getByRole('heading').count(), 0, 'an older row keeps its question as written');
+  await card.locator('.work-card-meta').getByText('不可逆', { exact: true }).waitFor();
+  await card.getByRole('button', { name: /^来週 推奨/ }).waitFor();
+  await noOverflow();
+  await shoot('legacy');
+  await card.getByRole('button', { name: /^今週/ }).click();
+  await card.getByText('取り消せません。もう一度押して確定').waitFor();
+  await page.waitForTimeout(450);
+  await card.getByRole('button', { name: /^今週/ }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:reply');
+  assert.deepEqual((await lastCall()).args, { id: 'legacy', expectedUserId: 'alice', answer: '今週' });
+
+  await page.evaluate(rows => { window.workRows = rows; window.refresh(); }, workRows());
+  await card.getByRole('link', { name: '告知文' }).click();
+  const role = page.getByLabel('Grok Botの関わり方');
+  await role.selectOption('checked');
+  await page.waitForFunction(() => window.reviewRequired === true);
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', taskId: 'launch', execute: true, reviewCompletion: true });
+  const panel = page.locator('.inspector-section, section').filter({ hasText: 'Botとのやりとり' }).last();
+  await panel.getByRole('heading', { name: '告知ページをいつ公開するか' }).waitFor();
+  await panel.getByRole('button', { name: /^来週月曜 推奨/ }).waitFor();
+  assert.equal(await page.locator('.inbox-queue').count(), 0, 'the task panel shows cards without the queue');
+  await noOverflow();
+  await shoot('task-panel');
+  await panel.getByRole('button', { name: '承認して完了' }).click();
+  await page.getByRole('status').filter({ hasText: '承認済み' }).first().waitFor();
+  assert.deepEqual(await lastCall(), { name: 'grokBot:approveReview', args: { id: 'review', expectedUserId: 'alice' } });
   await page.close();
 }
 
 async function proposalsAndDeferral(width) {
-  const page = await open(width, '/inbox');
-  await page.evaluate(([rows, ideas]) => { window.workRows = rows; window.proposals = ideas; }, [workRows(), proposals()]);
-  await page.addScriptTag({ content: outputFiles[0].text });
-  const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal overflow at ${width}px`);
-  const section = page.getByRole('region', { name: /^提案/ });
-  await section.waitFor();
+  const { page, noOverflow, shoot, card, queue, lastCall } = await inbox(width, '/inbox', () => {});
+  await page.evaluate(([rows, ideas]) => { window.workRows = rows; window.proposals = ideas; window.refresh(); }, [workRows(), proposals()]);
   await page.getByRole('link', { name: '受信箱（対応待ち3件）' }).waitFor();
-  const focus = page.getByRole('region', { name: '次に対応する1件' });
-  assert.equal(await focus.getByText('提案').count(), 0, 'a proposal never takes the most-blocking slot');
-  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.task-work-inbox h2')].map(node => node.firstChild.textContent.trim())),
-    ['次に対応する1件', 'ほかの対応待ち', '提案', '直近7日'], 'the inbox reads bottleneck, other items, proposals, then metrics');
-  assert.ok(await page.evaluate(() => {
-    const [proposalsTop, focusTop] = ['.task-work-proposals', '.task-work-focus'].map(selector => document.querySelector(selector).getBoundingClientRect().top);
-    const answered = [...document.querySelectorAll('h2')].find(node => node.textContent === 'Botの反映待ち');
-    return proposalsTop > focusTop && (!answered || answered.getBoundingClientRect().top > proposalsTop);
-  }));
-  for (const text of ['広報のBot · 削除の提案', 'サブタスクを含む4件を削除', '広報のBot · 延期の提案', '2026/12/01まで延期', 'VP · 仕分けの提案', '「広報」へ移動',
-    'VP · 新しいタスクの提案', '未仕分けに追加', '月末に毎回手作業になっています。']) {
-    await section.getByText(text, { exact: false }).first().waitFor();
-  }
-  await section.getByRole('link', { name: '旧キャンペーン案の整理' }).waitFor();
+  assert.deepEqual(await queue.locator('h2').evaluateAll(nodes => nodes.map(node => node.firstChild.textContent.trim())),
+    ['対応待ち', '提案', '直近7日'], 'the queue reads waiting items, proposals, then the figures');
+  await queue.getByText('手が空いたときに').waitFor();
+  for (const text of ['広報 · 削除の提案', '広報 · 延期の提案', 'VP · 仕分けの提案', 'VP · 新しいタスクの提案']) await queue.getByText(text).waitFor();
+  await queue.getByRole('button', { name: /旧キャンペーン案の整理/ }).click();
+  await card.getByText('サブタスクを含む4件を削除').waitFor();
+  await card.getByRole('link', { name: '旧キャンペーン案の整理' }).waitFor();
   await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/proposals-${width}.png`, fullPage: true });
-  const card = text => section.getByRole('listitem').filter({ hasText: text });
-  await card('旧キャンペーン案の整理').getByRole('button', { name: '採用' }).click();
+  await shoot('proposal');
+  await card.getByRole('button', { name: '採用して削除' }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:adoptProposal');
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'remove', expectedUserId: 'alice' });
-  await card('旧キャンペーン案の整理').waitFor({ state: 'detached' });
-  await card('配信先リスト').getByRole('button', { name: '採用' }).click();
-  await section.getByRole('status').filter({ hasText: '提案のあとに変わったため、仕分けしませんでした' }).waitFor();
-  await card('請求書の発行フロー').getByRole('button', { name: '見送り' }).click();
+  assert.deepEqual((await lastCall()).args, { id: 'remove', expectedUserId: 'alice' });
+  await card.getByText('2026/12/01まで延期', { exact: false }).waitFor();
+  const toQueue = () => width <= 760 ? page.getByRole('button', { name: '一覧に戻る' }).click() : undefined;
+  await toQueue();
+  await queue.getByRole('button', { name: /配信先リスト/ }).click();
+  await card.getByRole('button', { name: '採用' }).click();
+  await page.getByRole('status').filter({ hasText: '提案のあとに変わったため、仕分けしませんでした' }).waitFor();
+  await card.getByText('未仕分けに追加').waitFor();
+  await card.getByText('月末に毎回手作業になっています。').waitFor();
+  await card.getByRole('button', { name: '見送り' }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:dismissProposal');
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { id: 'idea', expectedUserId: 'alice' });
-  await card('請求書の発行フロー').waitFor({ state: 'detached' });
-  await card('告知文').getByRole('button', { name: '採用' }).click();
-  await page.waitForFunction(() => window.calls.at(-1)?.args.id === 'later');
-  await section.waitFor({ state: 'detached' });
+  assert.deepEqual((await lastCall()).args, { id: 'idea', expectedUserId: 'alice' });
   await page.getByRole('link', { name: '受信箱（対応待ち3件）' }).waitFor();
 
   await page.evaluate(() => { window.deferredUntil = '2026-12-01'; window.refresh(); });
-  await page.getByRole('link', { name: '告知文' }).first().click();
+  await toQueue();
+  await queue.getByRole('button', { name: /告知ページをいつ公開するか/ }).click();
+  await card.getByRole('link', { name: '告知文' }).click();
   const deferral = page.locator('.task-work-deferral');
   await deferral.getByText('2026/12/01まで。', { exact: false }).waitFor();
   await deferral.getByText('延期', { exact: true }).waitFor();
   await noOverflow();
-  if (shots) await page.screenshot({ path: `${shots}/task-deferred-${width}.png`, fullPage: true });
   await deferral.getByRole('button', { name: '延期を取り消す' }).click();
   await deferral.waitFor({ state: 'detached' });
-  assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), { name: 'grokBot:cancelDeferral', args: { expectedUserId: 'alice', taskId: 'launch' } });
+  assert.deepEqual(await lastCall(), { name: 'grokBot:cancelDeferral', args: { expectedUserId: 'alice', taskId: 'launch' } });
   await page.close();
 }
 
@@ -341,8 +474,10 @@ async function vpSettings(width) {
 }
 
 try {
-  for (const width of [1280, 390]) await decisionsAndReviews(width);
+  await consoleKeyboard();
+  for (const width of [390, 320]) await consolePhone(width);
   for (const width of [1280, 390]) await pullRequestAndMetrics(width);
+  for (const width of [1280, 390]) await legacyAndTaskPanel(width);
   for (const width of [1280, 390]) await proposalsAndDeferral(width);
   for (const width of [1280, 390]) await vpSettings(width);
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -370,10 +505,12 @@ try {
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.waitForFunction(() => window.schedule.time === '04:25' && window.schedule.enabled);
   assert.deepEqual(await page.evaluate(() => window.calls[0].args), { expectedUserId: 'alice', enabled: true, time: '04:25' });
-  await go('/inbox');
+  await go('/inbox?item=question');
   await page.getByLabel('回答', { exact: true }).fill('11月予定で。');
   await page.getByRole('button', { name: '返信する' }).click();
-  await page.getByRole('status').filter({ hasText: '回答済み・反映待ち' }).waitFor();
+  await page.getByRole('heading', { name: '対応待ちはありません' }).waitFor();
+  await page.getByRole('button', { name: 'Botの反映待ち 1' }).click();
+  await page.getByRole('button', { name: /回答済み・反映待ち/ }).click();
   await page.getByRole('link', { name: '告知文' }).click();
   assert.match(page.url(), /\?task=launch$/);
   const role = page.getByLabel('Grok Botの関わり方');
@@ -504,7 +641,7 @@ try {
   const callback = new URL(page.url());
   assert.equal(callback.searchParams.get('state'), 'fixture-state');
   assert.match(callback.searchParams.get('code'), /^[a-f0-9]{64}$/);
-  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox. 1280/390: structured decisions and reviews, pull request approval and metrics, proposals, deferral and VP settings.');
+  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox. Console: keyboard flow, irreversible double-confirm, auto-advance, phone navigation at 390/320, pull requests, older rows, task panel, proposals, deferral and VP settings.');
 } finally {
   await browser.close();
 }

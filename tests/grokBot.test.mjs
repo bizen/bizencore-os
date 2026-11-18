@@ -346,6 +346,9 @@ test('the actual MCP route exposes only officer tools and cannot read or write o
   assert.ok(['headline', 'checks'].every(key => key in schema('record_work_result')));
   assert.ok(['kind', 'headline', 'context', 'options', 'recommendation', 'checks', 'evidence'].every(key => key in schema('request_decision')));
   assert.deepEqual(payload.result.tools.find(tool => tool.name === 'request_decision').inputSchema.required.sort(), ['checks', 'context', 'headline', 'idempotency_key', 'kind', 'task_id']);
+  const incomplete = await rpc('tools/call', { name: 'request_decision', arguments: { task_id: 'mine', kind: 'info', idempotency_key: 'k' } });
+  assert.match(JSON.stringify(incomplete.payload), /headline.*one line .*context.*why this needs deciding now.*checks.*must actually look at/,
+    'the Bot is told which fields are missing and what to write');
   assert.match(init.payload.result.instructions, /review_returned/);
   assert.match(init.payload.result.instructions, /review_approved.*--match-head-commit/);
   const data = await rpc('tools/call', { name: 'assigned_tasks', arguments: {} });

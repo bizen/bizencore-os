@@ -22,9 +22,9 @@ export const grokBotTools = {
   add_assigned_task: z.object({ title: z.string().trim().min(1).max(500), note: text.optional(), idempotency_key }),
   request_decision: z.object({
     task_id, idempotency_key,
-    kind: z.enum(['approval', 'choice', 'info']).describe('approval: approve or reject a stated plan (exactly 2 options). choice: pick one of 2–4 options. info: the user writes a free-text answer (no options, no recommendation).'),
-    headline: z.string().trim().min(1).max(80).describe('One line: what is being decided. One decision per card.'),
-    context: z.string().trim().min(1).max(400).describe('Why this needs deciding now and the background the user needs to judge it.'),
+    kind: z.enum(['approval', 'choice', 'info'], { error: 'Required: approval, choice or info' }).describe('approval: approve or reject a stated plan (exactly 2 options). choice: pick one of 2–4 options. info: the user writes a free-text answer (no options, no recommendation).'),
+    headline: z.string({ error: 'Required: one line (at most 80 characters) saying what is being decided' }).trim().min(1).max(80).describe('One line: what is being decided. One decision per card.'),
+    context: z.string({ error: 'Required: why this needs deciding now (at most 400 characters)' }).trim().min(1).max(400).describe('Why this needs deciding now and the background the user needs to judge it.'),
     options: z.array(z.object({
       label: z.string().trim().min(1).max(60).describe('The short answer shown on the button.'),
       consequence: z.string().trim().min(1).max(200).describe('What concretely happens if the user picks it: what you will do, what changes, who sees it.'),
@@ -35,7 +35,7 @@ export const grokBotTools = {
       reason: z.string().trim().min(1).max(200).describe('Why you recommend it.'),
       confidence: z.enum(['high', 'medium', 'low']),
     }).optional().describe('Required for approval and choice; omit for info.'),
-    checks: z.array(z.string().trim().min(1).max(120)).min(1).max(3).describe('1–3 things the user must actually look at before deciding (a figure, a date, a recipient), not generic advice.'),
+    checks: z.array(z.string().trim().min(1).max(120), { error: 'Required: 1–3 things the user must actually look at before deciding' }).min(1).max(3).describe('1–3 things the user must actually look at before deciding (a figure, a date, a recipient), not generic advice.'),
     evidence: z.array(z.object({ url: link, title: z.string().trim().min(1).max(80).optional() })).max(8).optional().describe('Links the checks can be verified against.'),
   }),
   claim_decision: z.object({ task_id, question_id: task_id, claim_key: z.string().uuid() }),
