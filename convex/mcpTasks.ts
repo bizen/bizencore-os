@@ -633,8 +633,9 @@ export const add = internalMutation({
         completionCriteria: v.optional(v.string()),
         idempotencyKey: v.optional(v.string()),
         clientName: v.optional(v.string()),
+        createdBy: v.optional(v.union(v.literal("user"), v.literal("ai"))),
     },
-    handler: async (ctx, { userId, text, note, label, estimateMinutes, parentId, dueDate, dueTime, completionCriteria, idempotencyKey, clientName }) => {
+    handler: async (ctx, { userId, text, note, label, estimateMinutes, parentId, dueDate, dueTime, completionCriteria, idempotencyKey, clientName, createdBy = "ai" }) => {
         const trimmed = text.trim();
         if (!trimmed) throw new ConvexError("text is empty");
         if (label !== undefined && !label.trim() && !parentId) throw new ConvexError("label is empty");
@@ -684,8 +685,8 @@ export const add = internalMutation({
             order: nextOrder(items, parent),
             text: trimmed,
             done: false,
-            createdBy: "ai",
-            createdByClient: clientLabel(clientName),
+            createdBy,
+            createdByClient: createdBy === "user" ? undefined : clientLabel(clientName),
             createdAt: now,
             updatedAt: now,
         };

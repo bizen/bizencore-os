@@ -3,7 +3,7 @@ export const SETTINGS_PAGES = [
   { id: 'appearance', label: '外観', description: '画面のテーマと、チルノのスタイル。', keywords: 'テーマ ブラック ネイビー ホワイト チルノ マット フラット 色 appearance theme' },
   { id: 'notifications', label: '通知', description: 'この端末で受け取る通知を選びます。', keywords: '期限 朝 Today エージェント 完了 プッシュ 時刻 notifications' },
   { id: 'partner', label: 'パートナー', description: 'パートナーとの接続と、ラベルの公開設定。', keywords: '招待 リンク コード 共有 公開 ラベル 接続 partner' },
-  { id: 'connections', label: '接続', description: 'VPとメインBotの巡回、このアカウントで利用されたMCP接続元。', keywords: 'VP Grok Bot メインBot 提案 巡回 スケジュール 時刻 MCP 履歴 最終利用 Codex Claude ChatGPT Antigravity connections' },
+  { id: 'connections', label: '接続', description: 'VPとメインBotの巡回、Botの規範、このアカウントで利用されたMCP接続元。', keywords: 'VP Grok Bot メインBot 提案 巡回 スケジュール 時刻 規範 ルール ボツ基準 判断基準 MCP 履歴 最終利用 Codex Claude ChatGPT Antigravity connections' },
   { id: 'account', label: 'アカウント', description: 'アカウントと保存データの管理。', keywords: '削除 データ 消去 account delete' },
 ] as const;
 

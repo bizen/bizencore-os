@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const directory = await mkdtemp(path.join(tmpdir(), 'bizencore-settings-test-'));
 execFileSync(process.execPath, ['tests/settings.fixture.mjs', directory]);
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHROME_CHANNEL });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
@@ -43,6 +43,14 @@ try {
   await search.fill('ＭＣＰ');
   await page.getByText('MCP接続履歴', { exact: true }).waitFor();
   assert.equal(await page.locator('.settings-page:not([hidden])').getAttribute('id'), 'settings-page-connections');
+  await search.fill('ボツ基準');
+  assert.equal(await page.locator('.settings-page:not([hidden])').getAttribute('id'), 'settings-page-connections');
+  await page.getByRole('heading', { name: '規範（Botの判断基準）' }).waitFor();
+  await page.getByText('計測できない改善はボツ').waitFor();
+  assert.equal(await page.getByText(/利用枠|シフト配分|5時間/).count(), 0, 'no usage-window settings remain');
+  await page.getByLabel('新しい規範').fill('外部送信の前に必ず確認する');
+  await page.getByRole('button', { name: '追加', exact: true }).click();
+  await page.getByText('外部送信の前に必ず確認する').waitFor();
   await search.fill('no matching setting'); await page.getByText('一致する設定がありません。').waitFor();
   await page.locator('.settings-search button').click();
   await category('アカウント');

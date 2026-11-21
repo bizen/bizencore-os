@@ -10,6 +10,7 @@ import { deadlineInstant } from '../src/lib/taskNotifications';
 import { dateInTimeZone, isDateString, isTimeString, timeInTimeZone } from '../src/lib/taskDates';
 import { grokBotChallengePattern, isGrokBotRedirect } from '../src/lib/grokBotOAuth';
 import { commitShaPattern, median, pullRequest } from '../src/lib/grokBotWork';
+import { maxClockIns, nextClockIn, normalizeClockInTimes } from '../src/lib/grokBotSchedule';
 
 type Item = Awaited<ReturnType<typeof loadItems>>[number];
 type Work = Doc<'taskWork'>;
@@ -121,10 +122,22 @@ const taskWork = (ctx: QueryCtx, userId: string, taskId: string) =>
 const delegationFor = (ctx: QueryCtx, userId: string, taskId: string) =>
     ctx.db.query('grokBotDelegations').withIndex('by_user_task', q => q.eq('userId', userId).eq('taskId', taskId)).unique();
 
+type BotMode = 'review' | 'challenge' | 'checked' | 'execute';
+/** Rows saved before modes existed: a delegation executes, with reviewCompletion it is checked. */
+const modeOf = (delegation: Pick<Doc<'grokBotDelegations'>, 'mode' | 'reviewCompletion'>): BotMode =>
+    delegation.mode ?? (delegation.reviewCompletion ? 'checked' : 'execute');
+const roleFor = (mode: BotMode) => ({ mode, execute: mode === 'execute' || mode === 'checked', reviewRequired: mode === 'checked' });
+
+/** A label's default mode; the pilot and a missing assignment review. */
+async function defaultModeFor(ctx: QueryCtx, assignmentId?: AssignmentId): Promise<BotMode> {
+    return (assignmentId ? (await ctx.db.get(assignmentId))?.defaultMode : undefined) ?? 'review';
+}
+
+/** A task's own override wins; otherwise it inherits its label Bot's default mode. */
 async function botRole(ctx: QueryCtx, userId: string, taskId: string, labelId: string, assignmentId?: AssignmentId) {
     const delegation = await delegationFor(ctx, userId, taskId);
-    const execute = delegation?.labelId === labelId && delegation.assignmentId === assignmentId;
-    return { execute, reviewRequired: execute && !!delegation.reviewCompletion };
+    const override = delegation?.labelId === labelId && delegation.assignmentId === assignmentId;
+    return { ...roleFor(override ? modeOf(delegation) : await defaultModeFor(ctx, assignmentId)), inherited: !override };
 }
 
 async function taskDecisions(ctx: QueryCtx, userId: string, taskId: string, status: Work['status'], forBot?: { assignmentId?: AssignmentId }) {
@@ -140,7 +153,8 @@ function view(row: Work) {
         kind: row.kind, options, recommendation: row.recommendation, recommendationReason: row.recommendationReason, confidence: row.confidence,
         irreversible: row.irreversible || options?.some(option => 'irreversible' in option && option.irreversible) || undefined,
         checks: row.checks, evidence: row.evidence, assumptions: row.assumptions,
-        prUrl: row.prUrl, prHeadSha: row.prHeadSha, mergedAt: row.mergedAt };
+        prUrl: row.prUrl, prHeadSha: row.prHeadSha, mergedAt: row.mergedAt,
+        artifactKind: row.artifactKind, rejectionReason: row.rejectionReason, spawnedTaskId: row.spawnedTaskId };
 }
 
 /** Rows that stay in a history beyond the recent page: anything the human or the Bot still has to act on. */
@@ -198,19 +212,24 @@ export async function officerInbox(ctx: QueryCtx, userId: string, includeAnswere
     };
     const blocked = new Set(pending.map(row => `${row.labelId}:${row.taskId}`));
     const delegations = pending.length ? await ctx.db.query('grokBotDelegations').withIndex('by_user', q => q.eq('userId', userId)).collect() : [];
+    const delegationByTask = new Map(delegations.map(row => [row.taskId, row]));
+    const modeForTask = (taskId: string, labelId: string, assignmentId?: AssignmentId): BotMode => {
+        const delegation = delegationByTask.get(taskId);
+        return delegation?.labelId === labelId && delegation.assignmentId === assignmentId ? modeOf(delegation)
+            : assignments.find(candidate => candidate._id === assignmentId)?.defaultMode ?? 'review';
+    };
     const stalledLabels = new Map<string, boolean>();
     const stalled = (labelId: string, assignmentId?: AssignmentId) => {
         const known = stalledLabels.get(labelId);
         if (known !== undefined) return known;
-        const executable = delegations.filter(row => {
-            const task = byId.get(row.taskId);
-            return row.labelId === labelId && row.assignmentId === assignmentId && task?.type === 'task' && open(task) && labelOf(task)?.id === labelId;
-        });
-        const result = executable.length > 0 && executable.every(row => blocked.has(`${labelId}:${row.taskId}`));
+        const executable = items.filter(task =>
+            task.type === 'task' && open(task) && labelOf(task)?.id === labelId &&
+            roleFor(modeForTask(task.id, labelId, assignmentId)).execute);
+        const result = executable.length > 0 && executable.every(task => blocked.has(`${labelId}:${task.id}`));
         stalledLabels.set(labelId, result);
         return result;
     };
-    const ordered = pending.map(row => ({ ...row, stalled: stalled(row.labelId, row.assignmentId), openTasks: openTasksIn(row.taskId) }))
+    const ordered = pending.map(row => ({ ...row, botMode: modeForTask(row.taskId, row.labelId, row.assignmentId), stalled: stalled(row.labelId, row.assignmentId), openTasks: openTasksIn(row.taskId) }))
         .sort((a, b) => Number(b.stalled) - Number(a.stalled) || b.openTasks - a.openTasks || a.createdAt - b.createdAt);
     return { pending: ordered, answered: placed([...answered, ...returned, ...merging]).sort((a, b) => a.createdAt - b.createdAt) };
 }
@@ -230,10 +249,12 @@ export async function workMetrics(ctx: QueryCtx, userId: string, now = Date.now(
     const startOf = (day: string) => deadlineInstant(day, '00:00', timeZone) ?? Date.parse(`${day}T00:00:00Z`);
     const todayStart = startOf(today);
     const weekStart = startOf(new Date(Date.parse(`${today}T00:00:00Z`) - 6 * dayMs).toISOString().slice(0, 10));
-    const [answered, completed] = await Promise.all([
+    const [answered, completed, rejections] = await Promise.all([
         ctx.db.query('taskWork').withIndex('by_user_answered', q => q.eq('userId', userId).gte('answeredAt', weekStart)).collect(),
         ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', 'complete').gte('_creationTime', weekStart)).collect(),
+        ctx.db.query('taskRejections').withIndex('by_user_rejected', q => q.eq('userId', userId).gte('rejectedAt', weekStart)).collect(),
     ]);
+    const rejected = rejections.filter(row => row.rejectedAt <= now);
     const resolved = answered.filter(row => row.answeredAt !== undefined && row.answeredAt <= now && row.answeredAt >= row._creationTime);
     const reviewed = resolved.filter(row => approvedStatuses.has(row.status) || returnedStatuses.has(row.status));
     const returned = reviewed.filter(row => returnedStatuses.has(row.status)).length;
@@ -244,7 +265,36 @@ export async function workMetrics(ctx: QueryCtx, userId: string, now = Date.now(
         medianAnswerMs: median(resolved.map(row => row.answeredAt! - row._creationTime)), answered: resolved.length,
         returnRate: reviewed.length ? returned / reviewed.length : null, returned, reviewed: reviewed.length,
         forwardWeek: forward.length, forwardToday: forward.filter(at => at >= todayStart).length,
+        rejectedWeek: rejected.length, rejectedToday: rejected.filter(row => row.rejectedAt >= todayStart).length,
+        spawnedWeek: rejected.filter(row => row.spawnedTaskId !== undefined).length,
     };
+}
+
+/** What the Bots finished over the last 72 hours, newest first, one row per task (a merged PR also leaves a complete row). */
+async function recentCompletions(ctx: QueryCtx, userId: string, now: number, limit = 15) {
+    const since = now - 3 * dayMs;
+    const [completed, resolved] = await Promise.all([
+        ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', 'complete').gte('_creationTime', since)).collect(),
+        ctx.db.query('taskWork').withIndex('by_user_answered', q => q.eq('userId', userId).gte('answeredAt', since)).collect(),
+    ]);
+    const finished = [
+        ...completed.map(row => ({ row, completedAt: row._creationTime })),
+        ...resolved.filter(row => row.status === 'approved' || row.status === 'merged').map(row => ({ row, completedAt: row.mergedAt ?? row.answeredAt! })),
+    ].filter(({ completedAt }) => completedAt >= since && completedAt <= now).sort((a, b) => b.completedAt - a.completedAt);
+    if (!finished.length) return [];
+    const byId = new Map((await loadItems(ctx, userId)).map(item => [item.id, item]));
+    const seen = new Set<string>();
+    const rows = [];
+    for (const { row, completedAt } of finished) {
+        const task = byId.get(row.taskId);
+        if (!task || seen.has(row.taskId)) continue;
+        seen.add(row.taskId);
+        const label = labelIn(byId, task);
+        rows.push({ id: row._id, taskId: row.taskId, title: task.text, label: label?.text ?? null, labelId: label?.id ?? null, headline: row.headline ?? null,
+            summary: row.text, links: row.links ?? [], prUrl: row.prUrl ?? null, prHeadSha: row.prHeadSha ?? null, completedAt, status: row.status });
+        if (rows.length === limit) break;
+    }
+    return rows;
 }
 
 async function currentUser(ctx: QueryCtx, expectedUserId: string) {
@@ -264,14 +314,14 @@ export const assignments = query({
         const pilot = pilotFor(userId);
         return [...rows.map(row => assignmentView(row, imageByAssignment.get(row._id))), ...(pilot ? [{
             id: undefined, labelId: pilot.labelId, name: 'Grok Bot', connectorName: undefined, connectorConnected: true,
-            webhookConfigured: true, connected: true, managed: false, skin: undefined,
+            webhookConfigured: true, connected: true, managed: false, skin: undefined, defaultMode: 'review' as BotMode,
         }] : [])];
     },
 });
 
 function assignmentView(row: Doc<'grokBotAssignments'>, skin?: string) {
     return { id: row._id, labelId: row.labelId, name: row.name ?? 'Grok Bot', connectorName: row.connectorName, connectorConnected: !!row.connectedAt,
-        webhookConfigured: !!webhookFor(row), connected: !!row.connectedAt && !!webhookFor(row), managed: true, skin };
+        webhookConfigured: !!webhookFor(row), connected: !!row.connectedAt && !!webhookFor(row), managed: true, skin, defaultMode: row.defaultMode ?? 'review' };
 }
 
 /** The user's VP connection, shaped like a label assignment so the same connection UI can manage it. */
@@ -511,8 +561,11 @@ export const inbox = query({
         if (!userId) return null;
         const [officer, vpRow] = await Promise.all([officerInbox(ctx, userId), vpFor(ctx, userId)]);
         if (!officer && !vpRow) return null;
-        const [proposals, metrics, nextPatrolAt] = await Promise.all([proposalInbox(ctx, userId), workMetrics(ctx, userId), nextLabelPatrol(ctx, userId)]);
-        return { ...(officer ?? { pending: [], answered: [] }), proposals, metrics, nextPatrolAt };
+        const [proposals, metrics, nextPatrol, rejections, norms] = await Promise.all([proposalInbox(ctx, userId), workMetrics(ctx, userId),
+            nextLabelPatrol(ctx, userId), recentRejections(ctx, userId), normViews(ctx, userId)]);
+        const completions = await recentCompletions(ctx, userId, Date.now());
+        return { ...(officer ?? { pending: [], answered: [] }), proposals, metrics, nextPatrolAt: nextPatrol?.at ?? null, nextPatrol, rejections, norms,
+            recentCompletions: completions };
     },
 });
 
@@ -526,21 +579,138 @@ export const taskHistory = query({
         if (!rows.length && !assigned && !deferredUntil) return null;
         const role = assigned ? await botRole(ctx, userId, taskId, assigned.label.id, assigned.assignmentId) : null;
         return { rows: rows.map(row => ({ ...view(row), canReply: !!assigned && row.assignmentId === assigned.assignmentId })),
-            canReply: !!assigned, mayExecute: !!role?.execute, reviewRequired: !!role?.reviewRequired, deferredUntil };
+            canReply: !!assigned, mayExecute: !!role?.execute, reviewRequired: !!role?.reviewRequired, botMode: role?.mode ?? 'review', deferredUntil };
     },
 });
 
+const botModeArg = v.union(v.literal('review'), v.literal('challenge'), v.literal('checked'), v.literal('execute'));
+
 export const setDelegation = mutation({
-    args: { expectedUserId: v.string(), taskId: v.string(), execute: v.boolean(), reviewCompletion: v.optional(v.boolean()) },
-    handler: async (ctx, { expectedUserId, taskId, execute, reviewCompletion }) => {
+    // mode wins when given; older callers still send execute and reviewCompletion.
+    args: { expectedUserId: v.string(), taskId: v.string(), execute: v.boolean(), reviewCompletion: v.optional(v.boolean()), mode: v.optional(botModeArg) },
+    handler: async (ctx, { expectedUserId, taskId, execute, reviewCompletion, mode: requested }) => {
         const userId = await currentUser(ctx, expectedUserId);
         const assigned = userId ? await taskAssignment(ctx, userId, taskId) : null;
         if (!userId || !assigned) throw new ConvexError('現在の担当範囲にあるタスクを選んでください。');
+        const mode = requested ?? (execute ? reviewCompletion ? 'checked' : 'execute' : 'review');
         const existing = await delegationFor(ctx, userId, taskId);
-        const role = { labelId: assigned.label.id, assignmentId: assigned.assignmentId, reviewCompletion: reviewCompletion || undefined };
-        if (execute && existing) await ctx.db.patch(existing._id, role);
-        else if (execute) await ctx.db.insert('grokBotDelegations', { userId, taskId, ...role });
+        const role = { labelId: assigned.label.id, assignmentId: assigned.assignmentId, reviewCompletion: mode === 'checked' || undefined, mode };
+        // The label default needs no row; any other mode, review included, is the task's own override.
+        const inherits = mode === await defaultModeFor(ctx, assigned.assignmentId);
+        if (!inherits && existing) await ctx.db.patch(existing._id, role);
+        else if (!inherits) await ctx.db.insert('grokBotDelegations', { userId, taskId, ...role });
         else if (existing) await ctx.db.delete(existing._id);
+    },
+});
+
+async function requireLabelBot(ctx: QueryCtx, expectedUserId: string, labelId: string) {
+    const { userId, label } = await requireLabel(ctx, expectedUserId, labelId);
+    const assignment = await assignmentFor(ctx, userId, label.id);
+    if (!assignment) throw new ConvexError('このラベルにはBotが割り当てられていません。');
+    return { userId, label, assignment };
+}
+
+export const setAssignmentDefaultMode = mutation({
+    args: { expectedUserId: v.string(), labelId: v.string(), defaultMode: botModeArg },
+    handler: async (ctx, { expectedUserId, labelId, defaultMode }) => {
+        const { assignment } = await requireLabelBot(ctx, expectedUserId, labelId);
+        await ctx.db.patch(assignment._id, { defaultMode });
+    },
+});
+
+/* ---------- Bot社員: every Bot employee with its posture, clock-ins and open work ---------- */
+
+export const team = query({
+    args: { expectedUserId: v.string() },
+    handler: async (ctx, { expectedUserId }) => {
+        const userId = await currentUser(ctx, expectedUserId);
+        if (!userId) return null;
+        const [labels, vpRow] = await Promise.all([labelAssignments(ctx, userId), vpFor(ctx, userId)]);
+        if (!labels.length && !vpRow && !pilotFor(userId)) return null;
+        const bots = vpRow ? [...labels, vpRow] : labels;
+        const rowsFor = (status: Work['status']) => ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', status)).collect();
+        const [items, skins, schedules, delegations, deferred, completions, waiting, review, answered, merging] = await Promise.all([
+            loadItems(ctx, userId), ctx.db.query('grokBotSkins').withIndex('by_user', q => q.eq('userId', userId)).collect(),
+            ctx.db.query('grokBotSchedules').withIndex('by_user', q => q.eq('userId', userId)).collect(),
+            ctx.db.query('grokBotDelegations').withIndex('by_user', q => q.eq('userId', userId)).collect(),
+            deferrals(ctx, userId), recentCompletions(ctx, userId, Date.now(), Infinity),
+            rowsFor('waiting'), rowsFor('review'), rowsFor('answered'), rowsFor('merging'),
+        ]);
+        const byId = new Map(items.map(item => [item.id, item]));
+        const children = new Map<string, Item[]>();
+        for (const item of items) {
+            if (item.type !== 'task' || !item.parentId) continue;
+            children.set(item.parentId, [...(children.get(item.parentId) ?? []), item]);
+        }
+        const tally = (rows: Work[]) => {
+            const counts = new Map<string, number>();
+            for (const row of rows) counts.set(`${row.assignmentId}:${row.taskId}`, (counts.get(`${row.assignmentId}:${row.taskId}`) ?? 0) + 1);
+            return (assignmentId: AssignmentId, taskId: string) => counts.get(`${assignmentId}:${taskId}`) ?? 0;
+        };
+        const [waitingOf, reviewOf, answeredOf, mergingOf] = [tally(waiting), tally(review), tally(answered), tally(merging)];
+        const employees = bots.map(row => {
+            const vp = isVp(row);
+            const defaultMode: BotMode = row.defaultMode ?? 'review';
+            const saved = schedules.find(schedule => schedule.assignmentId === row._id);
+            const label = vp ? null : byId.get(row.labelId);
+            const open_: Item[] = [];
+            const pending = label?.type === 'section' ? [...(children.get(label.id) ?? [])] : [];
+            for (const seen = new Set<string>(); pending.length;) {
+                const task = pending.pop()!;
+                if (seen.has(task.id)) continue;
+                seen.add(task.id);
+                if (open(task) && !deferred.has(task.id)) open_.push(task);
+                pending.push(...(children.get(task.id) ?? []));
+            }
+            // Tasks waiting on the human first, then in the order they were written.
+            const blocked = (task: Item) => waitingOf(row._id, task.id) + reviewOf(row._id, task.id) > 0;
+            open_.sort((a, b) => Number(blocked(b)) - Number(blocked(a)) || a.createdAt - b.createdAt || a.order - b.order);
+            const tasks = open_.map(task => {
+                const delegation = delegations.find(candidate => candidate.taskId === task.id && candidate.labelId === row.labelId && candidate.assignmentId === row._id);
+                return { id: task.id, title: task.text, dueDate: task.dueDate, dueTime: task.dueTime, botMode: delegation ? modeOf(delegation) : defaultMode,
+                    inherited: !delegation, waiting: waitingOf(row._id, task.id), review: reviewOf(row._id, task.id),
+                    answered: answeredOf(row._id, task.id), merging: mergingOf(row._id, task.id) };
+            });
+            return {
+                id: row._id, labelId: row.labelId, labelName: vp ? 'VP' : label?.text.trim() || 'ラベル', name: row.name ?? 'Grok Bot',
+                skin: skins.find(skin => skin.assignmentId === row._id)?.image, connected: !!row.connectedAt && !!webhookFor(row), vp, defaultMode,
+                schedule: { enabled: saved?.enabled ?? false, times: saved ? clockInsOf(saved) : ['06:00'], nextCheckAt: saved?.nextCheckAt ?? null,
+                    lastRunAt: saved?.lastRunAt ?? null, lastStatus: saved?.lastStatus ?? null },
+                counts: { openTasks: tasks.length, waiting: tasks.reduce((sum, task) => sum + task.waiting, 0), review: tasks.reduce((sum, task) => sum + task.review, 0),
+                    completedRecent: vp ? 0 : completions.filter(done => done.labelId === row.labelId).length },
+                tasks: vp ? [] : tasks.slice(0, 40),
+            };
+        });
+        return { employees };
+    },
+});
+
+/** 成し遂げたいこと: the user hands a Bot a goal as a task in its label, optionally with its own mode and an immediate clock-in. */
+export const assignGoalToBot = mutation({
+    args: { expectedUserId: v.string(), labelId: v.string(), title: v.string(), note: v.optional(v.string()), mode: v.optional(botModeArg), runNow: v.optional(v.boolean()) },
+    handler: async (ctx, { expectedUserId, labelId, mode, runNow, ...args }) => {
+        const title = args.title.trim();
+        const note = args.note?.trim() || undefined;
+        if (!title || title.length > 500) throw new ConvexError('成し遂げたいことを1〜500文字で入力してください。');
+        if (note && note.length > 8000) throw new ConvexError('メモは8000文字以内で入力してください。');
+        const { userId, label, assignment } = await requireLabelBot(ctx, expectedUserId, labelId);
+        const created: unknown = await ctx.runMutation(internal.mcpTasks.add, {
+            userId, text: title, note, parentId: label.id, createdBy: 'user',
+            idempotencyKey: `goal:${await hashToken(`${userId}:${label.id}:${Date.now()}:${title.slice(0, 32)}`)}`,
+        });
+        if (!created || typeof created !== 'object' || !('id' in created) || typeof created.id !== 'string') throw new ConvexError('タスクを作成できませんでした。');
+        const taskId = created.id;
+        if (mode && mode !== (assignment.defaultMode ?? 'review')) {
+            await ctx.db.insert('grokBotDelegations', { userId, taskId, labelId: label.id, assignmentId: assignment._id, mode, reviewCompletion: mode === 'checked' || undefined });
+        }
+        if (runNow && assignment.connectedAt && webhookFor(assignment)) {
+            const at = Date.now();
+            const saved = await scheduleFor(ctx, userId, assignment._id);
+            const id = saved ? saved._id : await ctx.db.insert('grokBotSchedules', { userId, assignmentId: assignment._id, enabled: false, time: '06:00', savedAt: at });
+            await ctx.db.patch(id, { lastRunAt: at, lastStatus: 'queued' });
+            await ctx.scheduler.runAfter(0, internal.grokBot.runPatrol, { id, at, labelId: label.id, manual: true });
+        }
+        return { taskId };
     },
 });
 
@@ -550,14 +720,15 @@ export const assignedTasks = internalQuery({
         const assigned = await requireScope(ctx, userId, assignmentId);
         const roleOf = async (id: string) => {
             const role = await botRole(ctx, userId, id, assigned.label.id, assignmentId);
-            return { bot_role: role.execute ? 'execute' : 'review', review_required: role.reviewRequired };
+            return { bot_role: role.execute ? 'execute' : 'review', bot_mode: role.mode, review_required: role.reviewRequired };
         };
+        const context = await botContext(ctx, userId, assigned.label.id);
         if (taskId) {
             const task = taskInScope(assigned, taskId);
             const subtasks = subtreeOf([...assigned.tasks.values()], taskId).slice(1);
             return { task: await toView(ctx, userId, task, assigned.label.text, subtasks), task_version: task.updatedAt,
                 ...await roleOf(task.id), deferred_until: await deferral(ctx, userId, taskId),
-                work: (await history(ctx, userId, taskId, { assignmentId })).map(view), proposals: await taskProposals(ctx, userId, assignmentId, taskId) };
+                work: (await history(ctx, userId, taskId, { assignmentId })).map(view), proposals: await taskProposals(ctx, userId, assignmentId, taskId), ...context };
         }
         const deferred = await deferrals(ctx, userId);
         const tasks = [...assigned.tasks.values()].filter(task => open(task) && !deferred.has(task.id));
@@ -573,7 +744,7 @@ export const assignedTasks = internalQuery({
             returned: await count(task.id, 'returned'),
             approved_to_merge: await count(task.id, 'merging'),
         }))), next_offset: offset + page.length < tasks.length ? offset + page.length : null,
-        proposals: await ownProposals(ctx, userId, assignmentId) };
+        proposals: await ownProposals(ctx, userId, assignmentId), ...context };
     },
 });
 
@@ -600,7 +771,8 @@ function priorWork(ctx: QueryCtx, userId: string, taskId: string, key: string, a
         q.eq('userId', userId).eq('taskId', taskId).eq('key', key).eq('assignmentId', assignmentId)).unique();
 }
 
-const decisionKind = v.union(v.literal('approval'), v.literal('choice'), v.literal('info'));
+const decisionKind = v.union(v.literal('approval'), v.literal('choice'), v.literal('info'), v.literal('challenge'));
+const artifactKind = v.union(v.literal('mock'), v.literal('analysis'), v.literal('counterargument'), v.literal('pr'));
 const confidence = v.union(v.literal('high'), v.literal('medium'), v.literal('low'));
 // Lenient validators so a missing field reaches decisionCard, which names every problem at once.
 const decisionArgs = {
@@ -608,6 +780,7 @@ const decisionArgs = {
     options: v.optional(v.array(v.object({ label: v.string(), consequence: v.optional(v.string()), irreversible: v.optional(v.boolean()) }))),
     recommendation: v.optional(v.object({ option: v.optional(v.string()), reason: v.optional(v.string()), confidence: v.optional(confidence) })),
     checks: v.optional(v.array(v.string())), evidence: v.optional(v.array(v.object({ url: v.string(), title: v.optional(v.string()) }))),
+    artifactKind: v.optional(artifactKind),
 };
 type DecisionInput = { [K in keyof typeof decisionArgs]?: (typeof decisionArgs)[K]['type'] };
 
@@ -638,7 +811,7 @@ function decisionCard({ kind = 'info', ...input }: DecisionInput) {
     if (kind === 'info' ? options.length > 0 : kind === 'approval' ? options.length !== 2 : options.length < 2 || options.length > 4) {
         problems.push(kind === 'info' ? 'options must be omitted for kind info (the user writes the answer); use kind choice to offer answers'
             : kind === 'approval' ? 'options must be exactly 2 for kind approval: approve and reject, each with its consequence'
-            : 'options must be 2 to 4 for kind choice');
+            : `options must be 2 to 4 for kind ${kind}${kind === 'challenge' ? ' (for example kill, pivot, greenlight)' : ''}`);
     }
     if (new Set(options.map(option => option.label)).size !== options.length) problems.push('options labels must be distinct');
     const { recommendation } = input;
@@ -661,11 +834,12 @@ function decisionCard({ kind = 'info', ...input }: DecisionInput) {
     if (problems.length) throw new ConvexError(`Rewrite the decision card and resubmit: ${problems.join('; ')}.`);
     return { kind, headline, text: context, options: options.length ? options : undefined,
         recommendation: recommended, recommendationReason: reason, confidence: recommendation?.confidence,
-        irreversible: options.some(option => option.irreversible) || undefined, checks, evidence: evidence?.length ? evidence : undefined };
+        irreversible: options.some(option => option.irreversible) || undefined, checks, evidence: evidence?.length ? evidence : undefined,
+        artifactKind: input.artifactKind };
 }
 
-const cardSignature = (row: Pick<Work, 'kind' | 'headline' | 'text' | 'options' | 'recommendation' | 'recommendationReason' | 'confidence' | 'checks' | 'evidence'>) =>
-    JSON.stringify([row.kind ?? 'info', row.headline, row.text, row.options, row.recommendation, row.recommendationReason, row.confidence, row.checks, row.evidence]);
+const cardSignature = (row: Pick<Work, 'kind' | 'headline' | 'text' | 'options' | 'recommendation' | 'recommendationReason' | 'confidence' | 'checks' | 'evidence' | 'artifactKind'>) =>
+    JSON.stringify([row.kind ?? 'info', row.headline, row.text, row.options, row.recommendation, row.recommendationReason, row.confidence, row.checks, row.evidence, row.artifactKind]);
 
 export const requestDecision = internalMutation({
     args: { ...userTask, key: v.string(), ...decisionArgs },
@@ -747,6 +921,9 @@ export const recordWorkResult = internalMutation({
         const submitsPr = prHeadSha !== undefined && !merge;
         if (submitsPr && !pullRequests.length) throw new ConvexError('pr_head_sha needs the GitHub pull request link (https://github.com/<owner>/<repo>/pull/<n>) in links');
         const role = await botRole(ctx, userId, taskId, assigned.label.id, assignmentId);
+        if (complete && role.mode === 'challenge') {
+            throw new ConvexError('This task is in challenge mode: present a counterargument, mock or analysis with request_decision(kind="challenge") instead of completing it');
+        }
         if (complete && !role.execute) throw new ConvexError('This task is review-only for Grok Bot');
         if (complete) await requireNotDeferred(ctx, userId, taskId);
         if (complete && expectedTaskVersion !== task.updatedAt) throw new ConvexError('Task changed; read it again before reporting completion');
@@ -786,12 +963,12 @@ async function pendingReview(ctx: QueryCtx, id: Id<'taskWork'>, expectedUserId: 
     if (!userId || row?.userId !== userId) throw new ConvexError('確認依頼が見つかりません。');
     const assigned = row.status === 'review' ? await taskAssignment(ctx, userId, row.taskId) : null;
     if (row.status === 'review' && (!assigned || assigned.assignmentId !== row.assignmentId)) throw new ConvexError('このタスクは現在の担当範囲にありません。');
-    return { userId, row };
+    return { userId, row, assigned };
 }
 
 export const approveReview = mutation({
-    args: { id: v.id('taskWork'), expectedUserId: v.string() },
-    handler: async (ctx, { id, expectedUserId }) => {
+    args: { id: v.id('taskWork'), expectedUserId: v.string(), autonomyRule: v.optional(v.string()) },
+    handler: async (ctx, { id, expectedUserId, autonomyRule }) => {
         const { userId, row } = await pendingReview(ctx, id, expectedUserId);
         if (row.status === 'approved' || row.status === 'merging' || row.status === 'merged') return;
         if (row.status !== 'review') throw new ConvexError('この確認依頼はすでに対応済みです。');
@@ -802,6 +979,16 @@ export const approveReview = mutation({
             throw new ConvexError('未完了のサブタスクがあるため完了できません。サブタスクを片付けるか、差し戻してください。');
         }
         const now = Date.now();
+        // An approval can also say "this kind may proceed without asking": a label autonomy norm, saved with the approval.
+        const rule = autonomyRule?.trim();
+        if (rule) {
+            if (rule.length > 300) throw new ConvexError('自律ルールは1〜300文字で入力してください。');
+            if ((await ctx.db.query('grokBotNorms').withIndex('by_user', q => q.eq('userId', userId)).take(maxNorms)).length >= maxNorms) {
+                throw new ConvexError(`ルールは${maxNorms}件までです。不要なルールを削除してください。`);
+            }
+            await ctx.db.insert('grokBotNorms', { userId, labelId: assigned.label.id, text: rule, kind: 'autonomy',
+                sourceWorkId: row._id, active: true, createdAt: now, updatedAt: now });
+        }
         // A pull request stays open until the Bot merges exactly the approved commit and reports it.
         if (row.prHeadSha) {
             await ctx.db.patch(id, { status: 'merging', answeredAt: now });
@@ -814,9 +1001,9 @@ export const approveReview = mutation({
 });
 
 export const returnReview = mutation({
-    args: { id: v.id('taskWork'), expectedUserId: v.string(), comment: v.string() },
-    handler: async (ctx, { id, expectedUserId, comment }) => {
-        const { row } = await pendingReview(ctx, id, expectedUserId);
+    args: { id: v.id('taskWork'), expectedUserId: v.string(), comment: v.string(), alsoCreateNorm: v.optional(v.boolean()) },
+    handler: async (ctx, { id, expectedUserId, comment, alsoCreateNorm }) => {
+        const { userId, row, assigned } = await pendingReview(ctx, id, expectedUserId);
         const text = comment.trim();
         if (!text || text.length > 8000) throw new ConvexError('差し戻しの理由を1〜8000文字で入力してください。');
         if (row.status !== 'review') {
@@ -825,6 +1012,9 @@ export const returnReview = mutation({
         }
         const now = Date.now();
         await ctx.db.patch(id, { status: 'returned', answer: text, answeredAt: now });
+        // Review feedback the human wants every future run to respect becomes a standing rule of this label.
+        if (alsoCreateNorm && assigned) await ctx.db.insert('grokBotNorms', { userId, labelId: assigned.label.id, text: text.slice(0, 300), kind: 'rule',
+            sourceWorkId: row._id, active: true, createdAt: now, updatedAt: now });
         await queueWake(ctx, id, now);
     },
 });
@@ -835,8 +1025,8 @@ async function queueWake(ctx: MutationCtx, id: Id<'taskWork'>, wakeAt: number) {
 }
 
 export const reply = mutation({
-    args: { id: v.id('taskWork'), expectedUserId: v.string(), answer: v.string() },
-    handler: async (ctx, { id, expectedUserId, answer }) => {
+    args: { id: v.id('taskWork'), expectedUserId: v.string(), answer: v.string(), promoteToExecution: v.optional(v.boolean()) },
+    handler: async (ctx, { id, expectedUserId, answer, promoteToExecution }) => {
         const userId = await currentUser(ctx, expectedUserId);
         const row = await ctx.db.get(id);
         if (!userId || row?.userId !== userId) throw new ConvexError('依頼が見つかりません。');
@@ -850,6 +1040,16 @@ export const reply = mutation({
         if (!assigned || assigned.assignmentId !== row.assignmentId) throw new ConvexError('このタスクは現在の担当範囲にありません。');
         const now = Date.now();
         await ctx.db.patch(id, { status: 'answered', answer: text, answeredAt: now });
+        // One-step greenlight: the answer also hands execution to the Bot, with completion still checked by the human.
+        if (promoteToExecution) {
+            const existing = await delegationFor(ctx, userId, row.taskId);
+            const current = existing?.labelId === assigned.label.id && existing.assignmentId === assigned.assignmentId ? modeOf(existing) : 'review';
+            const role = { labelId: assigned.label.id, assignmentId: assigned.assignmentId, reviewCompletion: true, mode: 'checked' as const };
+            if (current === 'review' || current === 'challenge') {
+                if (existing) await ctx.db.patch(existing._id, role);
+                else await ctx.db.insert('grokBotDelegations', { userId, taskId: row.taskId, ...role });
+            }
+        }
         await queueWake(ctx, id, now);
     },
 });
@@ -922,35 +1122,31 @@ const scheduleFor = (ctx: QueryCtx, userId: string, assignmentId?: AssignmentId)
 const timezoneFor = async (ctx: QueryCtx, userId: string) =>
     (await ctx.db.query('userPreferences').withIndex('by_user', q => q.eq('userId', userId)).unique())?.timeZone ?? null;
 
-function nextPatrol(time: string, timeZone: string, now: number, lastRunAt?: number) {
-    const today = dateInTimeZone(timeZone, now);
-    const start = Date.parse(`${today}T00:00:00Z`);
-    const lastDay = lastRunAt ? dateInTimeZone(timeZone, lastRunAt) : undefined;
-    for (let offset = 0; offset < 4; offset++) {
-        const day = new Date(start + offset * 86_400_000).toISOString().slice(0, 10);
-        if (lastDay === day) continue;
-        const at = deadlineInstant(day, time, timeZone);
-        if (at !== null && at >= Math.floor(now / 60_000) * 60_000) return at;
-    }
-}
+type Schedule = Doc<'grokBotSchedules'>;
+const clockInsOf = (saved: Pick<Schedule, 'time' | 'times'>) => normalizeClockInTimes(saved.times, saved.time);
+const nextCheckFor = (saved: Pick<Schedule, 'time' | 'times' | 'lastSlotKey'>, timeZone: string, now: number, lastRunAt?: number) =>
+    nextClockIn(clockInsOf(saved), timeZone, now, lastRunAt, saved.lastSlotKey);
 
-/** The next scheduled patrol of a label Bot or the pilot (the VP never applies answers), or null when none is on. */
+/** The next scheduled patrol of a label Bot or the pilot (the VP never applies answers), and which Bot clocks in. */
 async function nextLabelPatrol(ctx: QueryCtx, userId: string) {
     const [saved, labels, timeZone] = await Promise.all([ctx.db.query('grokBotSchedules').withIndex('by_user', q => q.eq('userId', userId)).collect(),
         labelAssignments(ctx, userId), timezoneFor(ctx, userId)]);
     const pilot = pilotFor(userId);
-    const times = saved.filter(row => row.enabled).map(row => row.assignmentId
-        ? labels.some(label => label._id === row.assignmentId) ? row.nextCheckAt : undefined
-        : pilot && timeZone ? nextPatrol(row.time, timeZone, Date.now(), row.lastRunAt) : undefined)
-        .filter(at => at !== undefined);
-    return times.length ? Math.min(...times) : null;
+    const due = saved.filter(row => row.enabled).map(row => {
+        const bot = row.assignmentId ? labels.find(label => label._id === row.assignmentId) : undefined;
+        const at = row.assignmentId ? bot ? row.nextCheckAt : undefined
+            : pilot && timeZone ? nextCheckFor(row, timeZone, Date.now(), row.lastRunAt) : undefined;
+        return { at, labelId: bot?.labelId ?? pilot?.labelId };
+    }).filter((row): row is { at: number; labelId: string } => row.at !== undefined && !!row.labelId).sort((a, b) => a.at - b.at)[0];
+    if (!due) return null;
+    return { at: due.at, label: (await loadItem(ctx, userId, due.labelId))?.text.trim() || 'ラベル', vp: false };
 }
 
 export async function refreshPatrolTimeZone(ctx: MutationCtx, userId: string, timeZone: string) {
     const now = Date.now();
     for (const saved of await ctx.db.query('grokBotSchedules').withIndex('by_user', q => q.eq('userId', userId)).collect()) {
         if (saved.enabled && saved.assignmentId) await ctx.db.patch(saved._id, {
-            savedAt: now, nextCheckAt: nextPatrol(saved.time, timeZone, now, saved.lastRunAt),
+            savedAt: now, nextCheckAt: nextCheckFor(saved, timeZone, now, saved.lastRunAt),
         });
     }
 }
@@ -976,24 +1172,52 @@ export const schedule = query({
         const target = userId ? await scheduleAssignment(ctx, userId, labelId, vp) : null;
         if (!userId || !target) return null;
         const [saved, timeZone] = await Promise.all([scheduleFor(ctx, userId, target.assignmentId), timezoneFor(ctx, userId)]);
-        return { timeZone, enabled: saved?.enabled ?? false, time: saved?.time ?? '06:00',
-            lastRunAt: saved?.lastRunAt, lastStatus: saved?.lastStatus };
+        const time = saved?.time ?? '06:00';
+        return { timeZone, enabled: saved?.enabled ?? false, time, times: saved ? clockInsOf(saved) : [time],
+            lastRunAt: saved?.lastRunAt, lastStatus: saved?.lastStatus, nextCheckAt: saved?.nextCheckAt };
     },
 });
 
 export const saveSchedule = mutation({
-    args: { ...scheduleArgs, enabled: v.boolean(), time: v.string() },
-    handler: async (ctx, { expectedUserId, labelId, vp, enabled, time }) => {
+    args: { ...scheduleArgs, enabled: v.boolean(), time: v.string(), times: v.optional(v.array(v.string())) },
+    handler: async (ctx, { expectedUserId, labelId, vp, enabled, time, times: requested }) => {
         const userId = await currentUser(ctx, expectedUserId);
         const target = userId ? await scheduleAssignment(ctx, userId, labelId, vp) : null;
         if (!userId || !target || (!('vp' in target) && (await loadItem(ctx, userId, target.labelId))?.type !== 'section')) throw new ConvexError('Grok Botの担当ラベルが見つかりません。');
-        if (!isTimeString(time)) throw new ConvexError('巡回時刻を入力してください。');
+        let times: string[] | undefined;
+        if (requested !== undefined) {
+            times = normalizeClockInTimes(requested);
+            if (!times.length || times.length !== requested.length || requested.length > maxClockIns) {
+                throw new ConvexError(`巡回時刻はHH:MMで重複なく1〜${maxClockIns}件入力してください。`);
+            }
+            time = times[0];
+        } else if (!isTimeString(time)) throw new ConvexError('巡回時刻を入力してください。');
         const [saved, timeZone] = await Promise.all([scheduleFor(ctx, userId, target.assignmentId), timezoneFor(ctx, userId)]);
         if (enabled && !timeZone) throw new ConvexError('先に設定でタイムゾーンを保存してください。');
         const savedAt = Date.now();
-        const nextCheckAt = target.assignmentId && enabled && timeZone ? nextPatrol(time, timeZone, savedAt, saved?.lastRunAt) : undefined;
-        if (saved) await ctx.db.patch(saved._id, { enabled, time, savedAt, nextCheckAt });
-        else await ctx.db.insert('grokBotSchedules', { userId, assignmentId: target.assignmentId, enabled, time, savedAt, nextCheckAt });
+        // Without times the schedule is the single daily time again.
+        const fields = { enabled, time, times, savedAt };
+        const nextCheckAt = target.assignmentId && enabled && timeZone
+            ? nextCheckFor({ ...fields, lastSlotKey: saved?.lastSlotKey }, timeZone, savedAt, saved?.lastRunAt) : undefined;
+        if (saved) await ctx.db.patch(saved._id, { ...fields, nextCheckAt });
+        else await ctx.db.insert('grokBotSchedules', { userId, assignmentId: target.assignmentId, ...fields, nextCheckAt });
+    },
+});
+
+/** Clock a connected Bot in now, outside its schedule. The scheduled clock-ins are unchanged. */
+export const patrolNow = mutation({
+    args: scheduleArgs,
+    handler: async (ctx, { expectedUserId, labelId, vp }) => {
+        const userId = await currentUser(ctx, expectedUserId);
+        const target = userId ? await scheduleAssignment(ctx, userId, labelId, vp) : null;
+        const bot = target?.assignmentId ? await ctx.db.get(target.assignmentId) : null;
+        if (!userId || !bot || bot.userId !== userId) throw new ConvexError('担当Botが見つかりません。');
+        if (!bot.connectedAt || !webhookFor(bot)) throw new ConvexError('Botの接続を完了してから呼び出してください。');
+        const at = Date.now();
+        const saved = await scheduleFor(ctx, userId, bot._id);
+        const id = saved ? saved._id : await ctx.db.insert('grokBotSchedules', { userId, assignmentId: bot._id, enabled: false, time: '06:00', savedAt: at });
+        await ctx.db.patch(id, { lastRunAt: at, lastStatus: 'queued' });
+        await ctx.scheduler.runAfter(0, internal.grokBot.runPatrol, { id, at, labelId: bot.labelId, manual: true });
     },
 });
 
@@ -1009,10 +1233,11 @@ export async function dispatchDuePatrol(ctx: MutationCtx, now: number) {
         }
         const day = dateInTimeZone(timeZone, now);
         const shouldRun = assignment?.connectedAt && webhookFor(assignment) && dateInTimeZone(timeZone, saved.nextCheckAt) === day;
-        const nextCheckAt = nextPatrol(saved.time, timeZone, now, shouldRun ? now : saved.nextCheckAt);
+        const lastSlotKey = String(saved.nextCheckAt);
+        const nextCheckAt = nextCheckFor({ ...saved, lastSlotKey }, timeZone, now, shouldRun ? now : saved.nextCheckAt);
         await ctx.db.patch(saved._id, shouldRun
-            ? { nextCheckAt, lastDay: day, lastRunAt: now, lastStatus: 'queued' }
-            : { nextCheckAt });
+            ? { nextCheckAt, lastDay: day, lastRunAt: now, lastStatus: 'queued', lastSlotKey }
+            : { nextCheckAt, lastSlotKey });
         if (shouldRun) await ctx.scheduler.runAfter(0, internal.grokBot.runPatrol, { id: saved._id, at: now, labelId: assignment.labelId });
     }
     const config = grokBotConfig();
@@ -1026,13 +1251,14 @@ export async function dispatchDuePatrol(ctx: MutationCtx, now: number) {
     await ctx.scheduler.runAfter(0, internal.grokBot.runPatrol, { id: saved._id, at: now, labelId: config.labelId });
 }
 
-const patrolArgs = { id: v.id('grokBotSchedules'), at: v.number(), labelId: v.string() };
+/** manual: the human clocked the Bot in by hand, so a disabled schedule still sends it. */
+const patrolArgs = { id: v.id('grokBotSchedules'), at: v.number(), labelId: v.string(), manual: v.optional(v.boolean()) };
 
 export const patrolTarget = internalQuery({
     args: patrolArgs,
-    handler: async (ctx, { id, at, labelId }) => {
+    handler: async (ctx, { id, at, labelId, manual }) => {
         const saved = await ctx.db.get(id);
-        if (!saved?.enabled || saved.savedAt > at || saved.lastRunAt !== at || saved.lastStatus !== 'queued' ||
+        if (!saved || (!manual && (!saved.enabled || saved.savedAt > at)) || saved.lastRunAt !== at || saved.lastStatus !== 'queued' ||
             !(await accountActive(ctx, saved.userId))) return null;
         const target = saved.assignmentId ? await ctx.db.get(saved.assignmentId) : pilotFor(saved.userId);
         if (target?.userId !== saved.userId || target.labelId !== labelId || ('_id' in target && !target.connectedAt) ||
@@ -1056,6 +1282,144 @@ export const runPatrol = internalAction({
         const target = await ctx.runQuery(internal.grokBot.patrolTarget, args);
         const accepted = !!target && await notifyBot(target, { trigger: 'patrol' });
         await ctx.runMutation(internal.grokBot.patrolResult, { ...args, accepted });
+    },
+});
+
+/* ---------- Bot context: the standing norms and recently killed ideas every Bot reads before acting ---------- */
+
+async function botContext(ctx: QueryCtx, userId: string, labelId: string | null) {
+    const [norms, rejections] = await Promise.all([
+        ctx.db.query('grokBotNorms').withIndex('by_user', q => q.eq('userId', userId)).collect(),
+        labelId === null ? ctx.db.query('taskRejections').withIndex('by_user_rejected', q => q.eq('userId', userId)).order('desc').take(10)
+            : ctx.db.query('taskRejections').withIndex('by_user_label', q => q.eq('userId', userId).eq('labelId', labelId)).order('desc').take(10),
+    ]);
+    return {
+        norms: norms.filter(row => row.active && (labelId === null || !row.labelId || row.labelId === labelId))
+            .map(row => ({ id: row._id, kind: row.kind, text: row.text, label_id: row.labelId ?? null })),
+        recent_rejections: rejections.map(row => ({ task_title: row.taskTitle, label_id: row.labelId ?? null, reason: row.reason,
+            bot_argument: row.botArgument ?? null, spawned_title: row.spawnedTitle ?? null, rejected_at: row.rejectedAt })),
+    };
+}
+
+/* ---------- Rejections: killing an idea with a recorded reason is an outcome, not a failure ---------- */
+
+function rejectionView(row: Doc<'taskRejections'>) {
+    return { id: row._id, taskId: row.taskId, taskTitle: row.taskTitle, labelId: row.labelId, labelName: row.labelName, reason: row.reason,
+        botArgument: row.botArgument, spawnedTaskId: row.spawnedTaskId, spawnedTitle: row.spawnedTitle, rejectedAt: row.rejectedAt };
+}
+
+const recentRejections = async (ctx: QueryCtx, userId: string) =>
+    (await ctx.db.query('taskRejections').withIndex('by_user_rejected', q => q.eq('userId', userId)).order('desc').take(10)).map(rejectionView);
+
+const normKind = v.union(v.literal('rule'), v.literal('kill_criterion'), v.literal('autonomy'));
+
+export const rejectTaskWithLearning = mutation({
+    args: { expectedUserId: v.string(), workId: v.optional(v.id('taskWork')), proposalId: v.optional(v.id('grokBotProposals')), reason: v.string(),
+        spawnTitle: v.optional(v.string()), spawnNote: v.optional(v.string()), alsoCreateNorm: v.optional(v.boolean()), normKind: v.optional(normKind) },
+    handler: async (ctx, { expectedUserId, workId, proposalId, ...args }) => {
+        const userId = await currentUser(ctx, expectedUserId);
+        if (!userId) throw new ConvexError('サインインしてください。');
+        const reason = args.reason.trim();
+        if (!reason || reason.length > 2000) throw new ConvexError('ボツにする理由を1〜2000文字で入力してください。');
+        const spawnTitle = args.spawnTitle?.trim() || undefined;
+        const spawnNote = spawnTitle ? args.spawnNote?.trim() || undefined : undefined;
+        if ((spawnTitle?.length ?? 0) > 500 || (spawnNote?.length ?? 0) > 8000) throw new ConvexError('代わりのタスクは500文字、メモは8000文字までです。');
+        if ((workId === undefined) === (proposalId === undefined)) throw new ConvexError('ボツにする依頼か提案を1つ選んでください。');
+        const work = workId ? await ctx.db.get(workId) : null;
+        const proposal = proposalId ? await ctx.db.get(proposalId) : null;
+        const source = work ?? proposal;
+        if (!source || source.userId !== userId) throw new ConvexError('依頼が見つかりません。');
+        if (work && work.status !== 'waiting' && work.status !== 'review') throw new ConvexError('この依頼はすでに対応済みです。');
+        if (proposal && (proposal.status !== 'pending' || !proposal.taskId)) throw new ConvexError('この提案はすでに対応済みか、ボツにするタスクがありません。');
+        const taskId = (work?.taskId ?? proposal?.taskId)!;
+        const items = await loadItems(ctx, userId);
+        const byId = new Map(items.map(item => [item.id, item]));
+        const task = byId.get(taskId);
+        if (task?.type !== 'task' || !open(task)) throw new ConvexError('タスクが見つからないか、すでに完了しています。');
+        if (task.locked) throw new ConvexError('タスクがロックされています。ロックを外してからボツにしてください。');
+        const label = labelIn(byId, task);
+        let spawnedTaskId: string | undefined;
+        if (spawnTitle) {
+            const created: unknown = await ctx.runMutation(internal.mcpTasks.add, { userId, text: spawnTitle, note: spawnNote, parentId: label?.id,
+                idempotencyKey: `reject-spawn:${source._id}`, createdBy: 'user' });
+            spawnedTaskId = created && typeof created === 'object' && 'id' in created && typeof created.id === 'string' ? created.id : undefined;
+        }
+        const current = snapshot(items, task.id)!;
+        await ctx.runMutation(internal.mcpTasks.remove, { userId, taskId, expectedText: current.text, expectedCount: current.count });
+        const now = Date.now();
+        if (work) await ctx.db.patch(work._id, { status: 'rejected', answer: reason, rejectionReason: reason, answeredAt: now, spawnedTaskId,
+            claimKey: undefined, claimUntil: undefined });
+        if (proposal) await ctx.db.patch(proposal._id, { status: 'adopted', resolvedAt: now });
+        const botArgument = (work ? [work.headline, work.text, work.recommendationReason] : [proposal?.reason])
+            .filter(Boolean).join(' — ').slice(0, 2000) || undefined;
+        const rejectionId = await ctx.db.insert('taskRejections', { userId, taskId, taskTitle: task.text, labelId: label?.id,
+            labelName: label ? label.text.trim() || 'ラベル' : undefined, assignmentId: source.assignmentId, workId: work?._id, proposalId: proposal?._id,
+            reason, botArgument, spawnedTaskId, spawnedTitle: spawnedTaskId ? spawnTitle : undefined, rejectedAt: now });
+        if (args.alsoCreateNorm) await ctx.db.insert('grokBotNorms', { userId, labelId: label?.id, text: reason.slice(0, 300), kind: args.normKind ?? 'kill_criterion',
+            sourceWorkId: work?._id, sourceRejectionId: rejectionId, active: true, createdAt: now, updatedAt: now });
+        return { rejectionId, spawnedTaskId };
+    },
+});
+
+/* ---------- Norms: standing rules the human sets, read by every Bot ---------- */
+
+const maxNorms = 100;
+
+async function normViews(ctx: QueryCtx, userId: string, labelId?: string) {
+    const rows = (await ctx.db.query('grokBotNorms').withIndex('by_user', q => q.eq('userId', userId)).collect())
+        .filter(row => labelId === undefined || !row.labelId || row.labelId === labelId).sort((a, b) => b.createdAt - a.createdAt);
+    const names = new Map<string, string>();
+    for (const id of new Set(rows.map(row => row.labelId).filter(id => id !== undefined))) {
+        const label = await loadItem(ctx, userId, id);
+        if (label?.type === 'section') names.set(id, label.text.trim() || 'ラベル');
+    }
+    return rows.map(row => ({ id: row._id, labelId: row.labelId, labelName: row.labelId ? names.get(row.labelId) : undefined, text: row.text, kind: row.kind,
+        active: row.active, sourceWorkId: row.sourceWorkId, sourceRejectionId: row.sourceRejectionId, createdAt: row.createdAt, updatedAt: row.updatedAt }));
+}
+
+export const norms = query({
+    args: { expectedUserId: v.string(), labelId: v.optional(v.string()) },
+    handler: async (ctx, { expectedUserId, labelId }) => {
+        const userId = await currentUser(ctx, expectedUserId);
+        return userId ? normViews(ctx, userId, labelId) : [];
+    },
+});
+
+export const addNorm = mutation({
+    args: { expectedUserId: v.string(), labelId: v.optional(v.string()), text: v.string(), kind: normKind },
+    handler: async (ctx, { expectedUserId, labelId, kind, ...args }) => {
+        const userId = labelId === undefined ? await currentUser(ctx, expectedUserId) : (await requireLabel(ctx, expectedUserId, labelId)).userId;
+        if (!userId) throw new ConvexError('サインインしてください。');
+        const text = args.text.trim();
+        if (!text || text.length > 300) throw new ConvexError('ルールは1〜300文字で入力してください。');
+        if ((await ctx.db.query('grokBotNorms').withIndex('by_user', q => q.eq('userId', userId)).take(maxNorms)).length >= maxNorms) {
+            throw new ConvexError(`ルールは${maxNorms}件までです。不要なルールを削除してください。`);
+        }
+        const now = Date.now();
+        return await ctx.db.insert('grokBotNorms', { userId, labelId, text, kind, active: true, createdAt: now, updatedAt: now });
+    },
+});
+
+async function ownNorm(ctx: QueryCtx, expectedUserId: string, id: Id<'grokBotNorms'>) {
+    const userId = await currentUser(ctx, expectedUserId);
+    const row = await ctx.db.get(id);
+    if (!userId || row?.userId !== userId) throw new ConvexError('ルールが見つかりません。');
+    return row;
+}
+
+export const toggleNorm = mutation({
+    args: { expectedUserId: v.string(), id: v.id('grokBotNorms'), active: v.boolean() },
+    handler: async (ctx, { expectedUserId, id, active }) => {
+        await ownNorm(ctx, expectedUserId, id);
+        await ctx.db.patch(id, { active, updatedAt: Date.now() });
+    },
+});
+
+export const deleteNorm = mutation({
+    args: { expectedUserId: v.string(), id: v.id('grokBotNorms') },
+    handler: async (ctx, { expectedUserId, id }) => {
+        await ownNorm(ctx, expectedUserId, id);
+        await ctx.db.delete(id);
     },
 });
 
@@ -1300,9 +1664,9 @@ export const allTasks = internalQuery({
             const label = labelIn(byId, task);
             const bot = label ? botOf(label.id) : null;
             const delegation = delegations.find(row => row.taskId === task.id);
-            const execute = !!label && !!bot && delegation?.labelId === label.id && delegation.assignmentId === bot.assignmentId;
+            const role = roleFor(!!label && !!bot && delegation?.labelId === label.id && delegation.assignmentId === bot.assignmentId ? modeOf(delegation) : 'review');
             return { label_id: label?.id ?? null, label: label?.text ?? null, unsorted: !label && unsorted(byId, task),
-                bot_role: bot ? execute ? 'execute' : 'review' : null, review_required: execute && !!delegation?.reviewCompletion };
+                bot_role: bot ? role.execute ? 'execute' : 'review' : null, bot_mode: bot ? role.mode : null, review_required: role.reviewRequired };
         };
         if (taskId) {
             const task = byId.get(taskId);
@@ -1311,7 +1675,7 @@ export const allTasks = internalQuery({
             const subtasks = subtreeOf(items, taskId).slice(1).filter(item => item.type === 'task');
             return { task: await toView(ctx, userId, task, place.label ?? undefined, subtasks), task_version: task.updatedAt, ...place,
                 deferred_until: deferred.get(taskId) ?? null, work: (await history(ctx, userId, taskId)).map(view),
-                proposals: await taskProposals(ctx, userId, assignmentId, taskId) };
+                proposals: await taskProposals(ctx, userId, assignmentId, taskId), ...await botContext(ctx, userId, null) };
         }
         const statusRows = (status: Work['status']) => ctx.db.query('taskWork').withIndex('by_user_status', q => q.eq('userId', userId).eq('status', status)).collect();
         const [waiting, reviews] = await Promise.all([statusRows('waiting'), statusRows('review')]);
@@ -1328,6 +1692,7 @@ export const allTasks = internalQuery({
             deferred_tasks: openTasks.length - tasks.length,
             next_offset: offset + page.length < tasks.length ? offset + page.length : null,
             proposals: await ownProposals(ctx, userId, assignmentId),
+            ...await botContext(ctx, userId, null),
         };
     },
 });

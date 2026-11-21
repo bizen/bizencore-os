@@ -76,12 +76,15 @@ export default defineSchema({
         // or resubmits a new head for review → superseded.
         status: v.union(v.literal('waiting'), v.literal('answered'), v.literal('applied'), v.literal('progress'), v.literal('complete'),
             v.literal('review'), v.literal('approved'), v.literal('returned'), v.literal('revised'),
-            v.literal('merging'), v.literal('merged'), v.literal('superseded')),
+            v.literal('merging'), v.literal('merged'), v.literal('superseded'), v.literal('rejected')),
         links: v.optional(v.array(v.string())), appliedQuestionId: v.optional(v.string()), answer: v.optional(v.string()), answeredAt: v.optional(v.number()),
         prUrl: v.optional(v.string()), prHeadSha: v.optional(v.string()), mergedAt: v.optional(v.number()),
         // A decision card (rows with a headline): text is its context, options carry their consequence and irreversibility,
         // irreversible is derived from them. Older rows keep text as the whole question, plain string options and a question-level flag.
-        kind: v.optional(v.union(v.literal('approval'), v.literal('choice'), v.literal('info'))),
+        kind: v.optional(v.union(v.literal('approval'), v.literal('choice'), v.literal('info'), v.literal('challenge'))),
+        // challenge cards: what the Bot produced instead of building; rejected rows: why the human killed the idea and its follow-up.
+        artifactKind: v.optional(v.union(v.literal('mock'), v.literal('analysis'), v.literal('counterargument'), v.literal('pr'))),
+        rejectionReason: v.optional(v.string()), spawnedTaskId: v.optional(v.string()),
         options: v.optional(v.array(v.union(v.string(), v.object({ label: v.string(), consequence: v.string(), irreversible: v.optional(v.boolean()) })))),
         recommendation: v.optional(v.string()), irreversible: v.optional(v.boolean()), assumptions: v.optional(v.string()),
         headline: v.optional(v.string()), recommendationReason: v.optional(v.string()),
@@ -98,6 +101,8 @@ export default defineSchema({
     grokBotAssignments: defineTable({
         userId: v.string(), labelId: v.string(), role: v.optional(v.literal('vp')), name: v.optional(v.string()), connectorName: v.optional(v.string()), tokenHash: v.string(),
         webhookUrl: v.optional(v.string()), webhookKey: v.optional(v.string()), connectedAt: v.optional(v.number()),
+        // How tasks in this label are handled unless a task overrides it (grokBotDelegations); absent is review.
+        defaultMode: v.optional(v.union(v.literal('review'), v.literal('challenge'), v.literal('checked'), v.literal('execute'))),
         oauthTokenHash: v.optional(v.string()),
         oauthGrant: v.optional(v.object({
             codeHash: v.string(), challenge: v.string(), redirectUri: v.string(), expiresAt: v.number(),
@@ -112,9 +117,12 @@ export default defineSchema({
         assignmentId: v.optional(v.id('grokBotAssignments')), nextCheckAt: v.optional(v.number()),
         lastDay: v.optional(v.string()), lastRunAt: v.optional(v.number()),
         lastStatus: v.optional(v.union(v.literal('queued'), v.literal('accepted'), v.literal('failed'))),
+        // 1–6 daily clock-in times (time is the earliest); lastSlotKey is the instant last dispatched.
+        times: v.optional(v.array(v.string())), lastSlotKey: v.optional(v.string()),
     }).index('by_user', ['userId']).index('by_user_assignment', ['userId', 'assignmentId']).index('by_next', ['nextCheckAt']),
     grokBotDelegations: defineTable({ userId: v.string(), taskId: v.string(), labelId: v.string(), assignmentId: v.optional(v.id('grokBotAssignments')),
-        reviewCompletion: v.optional(v.boolean()) })
+        reviewCompletion: v.optional(v.boolean()),
+        mode: v.optional(v.union(v.literal('review'), v.literal('challenge'), v.literal('checked'), v.literal('execute'))) })
         .index('by_user', ['userId']).index('by_user_task', ['userId', 'taskId']),
     /** Bot suggestions that change nothing until the human adopts them. assignmentId is absent for the pilot. */
     grokBotProposals: defineTable({
@@ -133,6 +141,23 @@ export default defineSchema({
     /** Adopted deferrals: hidden from Bot task lists while today (user's time zone) is before until. */
     grokBotDeferrals: defineTable({ userId: v.string(), taskId: v.string(), until: v.string(), proposalId: v.optional(v.id('grokBotProposals')) })
         .index('by_user', ['userId']).index('by_user_task', ['userId', 'taskId']),
+    /** Ideas the human killed with a reason, optionally replaced by a follow-up task. */
+    taskRejections: defineTable({
+        userId: v.string(), taskId: v.string(), taskTitle: v.string(),
+        labelId: v.optional(v.string()), labelName: v.optional(v.string()),
+        assignmentId: v.optional(v.id('grokBotAssignments')), workId: v.optional(v.id('taskWork')), proposalId: v.optional(v.id('grokBotProposals')),
+        reason: v.string(), botArgument: v.optional(v.string()),
+        spawnedTaskId: v.optional(v.string()), spawnedTitle: v.optional(v.string()),
+        rejectedAt: v.number(),
+    }).index('by_user', ['userId']).index('by_user_rejected', ['userId', 'rejectedAt'])
+        .index('by_user_label', ['userId', 'labelId', 'rejectedAt']),
+    /** Standing rules every Bot reads; labelId absent applies company-wide. */
+    grokBotNorms: defineTable({
+        userId: v.string(), labelId: v.optional(v.string()), text: v.string(),
+        kind: v.union(v.literal('rule'), v.literal('kill_criterion'), v.literal('autonomy')),
+        sourceWorkId: v.optional(v.id('taskWork')), sourceRejectionId: v.optional(v.id('taskRejections')),
+        active: v.boolean(), createdAt: v.number(), updatedAt: v.number(),
+    }).index('by_user', ['userId']).index('by_user_label', ['userId', 'labelId']),
 
     userPreferences: defineTable({
         userId: v.string(),

@@ -84,7 +84,7 @@ export const deleteBatch = internalMutation({
         if (!more) {
             // Bounded batches cover every account-owned table, including legacy data.
             const tables = ['notificationDevices', 'notificationDeliveries', 'syncItems', 'lifeEntries', 'lifeChecks', 'lifePreferences', 'countStocks',
-                'mcpConnections', 'taskActions', 'taskWork', 'grokBotSchedules', 'grokBotSkins', 'grokBotAssignments', 'grokBotDelegations', 'grokBotProposals', 'grokBotDeferrals', 'userPreferences', 'partnerAccounts', 'taskListEntries', 'tasks', 'goals'] as const;
+                'mcpConnections', 'taskActions', 'taskWork', 'grokBotSchedules', 'grokBotSkins', 'grokBotAssignments', 'grokBotDelegations', 'grokBotProposals', 'grokBotDeferrals', 'taskRejections', 'grokBotNorms', 'userPreferences', 'partnerAccounts', 'taskListEntries', 'tasks', 'goals'] as const;
             for (const table of tables) {
                 const rows = await ctx.db.query(table).withIndex('by_user', q => q.eq('userId', userId)).take(table === 'syncItems' ? 8 : 25);
                 for (const row of rows) await ctx.db.delete(row._id);

@@ -22,7 +22,7 @@ export const grokBotTools = {
   add_assigned_task: z.object({ title: z.string().trim().min(1).max(500), note: text.optional(), idempotency_key }),
   request_decision: z.object({
     task_id, idempotency_key,
-    kind: z.enum(['approval', 'choice', 'info'], { error: 'Required: approval, choice or info' }).describe('approval: approve or reject a stated plan (exactly 2 options). choice: pick one of 2–4 options. info: the user writes a free-text answer (no options, no recommendation).'),
+    kind: z.enum(['approval', 'choice', 'info', 'challenge'], { error: 'Required: approval, choice, info or challenge' }).describe('approval: approve or reject a stated plan (exactly 2 options). choice: pick one of 2–4 options. info: the user writes a free-text answer (no options, no recommendation). challenge: question the idea itself before building it; 2–4 options such as kill, pivot or greenlight, backed by a counterargument, analysis or disposable mock.'),
     headline: z.string({ error: 'Required: one line (at most 80 characters) saying what is being decided' }).trim().min(1).max(80).describe('One line: what is being decided. One decision per card.'),
     context: z.string({ error: 'Required: why this needs deciding now (at most 400 characters)' }).trim().min(1).max(400).describe('Why this needs deciding now and the background the user needs to judge it.'),
     options: z.array(z.object({
@@ -37,6 +37,7 @@ export const grokBotTools = {
     }).optional().describe('Required for approval and choice; omit for info.'),
     checks: z.array(z.string().trim().min(1).max(120), { error: 'Required: 1–3 things the user must actually look at before deciding' }).min(1).max(3).describe('1–3 things the user must actually look at before deciding (a figure, a date, a recipient), not generic advice.'),
     evidence: z.array(z.object({ url: link, title: z.string().trim().min(1).max(80).optional() })).max(8).optional().describe('Links the checks can be verified against.'),
+    artifact_kind: z.enum(['mock', 'analysis', 'counterargument', 'pr']).optional().describe('What you produced for the user to judge, usually with a challenge card.'),
   }),
   claim_decision: z.object({ task_id, question_id: task_id, claim_key: z.string().uuid() }),
   record_work_result: z.object({

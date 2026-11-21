@@ -9,7 +9,7 @@ import grokBotMark from '../../assets/grok-bot-mark.png';
 import { isCloudConfigured } from '../../lib/cloudConfig';
 import { grokBotRandomCode } from '../../lib/grokBotOAuth';
 import { handleMetaKeyDown } from '../../lib/metaCursor';
-import { LabelPatrolSettings } from './TaskWork';
+import { BotDefaultModeSelect, LabelPatrolSettings } from './TaskWork';
 
 type Assignment = FunctionReturnType<typeof api.grokBot.assignments>[number];
 const LabelBots = createContext<{ userId: string | null; assignments: Assignment[] | undefined } | null>(null);
@@ -115,8 +115,8 @@ const terminalOrigin = () => location.protocol === 'https:' ? location.origin : 
 
 function routineInstructions(name: string, vp?: boolean) {
   const work = vp
-    ? 'On patrol read all_tasks and propose only a few high-value ideas; never act on tasks.'
-    : 'On patrol check answered tasks first. On reply use task_id and question_id. Review by default, execute only if bot_role=execute, and record results in Terminal.';
+    ? 'On patrol read all_tasks, norms and recent_rejections, and propose only a few high-value ideas; never act on tasks.'
+    : 'On patrol read norms and recent_rejections, then check answered tasks first. On reply use task_id and question_id. Review by default; for bot_mode=challenge send a challenge card with a mock, analysis or counterargument and never build; execute only if bot_role=execute; record results in Terminal.';
   return `Create or update and enable a webhook routine named "${name}" using that connector. On connection_check exit without work. ${work} Reply in Japanese with the routine's webhook settings link. Ask me to paste POST to and key into Terminal. Never put the key in chat.`;
 }
 
@@ -260,7 +260,8 @@ function AssignmentSettings({ labelId, labelName, userId, assignment, token, onT
   return <>
     {assignment.connected ? <>
       <p className="label-bot-status" role="status"><Check size={16} aria-hidden />接続済み</p>
-      {vp ? <LabelPatrolSettings vp userId={userId} /> : <LabelPatrolSettings labelId={labelId} userId={userId} />}
+      {vp ? <LabelPatrolSettings vp userId={userId} connected /> : <LabelPatrolSettings labelId={labelId} userId={userId} connected />}
+      {!vp && assignment.managed ? <BotDefaultModeSelect labelId={labelId} userId={userId} mode={assignment.defaultMode} label="新しいタスクの既定の関わり方" /> : null}
       {assignment.id && <label className="label-bot-skin">{assignment.skin ? 'スキン画像を変更' : 'スキン画像を追加'}
         <input type="file" accept={skinFileTypes} disabled={busy} onChange={event => {
           const file = event.currentTarget.files?.[0];

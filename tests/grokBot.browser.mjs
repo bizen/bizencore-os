@@ -18,10 +18,13 @@ export function useQuery(ref, args) {
   switch (getFunctionName(ref)) {
     case 'grokBot:inbox': return { pending: rows.filter(row => row.status === 'waiting' || row.status === 'review'),
       answered: rows.filter(row => ['answered', 'returned', 'merging'].includes(row.status)).map(({ stalled: _stalled, openTasks: _open, ...row }) => row),
-      proposals: window.proposals ?? [], nextPatrolAt: window.nextPatrolAt ?? null, metrics: window.metrics ?? { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0 } };
+      proposals: window.proposals ?? [], nextPatrolAt: window.nextPatrolAt ?? null, metrics: window.metrics ?? { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0 },
+      nextPatrol: window.nextPatrol ?? null, rejections: window.rejections, norms: window.norms, recentCompletions: window.recentCompletions };
+    case 'grokBot:team': return window.team;
     case 'grokBot:schedule': return window.schedule;
     case 'grokBot:taskHistory': return { rows: (window.workRows ?? [row, window.result]).filter(Boolean).map(row => ({ ...row, canReply: true })),
-      canReply: true, mayExecute: !!window.mayExecute, reviewRequired: !!window.reviewRequired, deferredUntil: window.deferredUntil ?? null };
+      canReply: true, mayExecute: !!window.mayExecute, reviewRequired: !!window.reviewRequired, botMode: window.botMode, deferredUntil: window.deferredUntil ?? null };
+    case 'grokBot:norms': return window.norms;
     case 'grokBot:assignments': return window.assignments;
     case 'grokBot:vp': return window.vp ?? null;
     case 'grokBot:oauthLabel': return args.assignment === 'press-bot' ? { id: 'press-bot', name: '広報' } : args.assignment === 'vp-bot' ? { id: 'vp-bot', name: 'VP', vp: true } : null;
@@ -29,7 +32,7 @@ export function useQuery(ref, args) {
 }
 export const useMutation = ref => async args => {
   window.calls.push({ name: getFunctionName(ref), args });
-  if (getFunctionName(ref) === 'grokBot:saveSchedule') window.schedule = { ...window.schedule, ...args };
+  if (getFunctionName(ref) === 'grokBot:saveSchedule') window.schedule = { ...window.schedule, ...args, times: args.times ?? [args.time] };
   const patch = value => { window.workRows = window.workRows.map(row => row.id === args.id ? { ...row, ...value } : row); };
   if (getFunctionName(ref) === 'grokBot:reply') {
     if (window.workRows) patch({ status: 'answered', wakeStatus: 'accepted', answer: args.answer });
@@ -39,7 +42,14 @@ export const useMutation = ref => async args => {
     ? { status: 'merging', wakeStatus: 'queued', wakeAt: Date.now() } : { status: 'approved' });
   if (getFunctionName(ref) === 'grokBot:returnReview') patch({ status: 'returned', answer: args.comment, wakeStatus: 'failed', wakeAt: Date.now() });
   if (getFunctionName(ref) === 'grokBot:retry') patch({ wakeStatus: 'accepted' });
-  if (getFunctionName(ref) === 'grokBot:setDelegation') { window.mayExecute = args.execute; window.reviewRequired = !!args.reviewCompletion; }
+  if (getFunctionName(ref) === 'grokBot:setDelegation') { window.mayExecute = args.execute; window.reviewRequired = !!args.reviewCompletion; window.botMode = args.mode; }
+  if (getFunctionName(ref) === 'grokBot:rejectTaskWithLearning') {
+    if (args.workId) window.workRows = window.workRows.filter(row => row.id !== args.workId);
+    else window.proposals = window.proposals.filter(row => row.id !== args.proposalId);
+  }
+  if (getFunctionName(ref) === 'grokBot:addNorm') window.norms = [{ id: 'n' + (window.norms.length + 1), kind: args.kind, text: args.text, active: true, createdAt: Date.now() }, ...window.norms];
+  if (getFunctionName(ref) === 'grokBot:toggleNorm') window.norms = window.norms.map(norm => norm.id === args.id ? { ...norm, active: args.active } : norm);
+  if (getFunctionName(ref) === 'grokBot:deleteNorm') window.norms = window.norms.filter(norm => norm.id !== args.id);
   if (getFunctionName(ref) === 'grokBot:addAssignment' && args.vp) window.vp = { id: 'vp-bot', labelId: '', name: 'Grok Bot',
     connectorName: 'Terminal · VP', connectorConnected: false, webhookConfigured: false, connected: false, managed: true };
   else if (getFunctionName(ref) === 'grokBot:addAssignment') window.assignments = [{ id: 'press-bot', labelId: args.labelId,
@@ -51,9 +61,16 @@ export const useMutation = ref => async args => {
     window.proposals = window.proposals.filter(row => row.id !== args.id);
   }
   if (getFunctionName(ref) === 'grokBot:cancelDeferral') window.deferredUntil = null;
+  const employees = edit => { window.team = { employees: window.team.employees.map(edit) }; };
+  if (getFunctionName(ref) === 'grokBot:setAssignmentDefaultMode') employees(row => row.labelId === args.labelId ? { ...row, defaultMode: args.defaultMode } : row);
+  if (getFunctionName(ref) === 'grokBot:setDelegation' && window.team) employees(row => ({ ...row,
+    tasks: row.tasks.map(task => task.id === args.taskId ? { ...task, botMode: args.mode, inherited: args.mode === row.defaultMode } : task) }));
+  if (getFunctionName(ref) === 'grokBot:assignGoalToBot') employees(row => row.labelId === args.labelId ? { ...row, tasks: [...row.tasks,
+    { id: 'goal-' + window.calls.length, title: args.title, botMode: args.mode, inherited: args.mode === row.defaultMode, waiting: 0, review: 0, answered: 0, merging: 0 }] } : row);
   if (getFunctionName(ref) === 'grokBot:setAssignmentSkin') window.assignments = window.assignments.map(row => row.id === args.assignmentId ? { ...row, skin: args.skin } : row);
   window.refresh();
   if (getFunctionName(ref) === 'grokBot:addAssignment') return args.vp ? 'vp-bot' : 'press-bot';
+  if (getFunctionName(ref) === 'grokBot:assignGoalToBot') return { taskId: 'goal-' + window.calls.length };
   if (getFunctionName(ref) === 'grokBot:adoptProposal') return { status: args.id === 'stale-move' ? 'changed' : 'adopted' };
 };
 export const useAction = ref => async args => {
@@ -67,7 +84,7 @@ const { outputFiles } = await build({
   stdin: { loader: 'tsx', resolveDir: process.cwd(), contents: `
     import {createRoot} from 'react-dom/client';
     import {BrowserRouter, Routes, Route} from 'react-router-dom';
-    import {MainBotPatrolSettings, TaskWorkInbox, TaskWorkInboxLink, TaskWorkSection} from './src/components/task/TaskWork';
+    import {MainBotPatrolSettings, NormsSettings, TaskWorkInbox, TaskWorkInboxLink, TaskWorkSection} from './src/components/task/TaskWork';
     import {LabelGrokBotMark, LabelGrokBotProvider, VpGrokBotSettings} from './src/components/task/LabelGrokBot';
     import {GrokBotAuthorizePage} from './src/pages/GrokBotAuthorizePage';
     window.listeners = new Set();
@@ -75,13 +92,14 @@ const { outputFiles } = await build({
     window.calls = [];
     window.assignments = [];
     window.refresh = () => { window.revision++; window.listeners.forEach(fn => fn()); };
-    window.schedule = { enabled: false, time: '03:00', timeZone: 'Australia/Melbourne' };
+    window.schedule = { enabled: false, time: '03:00', times: ['03:00'], timeZone: 'Australia/Melbourne' };
     window.decision = { id: 'question', taskId: 'launch', status: 'waiting', text: '11月予定と書いてよいですか。', title: '告知文', label: '広報', createdAt: Date.now() };
     createRoot(document.getElementById('root')).render(<BrowserRouter>
       <TaskWorkInboxLink/><Routes>
         <Route path="/inbox" element={<TaskWorkInbox/>}/>
         <Route path="/grok-bot/authorize" element={<GrokBotAuthorizePage/>}/>
         <Route path="/patrol" element={<MainBotPatrolSettings/>}/>
+        <Route path="/norms" element={<NormsSettings/>}/>
         <Route path="/vp" element={<section className="settings-section"><h3>VP（Grok Bot）</h3>
           <div className="settings-group settings-block"><VpGrokBotSettings/></div></section>}/>
         <Route path="/" element={<LabelGrokBotProvider>
@@ -161,6 +179,73 @@ async function inbox(width, path, setup) {
     lastCall: () => page.evaluate(() => window.calls.at(-1)) };
 }
 
+const challengeRow = () => ({ ...place, id: 'challenge', status: 'waiting', kind: 'challenge', artifactKind: 'mock', botMode: 'challenge',
+  headline: '告知ページは本当に必要か', text: '問い合わせの多くは既存のFAQで足りています。使い捨てのモックで比べられます。',
+  options: [{ label: 'ボツ', consequence: 'タスクを削除します。' }, { label: '作る', consequence: '実装に進みます。' }],
+  recommendation: 'ボツ', recommendationReason: '需要が未確認です。', confidence: 'medium', checks: ['モックの導線'], createdAt: Date.now() - 9_000_000 });
+
+/** The design loop: challenge before building, greenlight in one step, return with a norm, kill with learning. */
+async function designStudio(width) {
+  const { page, noOverflow, shoot, card, lastCall } = await inbox(width, '/inbox?item=challenge', () => {});
+  const rejections = [{ id: 'rej', taskId: 'old', taskTitle: '旧キャンペーン案', labelName: '広報', reason: '効果を測れない', spawnedTaskId: 'ask', spawnedTitle: '3人に聞く', rejectedAt: Date.now() - 60_000 }];
+  const norms = [{ id: 'n1', kind: 'kill_criterion', text: '計測できない改善はボツ', labelId: 'press', labelName: '広報', active: true, createdAt: Date.now() }];
+  await page.evaluate(([rows, rejections, norms]) => {
+    window.workRows = rows; window.rejections = rejections; window.norms = norms; window.nextPatrolAt = Date.now() + 3_600_000;
+    window.nextPatrol = { at: window.nextPatrolAt, label: '広報', vp: false }; window.refresh();
+  }, [[challengeRow(), ...workRows()], rejections, norms]);
+  await card.getByRole('heading', { name: '告知ページは本当に必要か' }).waitFor();
+  await card.locator('.work-card-meta').getByText('反論・検証').waitFor();
+  await card.locator('.work-card-meta .task-work-badge').getByText('モック', { exact: true }).waitFor();
+  await page.getByText(/次の巡回 \d\d:\d\d（広報）/).waitFor({ state: 'attached' });
+  const promote = card.getByRole('checkbox', { name: 'この回答で実行へ進める（完了は確認）' });
+  assert.equal(await promote.isChecked(), false, 'greenlighting is opt-in');
+  await promote.check();
+  await noOverflow();
+  await shoot('challenge');
+  await card.getByRole('button', { name: /^作る/ }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:reply');
+  assert.deepEqual((await lastCall()).args, { id: 'challenge', expectedUserId: 'alice', answer: '作る', promoteToExecution: true });
+
+  // An ordinary decision in a task the Bot already executes offers no greenlight.
+  await card.getByRole('heading', { name: '告知ページをいつ公開するか' }).waitFor();
+  assert.equal(await card.getByRole('checkbox', { name: /実行へ進める/ }).count(), 0);
+
+  // Kill with learning: reason required, a next step and a norm are optional.
+  if (width > 760) await page.keyboard.press('x');
+  else await card.getByRole('button', { name: '納得してボツにする' }).click();
+  const submit = card.getByRole('button', { name: 'ボツにして学びを残す' });
+  assert.equal(await submit.isDisabled(), true);
+  await card.getByLabel('なぜやらないと決めたか・分かったこと').fill('公開日が決まらない限り判断できない');
+  await card.getByLabel('この対話から生まれた次の一手（任意）').fill('公開日を決める');
+  await card.getByRole('checkbox', { name: 'この判断基準を規範にも残す' }).check();
+  await submit.click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:rejectTaskWithLearning');
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', workId: 'choice', reason: '公開日が決まらない限り判断できない',
+    spawnTitle: '公開日を決める', alsoCreateNorm: true });
+
+  // Returning a review can also keep the feedback as a norm.
+  await page.evaluate(() => { window.workRows = window.workRows.filter(row => row.id === 'review'); window.refresh(); });
+  await page.locator('.inbox-queue').getByRole('button', { name: /告知文の修正を仕上げた/ }).click();
+  await card.getByRole('heading', { name: '告知文の修正を仕上げた' }).waitFor();
+  await card.getByRole('button', { name: '差し戻す' }).click();
+  await card.getByLabel('差し戻しの理由').fill('問い合わせ先は代表アドレスにする');
+  await card.getByRole('checkbox', { name: 'この指摘を規範にも残す' }).check();
+  await card.getByRole('button', { name: '差し戻す' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:returnReview');
+  assert.deepEqual((await lastCall()).args, { id: 'review', expectedUserId: 'alice', comment: '問い合わせ先は代表アドレスにする', alsoCreateNorm: true });
+
+  // The learning log and norms open quietly from the status line.
+  await page.getByRole('button', { name: 'ボツと学び 1' }).click();
+  await page.locator('.inbox-rejections').getByText('効果を測れない').waitFor();
+  assert.equal(await page.getByRole('link', { name: '次の一手: 3人に聞く' }).getAttribute('href'), '/?task=ask');
+  await page.getByRole('button', { name: '規範 1' }).click();
+  assert.equal(await page.locator('.inbox-rejections').count(), 0, 'one drawer at a time');
+  await page.locator('.inbox-norms').getByText('計測できない改善はボツ').waitFor();
+  await noOverflow();
+  await shoot('studio-drawers');
+  await page.close();
+}
+
 async function consoleKeyboard() {
   const { page, noOverflow, shoot, card, queue, lastCall } = await inbox(1280, '/inbox', () => {});
   await page.evaluate(([rows]) => { window.workRows = rows; window.nextPatrolAt = Date.now() + 3_600_000; window.refresh(); }, [workRows()]);
@@ -204,7 +289,8 @@ async function consoleKeyboard() {
   await page.locator('.task-work-live').filter({ hasText: '次の対応: 見出しを「11月予定」に変える' }).waitFor();
   await page.getByText('Botの反映待ち 1').waitFor();
 
-  // S moves the current item to the end of this visit's queue; J and K move.
+  // S moves the current item to the end of this visit's queue; J and K move. Wait until the new card holds focus first.
+  await page.waitForFunction(() => document.activeElement.closest('.work-card')?.dataset.item === 'approval');
   await page.keyboard.press('s');
   await card.getByRole('heading', { name: '告知文の修正を仕上げた' }).waitFor();
   assert.deepEqual(await queue.locator('#inbox-waiting ~ ul .inbox-row-title').allTextContents(), ['告知文の修正を仕上げた', '見出しを「11月予定」に変える']);
@@ -285,7 +371,7 @@ const prReview = () => [{ ...place, id: 'pr', status: 'review', headline: '告�
   prUrl: 'https://github.com/example/press-site/pull/128', prHeadSha: sha, openTasks: 1, createdAt: Date.now() - 1_200_000 },
   { ...place, id: 'pr-2', status: 'review', headline: '料金表のPR', text: '料金表を更新しました。', checks: ['金額'], links: ['https://github.com/example/press-site/pull/129'],
     prUrl: 'https://github.com/example/press-site/pull/129', prHeadSha: sha.replace('a1', 'b2'), openTasks: 1, createdAt: Date.now() - 600_000 }];
-const metrics = { medianAnswerMs: 45 * 60_000, answered: 8, returnRate: 1 / 3, returned: 2, reviewed: 6, forwardWeek: 3, forwardToday: 1 };
+const metrics = { medianAnswerMs: 45 * 60_000, answered: 8, returnRate: 1 / 3, returned: 2, reviewed: 6, forwardWeek: 3, forwardToday: 1, rejectedWeek: 2, rejectedToday: 1, spawnedWeek: 1 };
 
 async function pullRequestAndMetrics(width) {
   const { page, noOverflow, shoot, card, lastCall } = await inbox(width, '/inbox?item=pr', () => {});
@@ -303,7 +389,7 @@ async function pullRequestAndMetrics(width) {
   if (width > 760) {
     const strip = page.getByRole('region', { name: '直近7日' });
     assert.deepEqual(await strip.locator('dl > div').evaluateAll(rows => rows.map(row => [row.querySelector('dt').textContent, row.querySelector('dd').textContent])),
-      [['回答までの時間（中央値）', '45分'], ['差し戻し率', '33% 2/6件'], ['前に進んだ件数', '3件 今日 1件']]);
+      [['前に進んだ件数', '3件 今日 1件'], ['納得して手放した件数', '2件 今日 1件 · 次の一手 1件'], ['差し戻し率', '33% 2/6件'], ['回答までの時間（中央値）', '45分']]);
   }
   await noOverflow();
   await shoot('pr');
@@ -366,9 +452,15 @@ async function legacyAndTaskPanel(width) {
   await page.evaluate(rows => { window.workRows = rows; window.refresh(); }, workRows());
   await card.getByRole('link', { name: '告知文' }).click();
   const role = page.getByLabel('Grok Botの関わり方');
+  await role.waitFor();
+  assert.deepEqual(await role.locator('option').allTextContents(), ['確認・監査', 'まず反論・検証モックまで', '実行を任せ、完了は必ず確認', '実行も任せる']);
+  await role.selectOption('challenge');
+  await page.waitForFunction(() => window.botMode === 'challenge');
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', taskId: 'launch', mode: 'challenge', execute: false });
   await role.selectOption('checked');
   await page.waitForFunction(() => window.reviewRequired === true);
-  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', taskId: 'launch', execute: true, reviewCompletion: true });
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', taskId: 'launch', mode: 'checked', execute: true, reviewCompletion: true });
+  assert.equal(await role.inputValue(), 'checked');
   const panel = page.locator('.inspector-section, section').filter({ hasText: 'Botとのやりとり' }).last();
   await panel.getByRole('heading', { name: '告知ページをいつ公開するか' }).waitFor();
   await panel.getByRole('button', { name: /^来週月曜 推奨/ }).waitFor();
@@ -463,6 +555,18 @@ async function vpSettings(width) {
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:saveSchedule');
   assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { expectedUserId: 'alice', enabled: true, time: '03:00', vp: true });
+  await page.getByRole('button', { name: '+ 出勤時刻を追加' }).click();
+  await page.getByLabel('出勤時刻 2', { exact: true }).fill('18:30');
+  await page.getByRole('button', { name: '+ 出勤時刻を追加' }).click();
+  await page.getByRole('button', { name: '出勤時刻 3 を削除' }).click();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:saveSchedule' && window.calls.at(-1).args.times);
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { expectedUserId: 'alice', enabled: true, time: '03:00', vp: true, times: ['03:00', '18:30'] });
+  await page.getByLabel('出勤時刻 2', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '今すぐ巡回させる' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:patrolNow');
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { expectedUserId: 'alice', vp: true });
+  await page.getByText('巡回を依頼しました。').waitFor();
   await noOverflow();
   if (shots) await page.screenshot({ path: `${shots}/vp-connected-${width}.png`, fullPage: true });
   await page.evaluate(path => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, '/grok-bot/authorize?' + new URLSearchParams({
@@ -473,8 +577,128 @@ async function vpSettings(width) {
   await page.close();
 }
 
+const recentCompletions = () => [
+  { id: 'done-1', taskId: 'pricing', title: '料金表を更新する', label: '広報', labelId: 'press', headline: '料金表を税込みに直した', summary: '全プランの金額を税込みに統一しました。',
+    links: ['https://example.test/pricing'], prUrl: 'https://github.com/example/press-site/pull/130', prHeadSha: sha, completedAt: Date.now() - 5 * 3_600_000, status: 'complete' },
+  { id: 'done-2', taskId: 'faq', title: 'FAQを整える', label: '開発', labelId: 'development', headline: null, summary: 'FAQの重複を3件まとめました。',
+    links: [], prUrl: null, prHeadSha: null, completedAt: Date.now() - 9 * 3_600_000, status: 'approved' },
+];
+const noSchedule = { enabled: false, times: ['06:00'], nextCheckAt: null, lastRunAt: null, lastStatus: null };
+const team = () => ({ employees: [
+  { id: 'press-bot', labelId: 'press', labelName: '広報', name: '広報Bot', connected: true, vp: false, defaultMode: 'review',
+    schedule: { enabled: true, times: ['06:00', '18:00'], nextCheckAt: Date.now() + 3_600_000, lastRunAt: null, lastStatus: null },
+    counts: { openTasks: 2, waiting: 1, review: 0, completedRecent: 1 },
+    tasks: [{ id: 'launch', title: '告知文', botMode: 'review', inherited: true, waiting: 1, review: 0, answered: 0, merging: 0 },
+      { id: 'pricing-page', title: '料金ページの差し替え（とても長いタスク名でも折り返して読めること）', botMode: 'execute', inherited: false, waiting: 0, review: 0, answered: 0, merging: 1 }] },
+  { id: 'dev-bot', labelId: 'development', labelName: '開発', name: 'Grok Bot', connected: false, vp: false, defaultMode: 'checked', schedule: noSchedule,
+    counts: { openTasks: 0, waiting: 0, review: 0, completedRecent: 0 }, tasks: [] },
+  { id: 'vp-bot', labelId: '', labelName: 'VP', name: 'Grok Bot', connected: true, vp: true, defaultMode: 'review', schedule: noSchedule,
+    counts: { openTasks: 0, waiting: 0, review: 0, completedRecent: 0 }, tasks: [] },
+] });
+
+async function completionsAndTeam(width) {
+  const { page, noOverflow, shoot, queue, lastCall } = await inbox(width, '/inbox', () => {});
+  await page.evaluate(([done, staff]) => { window.workRows = []; window.recentCompletions = done; window.team = staff; window.refresh(); }, [recentCompletions(), team()]);
+  // Waking up to nothing blocked still shows what the Bots finished overnight.
+  const empty = page.locator('.inbox-empty');
+  await empty.getByRole('heading', { name: '対応待ちはありません' }).waitFor();
+  const briefing = empty.getByRole('region', { name: '最近の成果' });
+  await briefing.getByRole('link', { name: '料金表を更新する' }).waitFor();
+  assert.equal(await briefing.getByRole('link', { name: '料金表を更新する' }).getAttribute('href'), '/?task=pricing');
+  await briefing.getByText('料金表を税込みに直した').waitFor();
+  await briefing.getByText('FAQの重複を3件まとめました。').waitFor();
+  await briefing.getByRole('link', { name: 'example/press-site#130' }).waitFor();
+  await briefing.getByRole('link', { name: 'https://example.test/pricing' }).waitFor();
+  const toggle = queue.getByRole('button', { name: '最近の成果 2' });
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+  await toggle.click();
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+  await queue.locator('.inbox-completions-list').getByRole('link', { name: 'FAQを整える' }).waitFor();
+  await noOverflow();
+  await shoot('completions');
+
+  // Bot社員: one calm place to set each employee's posture, hand it goals and steer its tasks.
+  const switcher = page.getByRole('navigation', { name: '受信箱の表示' });
+  assert.equal(await switcher.getByRole('link', { name: '対応待ち' }).getAttribute('aria-current'), 'page');
+  await switcher.getByRole('link', { name: 'Bot社員' }).click();
+  assert.match(page.url(), /\/inbox\?view=team$/);
+  assert.equal(await switcher.getByRole('link', { name: 'Bot社員' }).getAttribute('aria-current'), 'page');
+  await page.getByRole('heading', { name: '受信箱', level: 1 }).waitFor();
+  const press = page.locator('.bot-employee-card').filter({ has: page.getByRole('heading', { name: '広報Bot' }) });
+  const dev = page.locator('.bot-employee-card').filter({ hasText: '開発' });
+  await press.getByText('接続済み').waitFor();
+  await press.getByText(/出勤 06:00・18:00 · 次回 \d\d:\d\d · 未完了 2件 · 回答待ち 1 · 72時間の成果 1件/).waitFor();
+  await dev.getByText('設定途中').waitFor();
+  assert.equal(await dev.getByRole('button', { name: '今すぐ巡回' }).count(), 0, 'an unconnected Bot is not called');
+  assert.equal(await dev.getByRole('button', { name: '追加してすぐ巡回' }).count(), 0);
+  await press.getByText('回答待ち', { exact: true }).waitFor();
+  await press.getByText('マージ待ち', { exact: true }).waitFor();
+  assert.equal(await press.getByRole('link', { name: '告知文' }).getAttribute('href'), '/?task=launch');
+  await page.locator('.bot-employee-card').filter({ hasText: 'VP' }).getByText('VPは全ラベルを見て、提案だけを行います。').waitFor();
+  await noOverflow();
+  await shoot('team');
+
+  await press.getByLabel('既定の任せ方').selectOption('checked');
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:setAssignmentDefaultMode');
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', labelId: 'press', defaultMode: 'checked' });
+  assert.equal(await press.getByLabel('この目標の任せ方').inputValue(), 'checked', 'a goal starts in the employee default');
+
+  const goal = press.getByPlaceholder('成し遂げたいことを書く…');
+  assert.equal(await press.getByRole('button', { name: '追加', exact: true }).isDisabled(), true);
+  await goal.fill('採用ページを公開する');
+  await goal.press('Enter');
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:assignGoalToBot');
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', labelId: 'press', title: '採用ページを公開する', mode: 'checked' });
+  await press.getByText('「採用ページを公開する」を追加しました。').waitFor();
+  await press.getByRole('link', { name: '採用ページを公開する' }).waitFor();
+  assert.equal(await goal.inputValue(), '');
+
+  await goal.fill('請求書テンプレートを直す');
+  await press.getByLabel('この目標の任せ方').selectOption('execute');
+  await press.getByRole('button', { name: '追加してすぐ巡回' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.args.title === '請求書テンプレートを直す');
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', labelId: 'press', title: '請求書テンプレートを直す', mode: 'execute', runNow: true });
+  await press.getByText('「請求書テンプレートを直す」を追加しました。巡回を依頼しました。').waitFor();
+
+  await press.getByLabel('関わり方: 告知文').selectOption('challenge');
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:setDelegation');
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', taskId: 'launch', mode: 'challenge', execute: false });
+
+  await press.getByRole('button', { name: '今すぐ巡回' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:patrolNow');
+  assert.deepEqual((await lastCall()).args, { expectedUserId: 'alice', labelId: 'press' });
+  await press.getByText('巡回を依頼しました。', { exact: true }).waitFor();
+  await page.locator('.bot-employee-card').filter({ hasText: 'VP' }).getByRole('button', { name: '今すぐ巡回' }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.args.vp === true);
+  await noOverflow();
+
+  await switcher.getByRole('link', { name: '対応待ち' }).click();
+  await empty.getByRole('heading', { name: '対応待ちはありません' }).waitFor();
+  await page.close();
+}
+
+/** Approving can also save "this kind may proceed without asking", without slowing the one-key approval. */
+async function autonomyApproval(width) {
+  const { page, noOverflow, shoot, card, lastCall } = await inbox(width, '/inbox?item=review', () => {});
+  await page.evaluate(([rows]) => { window.workRows = rows; window.refresh(); }, [workRows().slice(2, 3)]);
+  await card.getByRole('heading', { name: '告知文の修正を仕上げた' }).waitFor();
+  const disclosure = card.locator('details.work-card-autonomy');
+  assert.equal(await disclosure.evaluate(node => node.open), false, 'the optional rule starts collapsed');
+  await disclosure.getByText('承認と同時に自律ルールを追加（任意）').click();
+  await card.getByLabel('この種は今後聞かずに進めてよい').fill('告知文の表記ゆれ修正は確認なしで完了してよい');
+  await noOverflow();
+  await shoot('autonomy');
+  await card.getByRole('button', { name: /承認して完了/ }).click();
+  await page.waitForFunction(() => window.calls.at(-1)?.name === 'grokBot:approveReview');
+  assert.deepEqual((await lastCall()).args, { id: 'review', expectedUserId: 'alice', autonomyRule: '告知文の表記ゆれ修正は確認なしで完了してよい' });
+  await page.close();
+}
+
 try {
   await consoleKeyboard();
+  for (const width of [1280, 390]) await completionsAndTeam(width);
+  for (const width of [1280, 390]) await autonomyApproval(width);
+  for (const width of [1280, 390]) await designStudio(width);
   for (const width of [390, 320]) await consolePhone(width);
   for (const width of [1280, 390]) await pullRequestAndMetrics(width);
   for (const width of [1280, 390]) await legacyAndTaskPanel(width);
@@ -505,6 +729,16 @@ try {
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.waitForFunction(() => window.schedule.time === '04:25' && window.schedule.enabled);
   assert.deepEqual(await page.evaluate(() => window.calls[0].args), { expectedUserId: 'alice', enabled: true, time: '04:25' });
+  assert.equal(await page.getByRole('button', { name: '今すぐ巡回させる' }).count(), 0, 'the main Bot has no connection to call by hand');
+  await page.evaluate(() => { window.norms = []; window.refresh(); });
+  await go('/norms');
+  await page.getByText('まだ規範はありません。', { exact: false }).waitFor();
+  await page.getByLabel('新しい規範').fill('売上に直結しない改修は今月やらない');
+  await page.getByLabel('規範の種類').selectOption('kill_criterion');
+  await page.getByRole('button', { name: '追加' }).click();
+  await page.getByText('売上に直結しない改修は今月やらない').waitFor();
+  assert.deepEqual(await page.evaluate(() => window.calls.at(-1).args), { expectedUserId: 'alice', text: '売上に直結しない改修は今月やらない', kind: 'kill_criterion' });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await go('/inbox?item=question');
   await page.getByLabel('回答', { exact: true }).fill('11月予定で。');
   await page.getByRole('button', { name: '返信する' }).click();
@@ -641,7 +875,7 @@ try {
   const callback = new URL(page.url());
   assert.equal(callback.searchParams.get('state'), 'fixture-state');
   assert.match(callback.searchParams.get('code'), /^[a-f0-9]{64}$/);
-  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox. Console: keyboard flow, irreversible double-confirm, auto-advance, phone navigation at 390/320, pull requests, older rows, task panel, proposals, deferral and VP settings.');
+  console.log('Mobile: Bot handoff, label-specific consent, Routine validation, skins, patrol and inbox. Console: keyboard flow, irreversible double-confirm, auto-advance, phone navigation at 390/320, pull requests, older rows, task panel, proposals, deferral, VP settings, challenge cards, one-step greenlight, kill with learning, norms, multi-time clock-ins, overnight completions, Bot社員 and autonomy on approval.');
 } finally {
   await browser.close();
 }

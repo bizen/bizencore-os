@@ -3839,6 +3839,96 @@ a.context-title:hover {
 .work-card-actions .ghost-btn { display: inline-flex; align-items: center; }
 .work-card-footer { margin: 1rem 0 0; padding-top: 0.55rem; border-top: 1px solid var(--hairline); color: var(--text-secondary); font-size: 0.7rem; }
 .work-card.is-proposal { border-style: dashed; background: transparent; }
+/* 納得してボツにする: 失敗ではなく判断の記録。警告色は使わず、カードの末尾に静かに置く */
+.work-card-reject-toggle { margin-top: 0.75rem; }
+.work-card-reject-toggle .ghost-btn { color: var(--text-secondary); }
+.work-card-reject-toggle .ghost-btn:hover:not(:disabled) { color: var(--text-primary); }
+.work-card-reject { display: grid; gap: 0.3rem; margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px solid var(--hairline); }
+.work-card-reject > label { color: var(--text-secondary); font-size: 0.75rem; }
+.work-card-reject .inspector-note { min-height: 4.5rem; }
+.work-card-reject .inspector-input { width: 100%; min-height: 2.25rem; }
+.work-card-reject > .work-card-reject-norm { display: flex; align-items: center; gap: 0.45rem; margin: 0.2rem 0 0.35rem; color: var(--text-primary); font-size: 0.85rem; }
+.work-card-reject-norm input { width: 16px; height: 16px; accent-color: var(--accent-color); }
+.work-card-reject > .task-work-hint { margin: 0 0 0.25rem; }
+/* 受信箱の状態欄: ボツと学び・規範。開くまでは1行ずつ */
+.inbox-rejections { display: grid; gap: 0.5rem; margin: 0.25rem 0 0.6rem; padding: 0; list-style: none; }
+.inbox-rejections li { display: grid; gap: 0.1rem; min-width: 0; padding: 0.5rem 0.6rem; border: 1px solid var(--hairline); border-radius: 6px; background: var(--card-bg); }
+.inbox-rejection-title { color: var(--text-primary); font-size: 0.85rem; overflow-wrap: anywhere; }
+.inbox-rejections .inbox-rejection-reason { margin: 0; color: var(--text-secondary); white-space: pre-wrap; }
+.inbox-rejections a { width: fit-content; color: var(--link-color); font-size: 0.75rem; }
+.inbox-norms { margin: 0.25rem 0 0.6rem; }
+.inbox-norms .norms-add { grid-template-columns: minmax(0, 1fr); }
+/* 規範: 種類とラベルのバッジ、本文、操作の順 */
+.norms-manager { display: grid; gap: 0.6rem; min-width: 0; font-size: 0.85rem; }
+.norms-manager .settings-muted { margin: 0; }
+.norms-add { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.4rem; }
+.norms-add > label { grid-column: 1 / -1; color: var(--text-secondary); font-size: 0.75rem; }
+.norms-add .inspector-input { width: 100%; min-height: 2.25rem; font-family: inherit; }
+.norms-list { display: grid; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+.norms-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.2rem 0.75rem; min-width: 0; padding: 0.5rem 0.65rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); }
+.norms-list li.is-inactive { opacity: 0.6; }
+.norms-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.norms-meta .task-work-badge { margin: 0; color: var(--text-secondary); font-weight: 500; }
+.norms-text { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.norms-actions { display: inline-flex; align-items: center; gap: 0.5rem; white-space: nowrap; }
+.norms-actions label { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--text-secondary); font-size: 0.75rem; }
+.norms-actions input { accent-color: var(--accent-color); }
+/* この回答で実行へ進める・この指摘を規範にも残す: 既定は外したまま、静かな任意の一歩 */
+.work-card-promote, .task-work-reply > label.work-card-promote { display: flex; align-items: center; gap: 0.45rem; margin: 0.6rem 0 0; color: var(--text-primary); font-size: 0.85rem; }
+.work-card-promote input { width: 16px; height: 16px; flex: none; accent-color: var(--accent-color); }
+/* 受信箱の表示切替: 対応待ち / Bot社員。見出しの横に静かに */
+.inbox-view-switch { display: inline-flex; margin-inline-start: auto; padding: 2px; border: 1px solid var(--hairline); border-radius: 8px; font-size: 0.8rem; }
+.inbox-view-switch a { padding: 0.2rem 0.75rem; border-radius: 6px; color: var(--text-secondary); text-decoration: none; line-height: 1.6; }
+.inbox-view-switch a:hover { color: var(--text-primary); }
+.inbox-view-switch a[aria-current='page'] { background: rgba(var(--accent-rgb), 0.12); color: var(--text-primary); font-weight: 600; }
+.inbox-view-switch a:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 1px; }
+/* 最近の成果: 目覚めたら、Botが夜のうちに終えたこと */
+.inbox-completions { margin-top: 1.5rem; }
+.inbox-completions h3 { margin: 0 0 0.4rem; color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
+.inbox-completions-list { display: grid; gap: 0.5rem; margin: 0.25rem 0 0.6rem; padding: 0; list-style: none; }
+.inbox-completions-list > li { display: grid; gap: 0.1rem; min-width: 0; padding: 0.5rem 0.65rem; border: 1px solid var(--hairline); border-radius: 6px; background: var(--card-bg); font-size: 0.8rem; }
+.inbox-completion-title { width: fit-content; max-width: 100%; color: var(--text-primary); font-size: 0.875rem; font-weight: 600; overflow-wrap: anywhere; }
+.inbox-completion-summary { margin: 0; color: var(--text-secondary); white-space: pre-wrap; }
+.inbox-completions-list .task-work-pr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.5rem; margin: 0.15rem 0 0; }
+.inbox-completions-list .task-work-links { margin: 0.15rem 0 0; padding: 0; list-style: none; font-size: 0.8rem; }
+/* 承認と同時に自律ルール: 開くまでは1行 */
+.work-card-autonomy { margin: 0.6rem 0 0; color: var(--text-secondary); font-size: 0.8rem; }
+.work-card-autonomy summary { width: fit-content; cursor: pointer; }
+.work-card-autonomy summary:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; border-radius: 2px; }
+.work-card-autonomy[open] { display: grid; gap: 0.3rem; }
+.work-card-autonomy label { margin-top: 0.3rem; color: var(--text-primary); }
+.work-card-autonomy .inspector-input { width: 100%; min-height: 2.25rem; font-family: inherit; }
+.work-card-autonomy .task-work-hint { margin: 0; }
+/* Bot社員: 1人1枚。顔・担当・出勤、任せ方、目標、手元のタスクの順 */
+.bot-team-list { display: grid; gap: 1rem; max-width: 52rem; margin: 0; padding: 0; list-style: none; }
+.bot-employee-card { display: grid; gap: 0.7rem; min-width: 0; padding: 1rem 1.1rem; border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); }
+.bot-employee-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+.bot-employee-avatar { width: 32px; height: 32px; flex: none; border-radius: 8px; object-fit: cover; image-rendering: pixelated; }
+.bot-employee-title { flex: 1 1 10rem; min-width: 0; }
+.bot-employee-title h2 { margin: 0; font-size: 1rem; line-height: 1.4; }
+.bot-employee-title p { margin: 0; color: var(--text-secondary); font-size: 0.8rem; }
+.bot-employee-head .task-work-badge { margin: 0; color: var(--text-secondary); font-weight: 500; }
+.bot-employee-head .task-work-badge.is-connected { color: var(--done-color); }
+.bot-employee-meta { margin: 0; color: var(--text-secondary); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.bot-employee-card .task-work-hint, .bot-employee-card .settings-error { margin: 0; }
+.bot-default-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; }
+.bot-default-mode .inspector-label { margin: 0; }
+.bot-default-mode .inspector-input, .bot-task-mode .inspector-input, .bot-goal-form .inspector-input { min-height: 2.25rem; font-family: inherit; }
+.bot-goal-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 0.4rem; }
+.bot-goal-form .inspector-input { width: 100%; }
+.bot-goal-form > p { grid-column: 1 / -1; }
+.bot-task-list { display: grid; gap: 2px; margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
+.bot-task-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.25rem 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid var(--hairline); }
+.bot-task-main { min-width: 0; font-size: 0.875rem; }
+.bot-task-main .task-work-badge { color: var(--text-secondary); font-weight: 500; }
+.bot-task-title { color: var(--text-primary); overflow-wrap: anywhere; }
+.bot-task-mode { display: inline-flex; align-items: center; gap: 0.35rem; }
+.bot-task-mode .inspector-input { max-width: 15rem; font-size: 0.8rem; }
+.bot-task-mode .task-work-hint { font-size: 0.7rem; }
+.bot-task-mode .settings-error { grid-column: 1 / -1; }
+/* 出勤時刻: 1日1〜6回。人のリズムで並べる */
+.patrol-times { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; min-width: 0; }
+.patrol-time { display: inline-flex; align-items: center; gap: 0.3rem; }
 /* タスクの詳細では同じカードを小さめに */
 .inspector-section .work-card { padding: 0.8rem 0.9rem 0.6rem; }
 .inspector-section .work-card-headline { font-size: 1rem; }
@@ -3856,13 +3946,25 @@ a.context-title:hover {
   .inbox-row { padding-block: 0.6rem; }
   .work-card { padding: 1rem 1rem 0.75rem; }
   .work-card-headline { font-size: 1.1rem; }
+  .work-card-reject-toggle { margin-top: 0.5rem; }
 }
 @media (max-width: 760px), (hover: none) {
   .inbox-keys-hint, .inbox-console kbd { display: none; }
 }
 @media (max-width: 640px) {
   /* 指で押す操作は 40px 以上にそろえる */
-  :is(.work-card-actions, .task-work-reply, .task-work-patrol, .task-work-deferral, .inbox-pane) .ghost-btn { min-height: 2.5rem; }
+  :is(.work-card-actions, .task-work-reply, .task-work-patrol, .task-work-deferral, .inbox-pane, .norms-manager) .ghost-btn { min-height: 2.5rem; }
+  .norms-add { grid-template-columns: minmax(0, 1fr) auto; }
+  .norms-add > input.inspector-input { grid-column: 1 / -1; }
+  .norms-list li { grid-template-columns: minmax(0, 1fr); }
+  .task-work-patrol form > label { flex-wrap: wrap; }
+  .inbox-view-switch { margin-inline-start: 0; }
+  .bot-employee-card { padding: 0.9rem; }
+  .bot-goal-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .bot-goal-form > input.inspector-input, .bot-goal-form > select.inspector-input { grid-column: 1 / -1; }
+  .bot-task-list li { grid-template-columns: minmax(0, 1fr); }
+  .bot-task-mode .inspector-input { max-width: none; flex: 1 1 auto; }
+  :is(.bot-employee-card) .ghost-btn { min-height: 2.5rem; }
 }
 
 .meta-grok {

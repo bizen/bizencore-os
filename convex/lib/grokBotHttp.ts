@@ -80,7 +80,7 @@ export const grokBotHttp = httpAction(async (ctx, request) => {
                 const args = grokBotTools.request_decision.parse(input);
                 return Response.json(await ctx.runMutation(internal.grokBot.requestDecision, { ...scope, taskId: args.task_id, key: args.idempotency_key,
                     kind: args.kind, headline: args.headline, context: args.context, options: args.options, recommendation: args.recommendation,
-                    checks: args.checks, evidence: args.evidence }));
+                    checks: args.checks, evidence: args.evidence, artifactKind: args.artifact_kind }));
             }
             case 'claim_decision': {
                 const args = grokBotTools.claim_decision.parse(input);

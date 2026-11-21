@@ -12,7 +12,7 @@ const { outputFiles } = await build({
     import { SettingsPanel } from './src/components/SettingsPanel';
     import { applyTheme } from './src/lib/theme';
     window.bizencoreDesktop = { notifyTask: async () => false };
-    window.fixture = { calls: [], timeZone: {timeZone:'Australia/Melbourne', automatic:true}, preferences:{deadline:false,morning:false,morningTime:'09:00',completion:false}, revision:0, listeners:new Set() };
+    window.fixture = { calls: [], timeZone: {timeZone:'Australia/Melbourne', automatic:true}, preferences:{deadline:false,morning:false,morningTime:'09:00',completion:false}, revision:0, listeners:new Set(), norms:[{id:'n1',kind:'kill_criterion',text:'計測できない改善はボツ',labelId:'press',labelName:'広報',active:true,createdAt:0}] };
     window.fixtureNotify = () => {window.fixture.revision++;window.fixture.listeners.forEach(fn=>fn());};
     applyTheme('black');
     function Fixture() {
@@ -36,6 +36,7 @@ const { outputFiles } = await build({
         if(name==='notifications:state')return {preferences:window.fixture.preferences,webPushReady:false};
         if(name==='partners:state')return {accountId:'fixture-user',partner:null,labels:[],sharedLabelIds:[],invite:null};
         if(name==='accountDeletion:status')return {userId:'fixture-user',phase:'active',available:true};
+        if(name==='grokBot:norms')return window.fixture.norms;
         if(name==='sync:listMcpConnections')return [{clientId:'desktop-codex',clientName:'Codex',lastUsedAt:1792800000000},{clientId:'https://claude.ai/oauth/mcp-oauth-client-metadata',lastUsedAt:1792790000000}];
         return null;
       }
@@ -43,6 +44,7 @@ const { outputFiles } = await build({
         const name=getFunctionName(ref);window.fixture.calls.push({name,args});
         if(name==='sync:setTimeZone')window.fixture.timeZone=args;
         if(name==='notifications:save')window.fixture.preferences=args.preferences;
+        if(name==='grokBot:addNorm')window.fixture.norms=[{id:'n'+(window.fixture.norms.length+1),kind:args.kind,text:args.text,active:true,createdAt:1},...window.fixture.norms];
         if(name==='partners:createInvite')throw Error('Preview does not create invitations');
         window.fixtureNotify();
       };}

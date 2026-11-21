@@ -29,6 +29,7 @@ function fixture(t) {
   const jobs = [];
   const rows = {
     accountDeletions: [], taskWork: [], syncItems: [], grokBotSchedules: [], grokBotAssignments: [], grokBotSkins: [], grokBotDelegations: [], grokBotProposals: [], grokBotDeferrals: [], mcpIdempotency: [],
+    taskRejections: [], grokBotNorms: [],
     notificationDevices: [], notificationDeliveries: [], fileOwners: [],
     userPreferences: [{ userId: 'alice', timeZone: 'Australia/Melbourne' }],
   };
@@ -120,9 +121,9 @@ test('label connections isolate credentials, questions, delegation and scheduled
   const [research, dev] = f.rows.grokBotAssignments;
   assert.deepEqual(await f.call('assignments', web), [
     { id: research._id, labelId: 'label', name: 'Research Bot', connectorName: undefined, connectorConnected: false,
-      webhookConfigured: true, connected: false, managed: true, skin: undefined },
+      webhookConfigured: true, connected: false, managed: true, skin: undefined, defaultMode: 'review' },
     { id: dev._id, labelId: 'other-label', name: 'Dev Bot', connectorName: undefined, connectorConnected: false,
-      webhookConfigured: true, connected: false, managed: true, skin: undefined },
+      webhookConfigured: true, connected: false, managed: true, skin: undefined, defaultMode: 'review' },
   ]);
   assert.equal((await f.http('auth', {}, keyA)).status, 200);
   assert.equal((await f.http('auth', {}, keyB)).status, 200);
@@ -446,7 +447,7 @@ test('a user-set Melbourne time schedules one patrol per day and records webhook
   await f.invoke(f.jobs[0].name, f.jobs[0].args);
   assert.equal(fetch.mock.callCount(), 1);
   assert.deepEqual(await f.call('schedule', web), { timeZone: 'Australia/Melbourne', enabled: true, time: '03:15',
-    lastRunAt: Date.now(), lastStatus: 'accepted' });
+    times: ['03:15'], lastRunAt: Date.now(), lastStatus: 'accepted', nextCheckAt: undefined });
   await f.call('saveSchedule', { ...web, enabled: false, time: '06:45' });
   f.setTime('2026-11-15T06:45:05+11:00');
   await f.invoke('notifications:collect');
@@ -780,7 +781,7 @@ test('the VP reads every label and unsorted task, can only propose, and each kin
   await assert.rejects(f.call('addAssignment', { ...vpArgs, token: 'f'.repeat(64) }), /VP/);
   assert.deepEqual((await f.call('assignments', web)).map(row => row.labelId), ['label'], 'the VP is not a label Bot');
   assert.deepEqual(await f.call('vp', web), { id: vpId, labelId: '', name: 'Grok Bot', connectorName: undefined, connectorConnected: false,
-    webhookConfigured: true, connected: false, managed: true, skin: undefined });
+    webhookConfigured: true, connected: false, managed: true, skin: undefined, defaultMode: 'review' });
   f.identify('bob');
   assert.equal(await f.call('vp', { expectedUserId: 'bob' }), null);
   f.identify('alice');
@@ -1034,7 +1035,8 @@ test('a moved pull request head is resubmitted for review and supersedes the app
 
 test('inbox metrics cover the last 7 days in the user’s time zone and leave out rows without timestamps', async t => {
   const f = fixture(t);
-  const empty = { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0 };
+  const empty = { medianAnswerMs: null, answered: 0, returnRate: null, returned: 0, reviewed: 0, forwardWeek: 0, forwardToday: 0,
+    rejectedWeek: 0, rejectedToday: 0, spawnedWeek: 0 };
   assert.deepEqual((await f.call('inbox', web)).metrics, empty);
   const at = time => Date.parse(time);
   let n = 0;
@@ -1071,4 +1073,361 @@ test('inbox metrics cover the last 7 days in the user’s time zone and leave ou
   assert.deepEqual([median([3, 1, 2]), median([4, 1, 3, 2]), median([])], [2, 2.5, null]);
   assert.deepEqual([0, 30_000, 60_000, 59 * 60_000, 80 * 60_000, 3 * 3_600_000, 26.4 * 3_600_000, 50 * 3_600_000, 72 * 3_600_000].map(formatDuration),
     ['1分未満', '1分未満', '1分', '59分', '1時間20分', '3時間', '26時間', '2.1日', '3日']);
+});
+
+const challengeCard = (extra = {}) => ({ task_id: 'mine', kind: 'challenge', artifact_kind: 'mock', headline: 'この機能は本当に必要？',
+  context: '需要が確認できていません。モックで判断できます。', options: [{ label: 'ボツ', consequence: 'タスクを削除する' }, { label: '作る', consequence: '実装に進む' }],
+  recommendation: { option: 'ボツ', reason: '需要が未確認', confidence: 'medium' }, checks: ['モック画面'], idempotency_key: 'challenge', ...extra });
+
+test('challenge mode never completes and asks with a challenge card instead', async t => {
+  const f = fixture(t);
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: false, mode: 'challenge' });
+  const detail = await (await f.http('assigned_tasks', { task_id: 'mine' })).json();
+  assert.deepEqual([detail.bot_role, detail.bot_mode, detail.review_required], ['review', 'challenge', false]);
+  const done = await json(f.http('record_work_result', { task_id: 'mine', summary: 'done', complete: true, expected_task_version: detail.task_version, idempotency_key: 'c1' }));
+  assert.equal(done.status, 400);
+  assert.match(done.body.error, /challenge mode.*kind="challenge"/);
+  assert.equal((await f.http('record_work_result', { task_id: 'mine', summary: 'モックを作った', idempotency_key: 'c2' })).status, 200, 'progress is still recorded');
+  assert.match((await json(f.http('request_decision', challengeCard({ options: [{ label: 'ボツ', consequence: '削除' }], idempotency_key: 'one' })))).body.error,
+    /2 to 4 for kind challenge/);
+  assert.equal((await f.http('request_decision', challengeCard())).status, 200);
+  assert.equal((await f.http('request_decision', challengeCard())).status, 200, 'a retry with the same key is idempotent');
+  const [pending] = (await f.call('inbox', web)).pending;
+  assert.deepEqual([pending.kind, pending.artifactKind, pending.recommendation], ['challenge', 'mock', 'ボツ']);
+  assert.deepEqual(await f.call('taskHistory', { ...web, taskId: 'mine' }).then(row => [row.botMode, row.mayExecute, row.reviewRequired]), ['challenge', false, false]);
+
+  // Older callers and rows keep their meaning.
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: true, reviewCompletion: true });
+  assert.deepEqual(await f.call('taskHistory', { ...web, taskId: 'mine' }).then(row => [row.botMode, row.mayExecute, row.reviewRequired]), ['checked', true, true]);
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: true });
+  assert.equal((await f.call('taskHistory', { ...web, taskId: 'mine' })).botMode, 'execute');
+  f.rows.grokBotDelegations[0] = { ...f.rows.grokBotDelegations[0], mode: undefined, reviewCompletion: true };
+  assert.equal((await f.call('assignedTasks', { userId: 'alice', taskId: 'mine' })).bot_mode, 'checked', 'a row saved before modes');
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: true, mode: 'review' });
+  assert.equal(f.rows.grokBotDelegations.length, 0);
+});
+
+test('killing an idea removes the task, records why, and can spawn a follow-up and a norm', async t => {
+  const f = fixture(t);
+  const removed = id => !!f.rows.syncItems.find(row => row.itemId === id).deletedAt;
+  // From a challenge card: with a follow-up and a kill criterion.
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: false, mode: 'challenge' });
+  const card = await (await f.http('request_decision', challengeCard())).json();
+  await assert.rejects(f.call('rejectTaskWithLearning', { ...web, reason: ' ' , workId: card.id }), /1〜2000/);
+  await assert.rejects(f.call('rejectTaskWithLearning', { ...web, reason: '不要' }), /1つ選んで/);
+  f.identify('bob');
+  await assert.rejects(f.call('rejectTaskWithLearning', { expectedUserId: 'bob', workId: card.id, reason: '不要' }));
+  f.identify('alice');
+  const result = await f.call('rejectTaskWithLearning', { ...web, workId: card.id, reason: '需要の裏付けがない機能は作らない', spawnTitle: '需要を3人に聞く',
+    spawnNote: 'インタビュー', alsoCreateNorm: true });
+  assert.ok(removed('mine') && removed('nested'), 'the whole subtree is removed');
+  const spawned = itemOf(f, result.spawnedTaskId);
+  assert.deepEqual([spawned.text, spawned.parentId], ['需要を3人に聞く', 'label']);
+  const work = f.rows.taskWork.find(row => row._id === card.id);
+  assert.deepEqual([work.status, work.rejectionReason, work.spawnedTaskId], ['rejected', '需要の裏付けがない機能は作らない', result.spawnedTaskId]);
+  const [rejection] = f.rows.taskRejections;
+  assert.equal(rejection._id, result.rejectionId);
+  assert.deepEqual([rejection.taskTitle, rejection.labelId, rejection.labelName, rejection.spawnedTitle], ['mine', 'label', 'label', '需要を3人に聞く']);
+  assert.match(rejection.botArgument, /この機能は本当に必要？.*需要が未確認/);
+  assert.deepEqual(f.rows.grokBotNorms.map(row => [row.kind, row.labelId, row.text, row.sourceRejectionId]),
+    [['kill_criterion', 'label', '需要の裏付けがない機能は作らない', result.rejectionId]]);
+  await assert.rejects(f.call('rejectTaskWithLearning', { ...web, workId: card.id, reason: 'again' }), /対応済み/);
+
+  // From a review card, without a follow-up or norm.
+  f.seed('draft', 'label');
+  await f.call('setDelegation', { ...web, taskId: 'draft', execute: true, reviewCompletion: true });
+  const version = (await f.call('assignedTasks', { userId: 'alice', taskId: 'draft' })).task_version;
+  const review = await (await f.http('record_work_result', { task_id: 'draft', summary: '下書き', complete: true, expected_task_version: version,
+    ...reviewed, idempotency_key: 'r' })).json();
+  assert.equal(review.status, 'review');
+  assert.equal((await f.call('rejectTaskWithLearning', { ...web, workId: review.id, reason: '方向性が違う' })).spawnedTaskId, undefined);
+  assert.ok(removed('draft'));
+
+  // From a deletion proposal.
+  f.seed('old', 'label');
+  const proposed = await (await f.http('propose', proposal('delete', { task_id: 'old' }))).json();
+  await f.call('rejectTaskWithLearning', { ...web, proposalId: proposed.id, reason: '古い' });
+  assert.ok(removed('old'));
+  assert.equal(f.rows.grokBotProposals[0].status, 'adopted');
+
+  // A locked task is never removed.
+  f.seed('locked', 'label', 'task', 'alice', { locked: true });
+  const locked = await (await f.http('request_decision', { task_id: 'locked', ...infoCard('進める？'), idempotency_key: 'l' })).json();
+  await assert.rejects(f.call('rejectTaskWithLearning', { ...web, workId: locked.id, reason: '不要' }), /ロックを外して/);
+  assert.ok(!removed('locked'));
+
+  assert.equal(f.rows.grokBotNorms.length, 1);
+  const metrics = await bot.workMetrics(f.ctx, 'alice', Date.now());
+  assert.deepEqual([metrics.rejectedWeek, metrics.rejectedToday, metrics.spawnedWeek], [3, 3, 1]);
+  const inbox = await f.call('inbox', web);
+  assert.deepEqual(inbox.rejections.map(row => row.reason), ['古い', '方向性が違う', '需要の裏付けがない機能は作らない']);
+  assert.deepEqual(inbox.norms.map(row => [row.text, row.labelName]), [['需要の裏付けがない機能は作らない', 'label']]);
+  const list = await (await f.http('assigned_tasks')).json();
+  assert.equal(list.recent_rejections.length, 3);
+  assert.deepEqual(list.norms.map(row => row.kind), ['kill_criterion']);
+  f.setTime('2026-11-14T12:00:00+11:00');
+  assert.deepEqual(await bot.workMetrics(f.ctx, 'alice', Date.now()).then(row => [row.rejectedWeek, row.rejectedToday, row.spawnedWeek]), [3, 0, 1]);
+});
+
+test('norms are managed by the user and delivered to the Bots they apply to', async t => {
+  const f = fixture(t);
+  await assert.rejects(f.call('addNorm', { ...web, labelId: 'mine', text: 'x', kind: 'rule' }), /ラベル/);
+  await assert.rejects(f.call('addNorm', { ...web, text: ' ', kind: 'rule' }), /1〜300/);
+  await assert.rejects(f.call('addNorm', { ...web, text: 'x'.repeat(301), kind: 'rule' }), /1〜300/);
+  const company = await f.call('addNorm', { ...web, text: '外部送信の前に必ず確認する', kind: 'autonomy' });
+  f.setTime('2026-11-13T12:01:00+11:00');
+  await f.call('addNorm', { ...web, labelId: 'label', text: '計測できない改善はボツ', kind: 'kill_criterion' });
+  f.setTime('2026-11-13T12:02:00+11:00');
+  await f.call('addNorm', { ...web, labelId: 'other-label', text: '別ラベルのルール', kind: 'rule' });
+  assert.deepEqual((await f.call('norms', web)).map(row => [row.text, row.labelName ?? null]),
+    [['別ラベルのルール', 'other-label'], ['計測できない改善はボツ', 'label'], ['外部送信の前に必ず確認する', null]]);
+  assert.equal((await f.call('norms', { ...web, labelId: 'label' })).length, 2);
+  const delivered = async () => (await (await f.http('assigned_tasks')).json()).norms.map(row => row.text).sort();
+  assert.deepEqual(await delivered(), ['外部送信の前に必ず確認する', '計測できない改善はボツ']);
+  f.identify('bob');
+  await assert.rejects(f.call('toggleNorm', { expectedUserId: 'bob', id: company, active: false }));
+  f.identify('alice');
+  await f.call('toggleNorm', { ...web, id: company, active: false });
+  assert.deepEqual(await delivered(), ['計測できない改善はボツ']);
+  const key = 'e'.repeat(64);
+  await f.call('addAssignment', { ...web, vp: true, token: key });
+  assert.deepEqual((await json(f.http('all_tasks', {}, key))).body.norms.map(row => row.text).sort(), ['別ラベルのルール', '計測できない改善はボツ']);
+  await f.call('deleteNorm', { ...web, id: company });
+  assert.equal(f.rows.grokBotNorms.length, 2);
+  for (let i = 0; i < 98; i++) f.rows.grokBotNorms.push({ _id: `grokBotNorms-cap${i}`, userId: 'alice', text: 'x', kind: 'rule', active: true, createdAt: 0, updatedAt: 0 });
+  await assert.rejects(f.call('addNorm', { ...web, text: 'one more', kind: 'rule' }), /100件/);
+});
+
+test('an answer can greenlight execution in one step, and only lifts review or challenge', async t => {
+  const f = fixture(t);
+  const modeOf = taskId => f.rows.grokBotDelegations.find(row => row.taskId === taskId);
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: false, mode: 'challenge' });
+  const card = await (await f.http('request_decision', challengeCard())).json();
+  assert.equal((await f.call('inbox', web)).pending[0].botMode, 'challenge', 'the inbox card knows the task mode');
+  await f.call('reply', { ...web, id: card.id, answer: '作る', promoteToExecution: true });
+  assert.deepEqual([modeOf('mine').mode, modeOf('mine').reviewCompletion, modeOf('mine').labelId], ['checked', true, 'label']);
+  assert.equal(f.rows.taskWork.find(row => row._id === card.id).status, 'answered');
+  assert.ok(f.jobs.some(job => job.name === 'grokBot:wake' && job.args.id === card.id), 'the Bot is woken in the same step');
+
+  // A task with no delegation (review) is promoted too; an already executing one is never narrowed.
+  f.seed('plain', 'label');
+  const plain = await (await f.http('request_decision', { task_id: 'plain', ...infoCard('どこまで？'), idempotency_key: 'p' })).json();
+  assert.equal((await f.call('inbox', web)).pending.find(row => row.id === plain.id).botMode, 'review');
+  await f.call('reply', { ...web, id: plain.id, answer: '全部', promoteToExecution: true });
+  assert.equal(modeOf('plain').mode, 'checked');
+  f.seed('running', 'label');
+  await f.call('setDelegation', { ...web, taskId: 'running', execute: true, mode: 'execute' });
+  const running = await (await f.http('request_decision', { task_id: 'running', ...infoCard('続ける？'), idempotency_key: 'r' })).json();
+  await f.call('reply', { ...web, id: running.id, answer: 'はい', promoteToExecution: true });
+  assert.equal(modeOf('running').mode, 'execute');
+  // Without the opt-in nothing changes.
+  f.seed('quiet', 'label');
+  const quiet = await (await f.http('request_decision', { task_id: 'quiet', ...infoCard('どうする？'), idempotency_key: 'q' })).json();
+  await f.call('reply', { ...web, id: quiet.id, answer: '保留' });
+  assert.equal(modeOf('quiet'), undefined);
+});
+
+test('returned review feedback can become a standing rule of the label', async t => {
+  const f = fixture(t);
+  f.seed('draft', 'label');
+  await f.call('setDelegation', { ...web, taskId: 'draft', execute: true, mode: 'checked' });
+  const version = (await f.call('assignedTasks', { userId: 'alice', taskId: 'draft' })).task_version;
+  const submit = key => f.http('record_work_result', { task_id: 'draft', summary: '下書き', complete: true, expected_task_version: version, ...reviewed, idempotency_key: key });
+  const first = await (await submit('one')).json();
+  await f.call('returnReview', { ...web, id: first.id, comment: '見出しは20字以内にする', alsoCreateNorm: true });
+  assert.deepEqual(f.rows.grokBotNorms.map(row => [row.kind, row.labelId, row.text, row.sourceWorkId, row.active]),
+    [['rule', 'label', '見出しは20字以内にする', first.id, true]]);
+  assert.ok(f.jobs.some(job => job.name === 'grokBot:wake' && job.args.id === first.id));
+  assert.deepEqual((await (await f.http('assigned_tasks')).json()).norms.map(row => row.text), ['見出しは20字以内にする']);
+  // A plain return leaves the norms alone.
+  f.rows.taskWork.find(row => row._id === first.id).status = 'revised';
+  const second = await (await submit('two')).json();
+  await f.call('returnReview', { ...web, id: second.id, comment: '今回だけ' });
+  assert.equal(f.rows.grokBotNorms.length, 1);
+});
+
+test('each Bot clocks in at one to six daily times, once per slot, and can be clocked in by hand', async t => {
+  const f = fixture(t);
+  delete process.env.GROK_BOT_PILOT;
+  const key = 'b'.repeat(64);
+  await f.call('addAssignment', { ...web, labelId: 'label', token: key, webhookUrl: 'https://api2.cursor.sh/automations/webhook/label', webhookKey: 'key-label' });
+  await f.call('addAssignment', { ...web, labelId: 'other-label', token: 'c'.repeat(64), webhookUrl: 'https://api2.cursor.sh/automations/webhook/other', webhookKey: 'key-other' });
+  assert.equal((await f.http('auth', {}, key)).status, 200);
+  const payloads = [];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => { payloads.push(JSON.parse(init.body)); return new Response(null, { status: 200 }); });
+  const save = extra => f.call('saveSchedule', { ...web, labelId: 'label', enabled: true, time: '09:00', ...extra });
+  for (const times of [[], ['09:00', '09:00'], ['09:00', '25:00'], ['01:00', '02:00', '03:00', '04:00', '05:00', '06:00', '07:00']]) {
+    await assert.rejects(save({ times }), /1〜6件/);
+  }
+  await save({ times: ['18:00', '09:00'] });
+  const saved = () => f.rows.grokBotSchedules.find(row => row.assignmentId === f.rows.grokBotAssignments[0]._id);
+  const schedule = await f.call('schedule', { ...web, labelId: 'label' });
+  assert.deepEqual([schedule.time, schedule.times, schedule.nextCheckAt], ['09:00', ['09:00', '18:00'], Date.parse('2026-11-13T18:00:00+11:00')]);
+  assert.deepEqual((await f.call('inbox', web)).nextPatrol, { at: Date.parse('2026-11-13T18:00:00+11:00'), label: 'label', vp: false });
+
+  const dispatch = time => { f.setTime(time); return bot.dispatchDuePatrol(f.ctx, Date.now()); };
+  await dispatch('2026-11-13T17:59:00+11:00');
+  assert.equal(f.jobs.length, 0);
+  await dispatch('2026-11-13T18:00:20+11:00');
+  await dispatch('2026-11-13T18:00:40+11:00');
+  assert.equal(f.jobs.length, 1, 'one slot fires once');
+  assert.deepEqual([saved().nextCheckAt, saved().lastSlotKey], [Date.parse('2026-11-14T09:00:00+11:00'), String(Date.parse('2026-11-13T18:00:00+11:00'))]);
+  await f.invoke(f.jobs[0].name, f.jobs[0].args);
+  assert.deepEqual([payloads, saved().lastStatus], [[{ trigger: 'patrol' }], 'accepted']);
+  await dispatch('2026-11-14T09:00:00+11:00');
+  assert.equal(f.jobs.length, 2);
+  assert.equal(saved().nextCheckAt, Date.parse('2026-11-14T18:00:00+11:00'), 'the second clock-in of the day follows');
+
+  // Clocking in by hand sends the same minimal patrol and leaves the schedule as it was.
+  f.setTime('2026-11-14T10:30:00+11:00');
+  await f.call('patrolNow', { ...web, labelId: 'label' });
+  assert.equal(saved().nextCheckAt, Date.parse('2026-11-14T18:00:00+11:00'));
+  await f.invoke(f.jobs.at(-1).name, f.jobs.at(-1).args);
+  assert.deepEqual([payloads.at(-1), saved().lastRunAt, saved().lastStatus], [{ trigger: 'patrol' }, Date.now(), 'accepted']);
+  await assert.rejects(f.call('patrolNow', { ...web, labelId: 'other-label' }), /接続/, 'a Bot that never connected is not called');
+  await assert.rejects(f.call('patrolNow', { ...web, labelId: 'mine' }), /担当Bot/);
+  // A disabled schedule still lets the human clock the Bot in.
+  await save({ enabled: false });
+  await f.call('patrolNow', { ...web, labelId: 'label' });
+  await f.invoke(f.jobs.at(-1).name, f.jobs.at(-1).args);
+  assert.equal(payloads.length, 3);
+
+  // Saving without times is the single daily time again.
+  await save({ time: '07:00' });
+  assert.deepEqual(await f.call('schedule', { ...web, labelId: 'label' }).then(row => [row.time, row.times, row.nextCheckAt]),
+    ['07:00', ['07:00'], Date.parse('2026-11-15T07:00:00+11:00')]);
+});
+
+/** Replaces the pilot with a connected label Bot on 'label' and returns its token. */
+async function labelBot(f) {
+  delete process.env.GROK_BOT_PILOT;
+  const key = 'b'.repeat(64);
+  await f.call('addAssignment', { ...web, labelId: 'label', name: 'Research Bot', token: key, webhookUrl: 'https://api2.cursor.sh/automations/webhook/label', webhookKey: 'key-label' });
+  assert.equal((await f.http('auth', {}, key)).status, 200);
+  return key;
+}
+
+test('a label default mode is inherited by every task until one overrides it, review included', async t => {
+  const f = fixture(t);
+  const key = await labelBot(f);
+  const role = async taskId => {
+    const body = await (await f.http('assigned_tasks', { task_id: taskId }, key)).json();
+    return [body.bot_mode, body.review_required];
+  };
+  assert.deepEqual(await role('mine'), ['review', false]);
+  await assert.rejects(f.call('setAssignmentDefaultMode', { ...web, labelId: 'other-label', defaultMode: 'execute' }), /割り当て/);
+  await assert.rejects(f.call('setAssignmentDefaultMode', { ...web, labelId: 'mine', defaultMode: 'execute' }), /ラベル/);
+  f.identify('bob');
+  await assert.rejects(f.call('setAssignmentDefaultMode', { expectedUserId: 'bob', labelId: 'label', defaultMode: 'execute' }));
+  f.identify('alice');
+
+  await f.call('setAssignmentDefaultMode', { ...web, labelId: 'label', defaultMode: 'checked' });
+  assert.equal((await f.call('assignments', web))[0].defaultMode, 'checked');
+  assert.deepEqual(await role('mine'), ['checked', true], 'a task without an override inherits the label default');
+  assert.equal((await f.call('taskHistory', { ...web, taskId: 'mine' })).botMode, 'checked');
+
+  // Against a checked default, review is an override of its own and persists.
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: false, mode: 'review' });
+  assert.deepEqual(f.rows.grokBotDelegations.map(row => [row.taskId, row.mode]), [['mine', 'review']]);
+  assert.deepEqual(await role('mine'), ['review', false]);
+  await f.call('setAssignmentDefaultMode', { ...web, labelId: 'label', defaultMode: 'execute' });
+  assert.deepEqual([await role('mine'), await role('nested')], [['review', false], ['execute', false]]);
+  // Choosing the default again returns the task to inheriting it.
+  await f.call('setDelegation', { ...web, taskId: 'mine', execute: true, mode: 'execute' });
+  assert.equal(f.rows.grokBotDelegations.length, 0);
+  assert.deepEqual(await role('mine'), ['execute', false]);
+});
+
+test('Bot社員 lists every employee with its work and takes a goal, optionally clocking the Bot in now', async t => {
+  const f = fixture(t);
+  delete process.env.GROK_BOT_PILOT;
+  assert.equal(await f.call('team', web), null);
+  const key = await labelBot(f);
+  await f.call('addAssignment', { ...web, labelId: 'other-label', name: 'Dev Bot', token: 'c'.repeat(64),
+    webhookUrl: 'https://api2.cursor.sh/automations/webhook/other', webhookKey: 'key-other' });
+  await f.call('addAssignment', { ...web, vp: true, token: 'e'.repeat(64) });
+  assert.equal((await f.http('request_decision', { task_id: 'nested', ...infoCard('どちら？'), idempotency_key: 'q' }, key)).status, 200);
+  f.identify('bob');
+  assert.equal(await f.call('team', { expectedUserId: 'alice' }), null);
+  f.identify('alice');
+
+  const [research, dev, vp] = (await f.call('team', web)).employees;
+  assert.deepEqual([research.name, research.labelName, research.connected, research.vp, research.defaultMode, research.counts],
+    ['Research Bot', 'label', true, false, 'review', { openTasks: 2, waiting: 1, review: 0, completedRecent: 0 }]);
+  assert.deepEqual(research.schedule, { enabled: false, times: ['06:00'], nextCheckAt: null, lastRunAt: null, lastStatus: null });
+  assert.deepEqual(research.tasks.map(row => [row.id, row.waiting, row.botMode, row.inherited]),
+    [['nested', 1, 'review', true], ['mine', 0, 'review', true]], 'tasks waiting on the human come first');
+  assert.deepEqual([dev.labelName, dev.connected, dev.tasks.map(row => row.id)], ['other-label', false, ['other']]);
+  assert.deepEqual([vp.labelName, vp.vp, vp.tasks], ['VP', true, []]);
+
+  await assert.rejects(f.call('assignGoalToBot', { ...web, labelId: 'label', title: ' ' }), /1〜500/);
+  await assert.rejects(f.call('assignGoalToBot', { ...web, labelId: 'label', title: 'x'.repeat(501) }), /1〜500/);
+  await assert.rejects(f.call('assignGoalToBot', { ...web, labelId: 'label', title: 'x', note: 'x'.repeat(8001) }), /8000/);
+  await assert.rejects(f.call('assignGoalToBot', { ...web, labelId: 'mine', title: 'x' }), /ラベル/);
+
+  // A goal with its own mode is created in the label and overrides the default; nothing is sent yet.
+  const { taskId } = await f.call('assignGoalToBot', { ...web, labelId: 'label', title: ' 申込フォームを公開する ', note: '朝までに', mode: 'checked' });
+  assert.deepEqual([itemOf(f, taskId).text, itemOf(f, taskId).parentId, itemOf(f, taskId).note], ['申込フォームを公開する', 'label', '朝までに']);
+  assert.deepEqual(f.rows.grokBotDelegations.map(row => [row.taskId, row.mode, row.reviewCompletion]), [[taskId, 'checked', true]]);
+  assert.equal(f.jobs.length, 0);
+  const goal = (await f.call('team', web)).employees[0].tasks.find(row => row.id === taskId);
+  assert.deepEqual([goal.botMode, goal.inherited], ['checked', false]);
+
+  // runNow clocks a connected Bot in at once; the default mode needs no override row.
+  const payloads = [];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => { payloads.push(JSON.parse(init.body)); return new Response(null, { status: 200 }); });
+  const second = await f.call('assignGoalToBot', { ...web, labelId: 'label', title: '価格表を更新する', mode: 'review', runNow: true });
+  assert.equal(f.rows.grokBotDelegations.length, 1);
+  assert.deepEqual(f.jobs.map(job => job.name), ['grokBot:runPatrol']);
+  await f.invoke(f.jobs[0].name, f.jobs[0].args);
+  const saved = f.rows.grokBotSchedules.find(row => row.assignmentId === research.id);
+  assert.deepEqual([payloads, saved.lastStatus, saved.enabled], [[{ trigger: 'patrol' }], 'accepted', false]);
+  assert.ok(second.taskId && second.taskId !== taskId);
+  // A Bot that never connected gets the task but is not called.
+  await f.call('assignGoalToBot', { ...web, labelId: 'other-label', title: '下書き', runNow: true });
+  assert.equal(f.jobs.length, 1);
+});
+
+test('the inbox briefs what the Bots finished in the last 72 hours, newest first, one row per task', async t => {
+  const f = fixture(t);
+  for (const id of ['done-a', 'done-b', 'old']) f.seed(id, 'label');
+  f.seed('done-c', 'other-label');
+  const now = Date.now();
+  const hour = 3_600_000;
+  const work = (taskId, status, at, extra = {}) => f.rows.taskWork.push({ _id: `taskWork-${taskId}-${status}`, _creationTime: at, userId: 'alice',
+    taskId, key: status, text: `${taskId}の要約`, status, ...extra });
+  work('done-a', 'complete', now - 2 * hour, { headline: 'Aを仕上げた', links: ['https://example.test/a'] });
+  work('done-b', 'approved', now - 80 * hour, { answeredAt: now - hour });
+  work('done-c', 'merged', now - 50 * hour, { answeredAt: now - 49 * hour, mergedAt: now - 3 * hour, prUrl, prHeadSha: shaA });
+  work('done-c', 'complete', now - 3 * hour + 1000);
+  work('old', 'complete', now - 73 * hour);
+  work('mine', 'review', now - hour);
+  const { recentCompletions } = await f.call('inbox', web);
+  assert.deepEqual(recentCompletions.map(row => [row.taskId, row.status, row.label, row.completedAt]), [
+    ['done-b', 'approved', 'label', now - hour], ['done-a', 'complete', 'label', now - 2 * hour], ['done-c', 'complete', 'other-label', now - 3 * hour + 1000],
+  ]);
+  assert.deepEqual([recentCompletions[1].headline, recentCompletions[1].summary, recentCompletions[1].links, recentCompletions[1].title],
+    ['Aを仕上げた', 'done-aの要約', ['https://example.test/a'], 'done-a']);
+});
+
+test('approving a review can also save an autonomy rule for its label', async t => {
+  const f = fixture(t);
+  const submit = async taskId => {
+    f.seed(taskId, 'label');
+    await f.call('setDelegation', { ...web, taskId, execute: true, mode: 'checked' });
+    return (await f.http('record_work_result', { task_id: taskId, summary: '下書き', complete: true, expected_task_version: await versionOf(f, taskId),
+      ...reviewed, idempotency_key: taskId })).json();
+  };
+  const first = await submit('draft');
+  await assert.rejects(f.call('approveReview', { ...web, id: first.id, autonomyRule: 'x'.repeat(301) }), /300/);
+  assert.equal(f.rows.taskWork.find(row => row._id === first.id).status, 'review');
+  await f.call('approveReview', { ...web, id: first.id, autonomyRule: '  誤字の修正は聞かずに進めてよい ' });
+  assert.equal(f.rows.taskWork.find(row => row._id === first.id).status, 'approved');
+  assert.deepEqual(f.rows.grokBotNorms.map(row => [row.kind, row.labelId, row.text, row.sourceWorkId, row.active]),
+    [['autonomy', 'label', '誤字の修正は聞かずに進めてよい', first.id, true]]);
+  assert.deepEqual((await (await f.http('assigned_tasks')).json()).norms.map(row => [row.kind, row.text]), [['autonomy', '誤字の修正は聞かずに進めてよい']]);
+  // A blank rule approves without adding a norm.
+  const second = await submit('draft-2');
+  await f.call('approveReview', { ...web, id: second.id, autonomyRule: '  ' });
+  assert.equal(f.rows.grokBotNorms.length, 1);
 });

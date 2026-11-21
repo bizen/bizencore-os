@@ -14,7 +14,7 @@ import { PartnerSettings } from './PartnerSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { AccountDeletionSetting } from './AccountDeletionSetting';
 import { VpGrokBotSettings } from './task/LabelGrokBot';
-import { MainBotPatrolSettings } from './task/TaskWork';
+import { MainBotPatrolSettings, NormsSettings } from './task/TaskWork';
 
 function McpConnectionHistory() {
   const connections = useQuery(api.sync.listMcpConnections);
@@ -341,6 +341,30 @@ export function SettingsPanel({
           </div>
         </section>
         <MainBotPatrolSettings />
+        <section
+          className="settings-section"
+          aria-labelledby="settings-norms-title"
+        >
+          <h3 id="settings-norms-title">規範（Botの判断基準）</h3>
+          <div className="settings-group settings-block">
+            {isCloudConfigured ? (
+              <>
+                <SignedIn>
+                  <NormsSettings />
+                </SignedIn>
+                <SignedOut>
+                  <p className="settings-muted">
+                    表示するにはサインインしてください。
+                  </p>
+                </SignedOut>
+              </>
+            ) : (
+              <p className="settings-muted">
+                クラウド接続が設定されていません。
+              </p>
+            )}
+          </div>
+        </section>
         <section
           className="settings-section"
           aria-labelledby="settings-mcp-title"
